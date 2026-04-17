@@ -1,0 +1,15 @@
+{
+  "documentId": "1uH2G_vB..._Exemplo_Id",
+  "timestamp": 1713360000000,
+  "studentContext": {
+    "studentId": "professor@escola.com+Turma 9A+aluno@escola.com+1uH2G_vB..._Exemplo_Id"
+  },
+  "contentAnalysis": {
+    "fullText": "Conteúdo integral do rascunho...",
+    "selectedFragment": "Trecho selecionado pelo professor para o gatilho..."
+  },
+  "metadataHistory": {
+    "created": "2026-04-10T10:00:00Z",
+    "lastUpdate": "2026-04-15T20:40:00Z"
+  }
+}

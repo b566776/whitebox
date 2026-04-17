@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      :root {
+        --primary-color: #3b82f6; /* Blue 500 */
+        --primary-hover: #2563eb;
+        --success-color: #10b981;
+        --warning-color: #f59e0b;
+        --error-color: #ef4444;
+        --bg-color: #f8fafc;
+        --surface-color: #ffffff;
+        --border-color: #e2e8f0;
+        --text-main: #0f172a;
+        --text-muted: #64748b;
+        --radius: 8px;
+        --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      }
+      
+      body {
+        margin: 0;
+        padding: 12px;
+        font-family: var(--font-family);
+        background-color: var(--bg-color);
+        color: var(--text-main);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      * { box-sizing: border-box; }
+
+      .hidden { display: none !important; }
+
+      .card {
+        background: var(--surface-color);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        transition: all 0.3s ease;
+      }
+
+      h2 {
+        font-size: 16px;
+        margin-top: 0;
+        margin-bottom: 12px;
+        color: var(--text-main);
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: 1px solid transparent;
+        font-size: 13px;
+      }
+
+      .btn-primary {
+        background-color: var(--primary-color);
+        color: white;
+      }
+      .btn-primary:hover { background-color: var(--primary-hover); }
+      .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+      .btn-outline {
+        background-color: transparent;
+        color: var(--text-main);
+        border-color: var(--border-color);
+      }
+      .btn-outline:hover { background-color: #f1f5f9; }
+
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        font-size: 13px;
+      }
+      .stat-label { color: var(--text-muted); }
+      .stat-value { font-weight: 600; }
+
+      .alert {
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        border-left: 4px solid;
+        font-size: 13px;
+      }
+      .alert-warning {
+        background-color: #fef3c7;
+        border-color: var(--warning-color);
+        color: #92400e;
+      }
+      .alert-error {
+        background-color: #fee2e2;
+        border-color: var(--error-color);
+        color: #991b1b;
+      }
+      .alert-success {
+        background-color: #d1fae5;
+        border-color: var(--success-color);
+        color: #065f46;
+      }
+
+      .role-toggle {
+        font-size: 11px;
+        color: var(--primary-color);
+        cursor: pointer;
+        text-align: right;
+        display: block;
+        margin-bottom: 12px;
+      }
+
+      /* Polling Loader para aluno */
+      .sync-status {
+        display: flex;
+        align-items: center;
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: 8px;
+        justify-content: center;
+      }
+      .dot {
+        height: 6px; width: 6px;
+        background-color: var(--success-color);
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 6px;
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 4px rgba(16, 185, 129, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+      }
+      
+      .spinner {
+        border: 3px solid rgba(0,0,0,0.1);
+        border-top-color: var(--primary-color);
+        border-radius: 50%;
+        width: 14px;
+        height: 14px;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+        margin-right: 8px;
+      }
+      
+      @keyframes spin { 100% { transform: rotate(360deg); } }
+
+      /* Source Items */
+      .source-list {
+        margin-top: 12px;
+        padding: 0;
+        list-style: none;
+      }
+      .source-item {
+        background: #f1f5f9;
+        border-radius: 6px;
+        padding: 8px;
+        margin-bottom: 8px;
+        font-size: 11px;
+        border-left: 3px solid var(--border-color);
+      }
+      .source-item.reliable { border-left-color: var(--success-color); background: #f0fdf4; }
+      .source-item.warning { border-left-color: var(--warning-color); background: #fffbeb; }
+      .source-item.broken { border-left-color: var(--error-color); background: #fef2f2; }
+      
+      .source-link {
+        display: block;
+        color: var(--primary-color);
+        text-decoration: none;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+      .source-msg { color: var(--text-muted); font-size: 10px; }
+
+    </style>
+  </head>
+  <body>
+
+    <!-- Toggle Role (MOCK Dev 1) -->
+    <a class="role-toggle" onclick="toggleRole()">Alternar visão (Atual: <span id="current-role-label">Sincronizando...</span>)</a>
+
+    <!-- VIEW: STUDENT -->
+    <div id="student-view" class="hidden">
+      <div class="card">
+        <h2>🧑‍🎓 Suas Evidências
+          <span class="dot" id="sync-dot"></span>
+        </h2>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+          Seu processo de escrita está sendo acompanhado de forma transparente. Seu esforço é valorizado!
+        </p>
+        
+        <div class="stat-row">
+          <span class="stat-label">Tempo Ativo</span>
+          <span class="stat-value" id="stu-time">0 min</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Palavras</span>
+          <span class="stat-value" id="stu-words">0</span>
+        </div>
+        
+        <div class="sync-status" id="stu-sync-msg">Salvando metadados silenciosamente...</div>
+      </div>
+      
+      <div class="card">
+        <h2>🔍 Validador de Fontes</h2>
+        <input type="text" id="source-url" style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Cole o link da fonte aqui...">
+        <button class="btn btn-outline" onclick="validateSource()">Verificar Confiabilidade</button>
+        <div id="source-result" style="margin-top: 8px; font-size: 13px; font-weight: bold;"></div>
+      </div>
+    </div>
+
+    <!-- VIEW: TEACHER -->
+    <div id="teacher-view" class="hidden">
+      
+      <div class="card">
+        <h2>👩‍🏫 Jornada do Professor</h2>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+          Selecione um parágrafo que despertou suspeita no documento e clique em analisar.
+        </p>
+        
+        <button class="btn btn-primary" id="btn-analyze" onclick="analyzeSelection()">
+          <span class="spinner hidden" id="analyze-spinner"></span>
+          Analisar Trecho Selecionado
+        </button>
+      </div>
+
+      <div id="teacher-results" class="hidden">
+        <div class="card" style="border-left: 4px solid var(--primary-color);">
+          <h3 style="font-size: 14px; margin-top:0;">Relatório de Apoio</h3>
+          
+          <div id="teacher-alert-box"></div>
+          
+          <p style="font-size: 13px; font-weight: 600; margin-bottom: 4px;">Aconselhamento Pedagógico:</p>
+          <p id="teacher-pedagogical" style="font-size: 13px; color: var(--text-muted); margin-top: 0;"></p>
+          
+          <div id="source-analysis-section" class="hidden">
+            <p style="font-size: 13px; font-weight: 600; margin-top: 12px; margin-bottom: 4px;">Fontes Detectadas:</p>
+            <div id="source-list" class="source-list"></div>
+          </div>
+
+          <button class="btn btn-outline" id="btn-quiz" style="margin-top: 12px; background: #e0e7ff; color: #4338ca; border: none; font-weight: 600;">
+            Disparar Quiz de Autonomia
+          </button>
+        </div>
+      </div>
+      
+    </div>
+
+    <script>
+      let currentRole = 'student';
+      let studentEmail = '';
+      let gradeLevel = '';
+      let documentId = '';
+      let professorEmail = '';
+      let activeFocusMinutes = 0;
+      let lastTextLength = 0;
+      let pasteCount = 0;
+      let typingInterval;
+      
+      function init() {
+        // Pega o contexto pré-configurado do backend
+        google.script.run.withSuccessHandler(function(ctx) {
+          currentRole = ctx.initialRole;
+          studentEmail = ctx.email;
+          documentId = ctx.docId;
+          gradeLevel = (ctx.item3 && ctx.item3.gradeLevel) ? ctx.item3.gradeLevel : 'UNKNOWN';
+          professorEmail = (ctx.item3 && ctx.item3.professorEmail) ? ctx.item3.professorEmail : 'UNKNOWN_PROF';
+          updateUI();
+          if(currentRole === 'student') startStudentTracking();
+        }).getContext();
+      }
+
+      function toggleRole() {
+        currentRole = currentRole === 'student' ? 'teacher' : 'student';
+        updateUI();
+        if(currentRole === 'student') startStudentTracking();
+        else stopStudentTracking();
+      }
+
+      function updateUI() {
+        document.getElementById('current-role-label').innerText = currentRole === 'student' ? 'Aluno' : 'Professor';
+        
+        if (currentRole === 'student') {
+          document.getElementById('student-view').classList.remove('hidden');
+          document.getElementById('teacher-view').classList.add('hidden');
+        } else {
+          document.getElementById('student-view').classList.add('hidden');
+          document.getElementById('teacher-view').classList.remove('hidden');
+        }
+      }
+
+      // --- LOGICA DE ALUNO (Rastreio Prático Avançado - ITEM 2) ---
+      
+      // Estado real de acompanhamento
+      let activeFocusMs = 0;
+      let lastLoopTime = 0;
+      
+      let typingSpeedData = { totalCharsTyped: 0, peakCpm: 0 };
+      let pasteData = { count: 0, totalCharsPasted: 0 };
+      let pollingIntervalMs = 15000; // Alterado para 15 seg para evitar limite de quotas
+      
+      function startStudentTracking() {
+        if(typingInterval) clearInterval(typingInterval);
+        lastLoopTime = Date.now();
+        
+        typingInterval = setInterval(function() {
+          const now = Date.now();
+          const elapsed = now - lastLoopTime;
+          lastLoopTime = now;
+          
+          activeFocusMs += elapsed;
+          activeFocusMinutes = Math.floor(activeFocusMs / 60000);
+          
+          const displayMins = (activeFocusMs / 60000).toFixed(1);
+          document.getElementById('stu-time').innerText = displayMins + " min";
+          
+          google.script.run.withSuccessHandler(function(stats) {
+            document.getElementById('stu-words').innerText = stats.wordCount;
+            
+            let hasChanged = false;
+            // Lógica Heurística (Item 2)
+            if (lastTextLength !== 0) {
+              const diff = Math.abs(stats.length - lastTextLength);
+              
+              if (diff > 0) {
+                hasChanged = true;
+                if (diff >= 50) {
+                  pasteData.count++;
+                  pasteData.totalCharsPasted += diff;
+                } else {
+                  typingSpeedData.totalCharsTyped += diff;
+                  const charsPerMinuteThisPulse = (diff / (pollingIntervalMs / 1000)) * 60;
+                  if (charsPerMinuteThisPulse > typingSpeedData.peakCpm) {
+                    typingSpeedData.peakCpm = charsPerMinuteThisPulse;
+                  }
+                }
+              }
+            } else {
+                hasChanged = true; // Primeira checagem para enviar status inicial
+            }
+            lastTextLength = stats.length;
+            
+            // Controle de Quota: Somente aciona backend se ouve interação
+            if (hasChanged) {
+               sendBackgroundData(stats);
+            }
+          }).getDocumentStats();
+          
+        }, pollingIntervalMs);
+      }
+      
+      function stopStudentTracking() {
+        if(typingInterval) clearInterval(typingInterval);
+      }
+      
+      function sendBackgroundData(stats) {
+        document.getElementById('sync-dot').style.backgroundColor = "var(--warning-color)";
+        document.getElementById('stu-sync-msg').innerText = "Sincronizando métricas (Item 2)...";
+        
+        let avgCpp = pasteData.count > 0 ? Math.round(pasteData.totalCharsPasted / pasteData.count) : 0;
+        let avgCpm = activeFocusMinutes > 0 ? Math.round(typingSpeedData.totalCharsTyped / activeFocusMinutes) : 0;
+        
+        // Concatenação pedida no Code Review [E-mail do Professor]+[Turma/Classroom]+[E-mail do Aluno]+[DocId]
+        const compositeStudentId = professorEmail + "+" + gradeLevel + "+" + studentEmail + "+" + documentId;
+        
+        const payload = {
+          documentId: stats.docId,
+          timestamp: Date.now(),
+          studentContext: { 
+             studentId: currentRole === 'student' ? compositeStudentId : "professor_view" 
+          },
+          behavioralMetrics: {
+             activeFocusTimeMinutes: activeFocusMinutes, // Arredondado real
+             pasteEvents: {
+               count: pasteData.count,
+               massiveInsertionsDetected: pasteData.count > 0,
+               avgCharsPerPaste: avgCpp
+             },
+             typingSpeed: {
+               avgCharsPerMinute: avgCpm,
+               peakCharsPerMinute: Math.round(typingSpeedData.peakCpm)
+             }
+          }
+        };
+        
+        google.script.run.withSuccessHandler(function(res) {
+          document.getElementById('sync-dot').style.backgroundColor = "var(--success-color)";
+          document.getElementById('stu-sync-msg').innerText = "Métricas salvas e enviadas.";
+        }).sendToBackend(payload);
+      }
+      
+      function validateSource() {
+        const url = document.getElementById('source-url').value;
+        const resDiv = document.getElementById('source-result');
+        if(!url) return;
+        
+        resDiv.innerText = "Analisando...";
+        resDiv.style.color = "var(--text-muted)";
+        
+        setTimeout(() => { // Mock validation api
+          if(url.includes('.edu') || url.includes('.gov')) {
+            resDiv.innerText = "✅ Fonte Confiável (Acadêmica/Institucional).";
+            resDiv.style.color = "var(--success-color)";
+          } else {
+            resDiv.innerText = "⚠️ Atenção: Esta fonte pode não ser acadêmica, procure referências na base científica.";
+            resDiv.style.color = "var(--warning-color)";
+          }
+        }, 1000);
+      }
+
+      // --- LÓGICA DO PROFESSOR ---
+
+      function analyzeSelection() {
+        const btn = document.getElementById('btn-analyze');
+        const spinner = document.getElementById('analyze-spinner');
+        const resultsBox = document.getElementById('teacher-results');
+        
+        btn.disabled = true;
+        spinner.classList.remove('hidden');
+        resultsBox.classList.add('hidden');
+        
+        google.script.run.withSuccessHandler(function(data) {
+          if(data.error) {
+            alert(data.error);
+            btn.disabled = false;
+            spinner.classList.add('hidden');
+            return;
+          }
+          
+          // Manda p/ backend
+          const payload = {
+            contentAnalysis: {
+                 selectedFragment: data.selectedFragment,
+                 detectedUrls: data.detectedUrls
+            }
+          };
+          
+          google.script.run.withSuccessHandler(function(backendRes) {
+            btn.disabled = false;
+            spinner.classList.add('hidden');
+            renderTeacherAnalysis(backendRes);
+          }).sendToBackend(payload);
+          
+        }).getSelectedTextInfo();
+      }
+      
+      function renderTeacherAnalysis(res) {
+        document.getElementById('teacher-results').classList.remove('hidden');
+        
+        const alertBox = document.getElementById('teacher-alert-box');
+        alertBox.className = "alert";
+        
+        if(res.toneChangeDetected || res.riskEvidence.includes('inserção massiva')) {
+          alertBox.classList.add('alert-warning');
+          alertBox.innerHTML = "<strong>Fique Atento:</strong> " + res.riskEvidence;
+        } else {
+          alertBox.classList.add('alert-success');
+          alertBox.innerHTML = "<strong>Tudo certo:</strong> " + res.riskEvidence;
+        }
+        
+        document.getElementById('teacher-pedagogical').innerText = res.pedagogicalAdvice;
+        
+        // Render Sources
+        const sourceSection = document.getElementById('source-analysis-section');
+        const sourceList = document.getElementById('source-list');
+        sourceList.innerHTML = '';
+        
+        if (res.sourceAnalysis && res.sourceAnalysis.length > 0) {
+          sourceSection.classList.remove('hidden');
+          res.sourceAnalysis.forEach(src => {
+            const div = document.createElement('div');
+            let typeClass = 'warning';
+            let icon = '⚠️';
+            
+            if (src.status === 'BROKEN' || src.status === 'ERROR') {
+              typeClass = 'broken';
+              icon = '❌';
+            } else if (src.isReliable) {
+              typeClass = 'reliable';
+              icon = '✅';
+            }
+            
+            div.className = `source-item ${typeClass}`;
+            div.innerHTML = `
+              <a href="${src.url}" target="_blank" class="source-link">${icon} ${src.url}</a>
+              <div class="source-msg">${src.message}</div>
+            `;
+            sourceList.appendChild(div);
+          });
+        } else {
+          sourceSection.classList.add('hidden');
+        }
+        
+        const quizBtn = document.getElementById('btn-quiz');
+        if(res.quizStatus === "AVAILABLE") {
+          quizBtn.style.display = "block";
+          quizBtn.onclick = () => alert("MOCK: Quiz enviado para o aluno via API!");
+        } else {
+          quizBtn.style.display = "none";
+        }
+      }
+
+      window.onload = init;
+    </script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "behavioralMetrics": {
+    "activeFocusTimeMinutes": 3,
+    "pasteEvents": {
+      "count": 2,
+      "massiveInsertionsDetected": true,
+      "avgCharsPerPaste": 250
+    },
+    "typingSpeed": {
+      "avgCharsPerMinute": 85,
+      "peakCharsPerMinute": 110
+    }
+  }
+}
