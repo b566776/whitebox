@@ -147,13 +147,38 @@ function sendToBackend(payload) {
   Logger.log("Payload recebido pelo Google Apps Script:");
   Logger.log(JSON.stringify(payload, null, 2));
   
-  // Endpoint Real (futuro): "https://api.suasolucao.com.br/v1/analisar"
-  const backendUrl = "https://mock.suasolucao.com.br/v1/analisar"; 
+  // Endpoints Reais (cliv.app)
+  const metricUrl = "https://evidentia.cliv.app/api/send"; 
+  const analysisUrl = "https://evidentia.cliv.app/api/fake";
+  
+  const isAnalysisRequest = payload.contentAnalysis && payload.contentAnalysis.selectedFragment;
+  const targetUrl = isAnalysisRequest ? analysisUrl : metricUrl;
   
   // MOCK DE RESPOSTA (Simulando o processamento do Dev 2 e NLP/GPT)
   // Dependendo de se tem fragmento selecionado, simularemos um problema de "mudança de tom".
   
-  Utilities.sleep(1500); // Simulando delay de rede
+  // POST para o backend selecionado
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(targetUrl, options);
+    const responseCode = response.getResponseCode();
+    
+    if (responseCode !== 200) {
+      Logger.log("Erro na API (" + targetUrl + "): " + response.getContentText());
+      // Fallback para mock em caso de erro na API de homologação para não travar a UI?
+      // Por enquanto vamos retornar o erro ou o mock se for 404/500
+    }
+  } catch (e) {
+    Logger.log("Falha na conexão com " + targetUrl + ": " + e.toString());
+  }
+
+  Utilities.sleep(1000); // Pequeno delay para feedback visual
   
   let riskEvidence = "Nenhum risco detectado. O texto flui de forma natural.";
   let pedagogicalAdvice = "Continue encorajando a busca profunda por fontes diversas.";

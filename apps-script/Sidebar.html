@@ -189,6 +189,42 @@
       }
       .source-msg { color: var(--text-muted); font-size: 10px; }
 
+      /* Insight Cards */
+      .insight-card {
+        background: linear-gradient(135deg, #ffffff 0%, #f8faff 100%);
+        border: 1px solid #e0e7ff;
+        border-left: 5px solid var(--primary-color);
+        border-radius: 12px;
+        padding: 16px;
+        margin-top: 16px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      }
+      .insight-title {
+        font-weight: 700;
+        color: var(--text-main);
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .insight-content {
+        font-size: 13px;
+        color: #475569;
+        line-height: 1.6;
+      }
+      .coherence-meter {
+        height: 6px;
+        background: #e2e8f0;
+        border-radius: 3px;
+        margin: 12px 0;
+        overflow: hidden;
+      }
+      .coherence-fill {
+        height: 100%;
+        background: var(--success-color);
+        width: 0%;
+        transition: width 1s ease-in-out;
+      }
     </style>
   </head>
   <body>
@@ -242,21 +278,30 @@
       </div>
 
       <div id="teacher-results" class="hidden">
-        <div class="card" style="border-left: 4px solid var(--primary-color);">
-          <h3 style="font-size: 14px; margin-top:0;">Relatório de Apoio</h3>
+        <div class="insight-card">
+          <div class="insight-title">
+            <span>🛡️ Relatório de Integridade</span>
+            <span id="coherence-badge" style="font-size: 10px; background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px;">95% Coeso</span>
+          </div>
           
           <div id="teacher-alert-box"></div>
           
-          <p style="font-size: 13px; font-weight: 600; margin-bottom: 4px;">Aconselhamento Pedagógico:</p>
-          <p id="teacher-pedagogical" style="font-size: 13px; color: var(--text-muted); margin-top: 0;"></p>
+          <div class="coherence-meter">
+             <div id="coherence-bar" class="coherence-fill"></div>
+          </div>
+
+          <div class="insight-content">
+            <p style="font-weight: 700; margin-bottom: 4px; color: var(--primary-color);">💡 Feedback do Mentor Socrático:</p>
+            <p id="teacher-pedagogical" style="margin-top: 0; font-style: italic;"></p>
+          </div>
           
           <div id="source-analysis-section" class="hidden">
-            <p style="font-size: 13px; font-weight: 600; margin-top: 12px; margin-bottom: 4px;">Fontes Detectadas:</p>
+            <p style="font-size: 12px; font-weight: 700; margin-top: 16px; margin-bottom: 8px; border-top: 1px solid #eee; padding-top: 12px;">📚 Rastreamento de Fontes:</p>
             <div id="source-list" class="source-list"></div>
           </div>
 
-          <button class="btn btn-outline" id="btn-quiz" style="margin-top: 12px; background: #e0e7ff; color: #4338ca; border: none; font-weight: 600;">
-            Disparar Quiz de Autonomia
+          <button class="btn btn-primary" id="btn-quiz" style="margin-top: 16px; background: #4338ca; border: none; font-weight: 700; letter-spacing: 0.5px;">
+             DESAFIAR AUTONOMIA (QUIZ)
           </button>
         </div>
       </div>
@@ -467,15 +512,22 @@
         const alertBox = document.getElementById('teacher-alert-box');
         alertBox.className = "alert";
         
+        // Simulação de Score de Coerência (Backend real enviará contentAnalysis.toneConsistencyScore)
+        const coherence = (res.contentAnalysis && res.contentAnalysis.toneConsistencyScore) ? res.contentAnalysis.toneConsistencyScore * 100 : 85;
+        document.getElementById('coherence-bar').style.width = coherence + "%";
+        document.getElementById('coherence-badge').innerText = Math.round(coherence) + "% Coeso";
+        
         if(res.toneChangeDetected || res.riskEvidence.includes('inserção massiva')) {
           alertBox.classList.add('alert-warning');
-          alertBox.innerHTML = "<strong>Fique Atento:</strong> " + res.riskEvidence;
+          alertBox.innerHTML = "<strong>Alerta:</strong> " + res.riskEvidence;
+          document.getElementById('coherence-bar').style.backgroundColor = "var(--warning-color)";
         } else {
           alertBox.classList.add('alert-success');
-          alertBox.innerHTML = "<strong>Tudo certo:</strong> " + res.riskEvidence;
+          alertBox.innerHTML = "<strong>Genuíno:</strong> " + res.riskEvidence;
+          document.getElementById('coherence-bar').style.backgroundColor = "var(--success-color)";
         }
         
-        document.getElementById('teacher-pedagogical').innerText = res.pedagogicalAdvice;
+        document.getElementById('teacher-pedagogical').innerText = "\"" + res.pedagogicalAdvice + "\"";
         
         // Render Sources
         const sourceSection = document.getElementById('source-analysis-section');
