@@ -313,11 +313,11 @@
       let studentEmail = '';
       let gradeLevel = '';
       let documentId = '';
-      let professorEmail = '';
       let activeFocusMinutes = 0;
       let lastTextLength = 0;
       let pasteCount = 0;
       let typingInterval;
+      let lastGeneratedQuiz = []; // Armazena o último quiz recebido da API
       
       function init() {
         // Pega o contexto pré-configurado do backend
@@ -563,7 +563,12 @@
         const quizBtn = document.getElementById('btn-quiz');
         if(res.quizStatus === "AVAILABLE") {
           quizBtn.style.display = "block";
-          quizBtn.onclick = () => alert("MOCK: Quiz enviado para o aluno via API!");
+          lastGeneratedQuiz = res.quizData; // Salva para o modal
+          
+          quizBtn.onclick = () => {
+             // Chama o modal no servidor passando os dados atuais
+             google.script.run.openQuizModal(lastGeneratedQuiz);
+          };
         } else {
           quizBtn.style.display = "none";
         }

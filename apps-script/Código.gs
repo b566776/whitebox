@@ -26,6 +26,33 @@ function showSidebar() {
 }
 
 /**
+ * Abre o modal de edição de Quiz.
+ */
+function openQuizModal(quizData) {
+  const template = HtmlService.createTemplateFromFile('QuizEditor');
+  template.quizData = quizData;
+  
+  const html = template.evaluate()
+    .setWidth(600)
+    .setHeight(500);
+    
+  DocumentApp.getUi().showModalDialog(html, 'Revisão Pedagógica - Quiz');
+}
+
+/**
+ * Recebe o quiz final e envia para o backend / salva no estado do aluno.
+ */
+function submitFinalQuiz(quizData) {
+  Logger.log("Quiz Finalizado pelo Professor:");
+  Logger.log(JSON.stringify(quizData, null, 2));
+  
+  // Aqui você enviaria para o endpoint real de persistência
+  // google.script.run.sendToBackend({ type: 'QUIZ_SUBMIT', data: quizData });
+  
+  return { success: true };
+}
+
+/**
  * Retorna o contexto atual com base no usuário logado e outras informações.
  */
 function getContext() {
@@ -148,8 +175,8 @@ function sendToBackend(payload) {
   Logger.log(JSON.stringify(payload, null, 2));
   
   // Endpoints Reais (cliv.app)
-  const metricUrl = "https://evidentia.cliv.app/api/send"; 
-  const analysisUrl = "https://evidentia.cliv.app/api/fake";
+  const metricUrl = "https://triagem.cliv.app/api/send"; 
+  const analysisUrl = "https://triagem.cliv.app/api/fake";
   
   const isAnalysisRequest = payload.contentAnalysis && payload.contentAnalysis.selectedFragment;
   const targetUrl = isAnalysisRequest ? analysisUrl : metricUrl;
