@@ -373,7 +373,7 @@
              </div>
              <div class="stat-row">
                <span class="stat-label">Dedicação Ativa</span>
-               <span class="stat-value" id="stu-time">0m</span>
+                <span class="stat-value" id="stu-time">0.0 min</span>
              </div>
           </div>
           
@@ -473,35 +473,88 @@
       let activeFocusMinutes = 0;
       let lastTextLength = 0;
       let pasteCount = 0;
-      let trackingTimeout; // Mudado de Interval para Timeout
+      let trackingTimeout; 
       let lastGeneratedQuiz = []; 
       
+      // Métricas de Rastreamento (ITEM 2)
+      let activeFocusMs = 0;
+      let lastLoopTime = 0;
+      let professorEmail = '';
+      let behavioralMetrics = {
+        idleCycles: 0,
+        idleGapCount: 0,
+        totalAdded: 0,
+        totalDeleted: 0,
+        structureChanges: 0,
+        lastSignature: []
+      };
+      let pasteData = {
+        count: 0,
+        totalCharsPasted: 0
+      };
+      let typingSpeedData = {
+        totalCharsTyped: 0,
+        peakCpm: 0
+      };
+      
+      // [P-3] startupFallback em escopo global para ser cancelável por setFinalizedState()
+      let startupFallback = null;
+      
       function init() {
-        // Pega o contexto pré-configurado do backend
-        google.script.run.withSuccessHandler(function(ctx) {
-          currentRole = ctx.initialRole;
-          studentEmail = ctx.email;
-          documentId = ctx.docId;
-          gradeLevel = (ctx.item3 && ctx.item3.gradeLevel) ? ctx.item3.gradeLevel : 'UNKNOWN';
-          professorEmail = (ctx.item3 && ctx.item3.professorEmail) ? ctx.item3.professorEmail : 'UNKNOWN_PROF';
-          updateUI();
-          
-          // Verificar status de entrega
-          google.script.run.withSuccessHandler(function(status) {
-            if (status.isSubmitted) {
-              setFinalizedState(status.method);
-            } else if (ctx.initialRole === 'student') {
-              startStudentTracking(); 
-            }
-          }).getSubmissionStatus();
-          
-          if (ctx.initialRole === 'professor') {
-            document.getElementById('prof-area').style.display = 'block';
-            refreshHeatmap();
-          } else {
+        // Fallback: garante UI mínima funcional se o backend demorar muito
+        startupFallback = setTimeout(function() {
+          if (document.getElementById('student-view').classList.contains('hidden')) {
+            console.warn('[EvidencIA] getContext() demorou demais. Aplicando fallback de aluno.');
+            currentRole = 'student';
+            updateUI();
             document.getElementById('student-area').style.display = 'block';
+            startStudentTracking();
           }
-        }).getContext();
+        }, 8000);
+
+        google.script.run
+          .withSuccessHandler(function(ctx) {
+            clearTimeout(startupFallback);
+            currentRole = ctx.initialRole || 'student';
+            studentEmail = ctx.email || '';
+            documentId = ctx.docId || '';
+            gradeLevel = (ctx.item3 && ctx.item3.gradeLevel) ? ctx.item3.gradeLevel : 'UNKNOWN';
+            professorEmail = (ctx.item3 && ctx.item3.professorEmail) ? ctx.item3.professorEmail : 'UNKNOWN_PROF';
+            updateUI();
+
+            if (currentRole === 'professor' || currentRole === 'teacher') {
+              document.getElementById('teacher-view').classList.remove('hidden');
+              refreshHeatmap();
+            } else {
+              document.getElementById('student-area').style.display = 'block';
+              // Iniciar rastreamento imediatamente; será cancelado se estiver entregue
+              startStudentTracking();
+            }
+
+            // Verificar status de entrega (pode cancelar o tracking se já entregue)
+            google.script.run
+              .withSuccessHandler(function(status) {
+                if (status && status.isSubmitted) {
+                  setFinalizedState(status.method);
+                }
+              })
+              .withFailureHandler(function(err) {
+                console.warn('[EvidencIA] getSubmissionStatus() falhou:', err);
+                // Tracking já foi iniciado acima, não faz nada
+              })
+              .getSubmissionStatus();
+          })
+          .withFailureHandler(function(err) {
+            clearTimeout(startupFallback);
+            console.error('[EvidencIA] getContext() falhou:', err);
+            showErrorBanner('Erro ao carregar contexto. Usando modo offline.');
+            // Inicia com defaults de aluno mesmo assim
+            currentRole = 'student';
+            updateUI();
+            document.getElementById('student-area').style.display = 'block';
+            startStudentTracking();
+          })
+          .getContext();
       }
 
       function toggleRole() {
@@ -517,18 +570,27 @@
         if (currentRole === 'student') {
           document.getElementById('student-view').classList.remove('hidden');
           document.getElementById('teacher-view').classList.add('hidden');
+          stopHeatmapPolling();
         } else {
           document.getElementById('student-view').classList.add('hidden');
           document.getElementById('teacher-view').classList.remove('hidden');
-          refreshHeatmap(); // Auto-refresh ao abrir a visão
+          refreshHeatmap(); // Carga imediata
+          startHeatmapPolling(); // Auto-refresh a cada 30s
         }
       }
 
       // --- LOGICA DE ALUNO (Rastreio Prático Avançado - ITEM 2) ---
       
-      let pollingIntervalMs = 15000; 
+      let pollingIntervalMs = 15000;
+      // [P-1] Flag de proteção contra dupla execução de trackingPulse
+      let isTracking = false;
       
       function startStudentTracking() {
+        if (isTracking) {
+          console.warn('[EvidencIA] startStudentTracking() chamado enquanto já ativo. Ignorado.');
+          return;
+        }
+        isTracking = true;
         if(trackingTimeout) clearTimeout(trackingTimeout);
         lastLoopTime = Date.now();
         trackingPulse(); // Inicia o primeiro pulso
@@ -614,6 +676,7 @@
       
       function stopStudentTracking() {
         if(trackingTimeout) clearTimeout(trackingTimeout);
+        isTracking = false;
       }
       
       function showErrorBanner(msg) {
@@ -640,6 +703,8 @@
       
       function setFinalizedState(method) {
         if(trackingTimeout) clearTimeout(trackingTimeout);
+        if(startupFallback) clearTimeout(startupFallback); // [P-3] Cancela fallback global
+        isTracking = false; // [P-1] Reseta flag de tracking
         document.getElementById('btn-finalize').style.display = 'none';
         document.getElementById('finalize-hint').style.display = 'none';
         document.getElementById('submission-status').style.display = 'block';
@@ -826,6 +891,24 @@
 
       let hoverScrollTimer;
       let refreshHeatmapTimer;
+      let heatmapPollingInterval = null;  // Auto-refresh do mapa de calor
+      const HEATMAP_POLL_MS = 30000;       // 30 segundos
+
+      function startHeatmapPolling() {
+        stopHeatmapPolling(); // Garante que não há polling duplicado
+        heatmapPollingInterval = setInterval(function() {
+          if (currentRole !== 'student') { // Só atualiza na view do professor
+            refreshHeatmap();
+          }
+        }, HEATMAP_POLL_MS);
+      }
+
+      function stopHeatmapPolling() {
+        if (heatmapPollingInterval) {
+          clearInterval(heatmapPollingInterval);
+          heatmapPollingInterval = null;
+        }
+      }
 
       function refreshHeatmap() {
         // Debounce [CR]: Evita chamadas excessivas em documentos grandes
