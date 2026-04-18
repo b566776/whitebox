@@ -53,6 +53,34 @@ function submitFinalQuiz(quizData) {
 }
 
 /**
+ * Verifica o status de entrega do documento.
+ * Híbrido: Checa permissão (Classroom) e Flag persistente (Manual).
+ */
+function getSubmissionStatus() {
+  const doc = DocumentApp.getActiveDocument();
+  const props = PropertiesService.getDocumentProperties();
+  const isFlagged = props.getProperty('SUBMITTED') === 'true';
+  const accessLevel = doc.getUserAccessLevel();
+  
+  // No Classroom, o aluno vira VIEWER. Se ele não pode editar, consideramos entregue.
+  const isViewerOnly = (accessLevel === DocumentApp.Permission.VIEW || accessLevel === DocumentApp.Permission.COMMENT);
+  
+  return {
+    isSubmitted: isFlagged || isViewerOnly,
+    method: isFlagged ? 'manual' : (isViewerOnly ? 'automatic_classroom' : 'none')
+  };
+}
+
+/**
+ * Marca o documento como entregue manualmente pelo aluno.
+ */
+function markAsSubmitted() {
+  const props = PropertiesService.getDocumentProperties();
+  props.setProperty('SUBMITTED', 'true');
+  return { success: true };
+}
+
+/**
  * Retorna o contexto atual com base no usuário logado e outras informações.
  */
 function getContext() {
@@ -84,12 +112,15 @@ function getDocumentStats() {
   const doc = DocumentApp.getActiveDocument();
   const body = doc.getBody();
   const text = body.getText();
+  const paragraphs = body.getParagraphs();
+  const structureSignature = paragraphs.map(p => p.getText().trim().length).filter(len => len > 0);
   
   return {
     docId: doc.getId(),
     length: text.length,
     wordCount: text.split(/\s+/).filter(word => word.length > 0).length,
-    fullTextChunk: text.substring(0, 1000) // Mandando um pedaço ou tudo para análise mockada
+    structureSignature: structureSignature,
+    fullTextChunk: text.substring(0, 1000) 
   };
 }
 

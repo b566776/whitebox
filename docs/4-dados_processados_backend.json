@@ -1,27 +1,22 @@
 {
-  "contentAnalysis": {
-    "toneConsistencyScore": 0.45,
-    "vocabularyComplexityIndex": "AVANÇADO",
-    "toneChangeDetected": true
-  },
-  "sourcesAndLiteracy": {
-    "detectedUrls": [
-      {
-        "url": "https://exemplo.edu.br",
-        "exists": true,
-        "trustScore": "CONFIÁVEL",
-        "sourceOriginType": "ACADÊMICO",
-        "citationMatch": true
-      }
-    ],
-    "unreliableSourcesCount": 1,
-    "hallucinationAlert": false
-  },
-  "pedagogicalEngagement": {
-    "status": "SENT_BY_TEACHER",
-    "suggestedSocraticQuestions": [
-      "Como você validou a informação da fonte citada?",
-      "Este parágrafo apresenta um estilo diferente do seu usual; pode explicar como o estruturou?"
-    ]
-  }
+  "status": 200,
+  "toneChangeDetected": true,
+  "riskEvidence": "Mudança de tom detectada no parágrafo 3: possível vocabulário complexo repentino.",
+  "pedagogicalAdvice": "Pergunte ao aluno como ele estruturou este parágrafo ou se ele usou alguma ferramenta para ajudar.",
+  "quizStatus": "AVAILABLE",
+  "quizData": [
+    {
+      "question": "Com base no trecho, qual o principal argumento apresentado?",
+      "options": ["Foco em tecnologia", "Impacto social", "Ausência de evidências"],
+      "answer": 0
+    }
+  ],
+  "sourceAnalysis": [
+    {
+      "url": "https://exemplo1.edu.br",
+      "isReliable": true,
+      "status": "ACTIVE",
+      "message": "Fonte Confiável (Acadêmica/Institucional)."
+    }
+  ]
 }

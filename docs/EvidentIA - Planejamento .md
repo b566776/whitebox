@@ -69,9 +69,15 @@ O foco é estabelecer a comunicação entre o Google Docs e o backend.
 
     A API serve como o motor de inteligência da solução, processando metadados de escrita e conteúdos textuais para abrir a "caixa-preta" da aprendizagem e validar a autonomia do aluno.
 
-#### 2. Endpoint de Análise Principal
+#### 2. Endpoints da POC (cliv.app)
 
-* **URL:** `https://api.suasolucao.com.br/v1/analisar`
+Nesta fase de Prova de Conceito, utilizamos dois canais distintos de comunicação:
+
+*   **Métricas e Comportamento**: `https://triagem.cliv.app/api/send`
+    *   *Uso*: Envio silencioso de metadados, biometria e histórico de rascunhos.
+*   **Análise de IA e Conteúdo**: `https://triagem.cliv.app/api/fake`
+    *   *Uso*: Disparado quando o professor seleciona um trecho para análise profunda de tom ou geração de quiz.
+
 * **Método:** POST
 * **Content-Type:** application/json
 
@@ -86,7 +92,12 @@ O Add-on disparará as capturas empacotadas para este POST, contendo as heuríst
     "studentId": "professor@escola.com+Turma 9A+aluno@escola.com+1uH2G_vB..._Exemplo_Id"
   },
   "behavioralMetrics": {
-    "activeFocusTimeMinutes": 3,
+    "activeFocusTimeMinutes": 15,
+    "idleGapCount": 2,
+    "editRatio": "0.18",
+    "structureChanges": 1,
+    "charsAdded": 1200,
+    "charsDeleted": 150,
     "pasteEvents": {
       "count": 2,
       "massiveInsertionsDetected": true,
@@ -95,11 +106,12 @@ O Add-on disparará as capturas empacotadas para este POST, contendo as heuríst
     "typingSpeed": {
       "avgCharsPerMinute": 85,
       "peakCharsPerMinute": 110
-    }
+    },
+    "isFinalSubmission": true
   },
   "contentAnalysis": {
-    "fullText": "Conteúdo integral do rascunho...",
-    "selectedFragment": "Trecho selecionado pelo professor para o gatilho..."
+    "selectedFragment": "Trecho selecionado pelo professor...",
+    "detectedUrls": ["https://exemplo1.com", "https://exemplo2.org"]
   }
 }
 ```
@@ -107,7 +119,20 @@ O Add-on disparará as capturas empacotadas para este POST, contendo as heuríst
 #### B) Estrutura de Retorno Esperada (Processada pelo Dev 2)
 *(Baseado no arquivo `4-dados_processados_backend.json`)*
 
-**Orientações para o Dev 2:** O Backend deverá engolir o Payload acima, disparar as IA Generativas/NLP, extrair insights de consistência e formular o relatório final neste contrato rigoroso de retorno abaixo. O Add-on reage diretamente à resposta desssa infraestrutura:
+**Orientações para o Dev 2:** O Backend deverá engolir o Payload acima, disparar as IA Generativas/NLP, extrair insights de consistência e formular o relatório final no contrato abaixo. 
+
+#### Guia de Métricas Comportamentais:
+*   **activeFocusTimeMinutes**: Tempo acumulado de escrita e interação ativa no documento (capturado via polling).
+*   **idleGapCount**: Quantidade de blocos de 5 minutos de inatividade total (identifica alunos "travados" que precisam de intervenção).
+*   **editRatio**: Proporção entre deleções e adições (Métrica de Autoria: escrita orgânica tem razões entre 0.15 e 0.30; copy-paste tem tendência a 0).
+*   **structureChanges**: Frequência com que blocos de texto/parágrafos foram reposicionados (indica maturidade de edição estrutural).
+*   **charsAdded / charsDeleted**: Valores absolutos para gerar gráficos comparativos de Volume de Escrita vs. Volume de Revisão.
+*   **pasteEvents**: Frequência e volume médio de inserções via clipboard (utilizado para disparar alertas de "Inserção Massiva").
+*   **typingSpeed (CPM)**: Média e pico de caracteres por minuto para análise de ritmo biológico de escrita.
+*   **isFinalSubmission**: Flag booleana que indica se o trabalho foi entregue. 
+    *   **Importante**: Se `true`, o backend deve disparar as IAs Generativas/NLP para o relatório final.
+
+O Add-on reage diretamente à resposta dessa infraestrutura:
 
 ```json
 {
@@ -304,3 +329,118 @@ A captura de metadados comportamentais no Sidebar do aluno opera sob uma lógica
    - O Frontend passa a rastrear a proporção de conversão multiplicando pelo teto base de 60 segundos, cruzando sempre contra os "surtos efêmeros" do aluno para descobrir as sessões taticamente intensas (**`peakCharsPerMinute`**) informando de modo consistente a taxa geral (**`avgCharsPerMinute`**).
 
 Este método garante a extração efetiva e em tempo real dos rastreios apontados no Payload do Item 2.
+
+---
+
+## Anexo 3 - Radar de Esforço e Biometria Profunda (Evolução POC)
+
+Implementamos uma camada visual de auditoria e métricas refinadas para oferecer ao professor um "Raio-X" completo da autoria.
+
+### 1. Radar de Esforço (Visual MiniMap)
+- **Visualização Vertical**: O radar foi reorientado para a vertical para mimetizar a estrutura real da folha de papel.
+- **Escala Dinâmica**: A altura de cada segmento do radar é proporcional ao tamanho real do parágrafo no documento, eliminando espaços vazios.
+- **Sincronização de Scroll (Smart Scroll)**:
+    - **Clique Localizador**: Ao clicar em um segmento colorido, o Google Docs rola instantaneamente para o trecho correspondente.
+    - **Hover Debounced**: Ao repousar o mouse sobre o radar por 400ms, o documento navega automaticamente para o parágrafo ("Navegação por Radar").
+### 4. Gatilho de Entrega (Submission Trigger)
+Implementamos uma percepção de "estado de conclusão" para garantir que o backend processe a versão definitiva do texto:
+
+- **Gatilho Automático (Classroom)**: O Add-on monitora as permissões. Se o aluno for rebaixado a "Visualizador" (Turned In), o sinal de entrega é enviado automaticamente.
+- **Gatilho Manual (Drive/Universal)**: Botão "Finalizar Trabalho" na Sidebar do aluno. Inclui confirmação de segurança e "trava" o rastreamento após o envio.
+- **Protocolo de Sincronização**: O payload final carrega a flag `isFinalSubmission: true`, que serve como o gatilho operacional para o processamento de IA e geração de rascunhos de avaliação para o docente.
+
+---
+
+## Anexo 4 - Dicionário de Contratos de Dados (JSON)
+
+Estes blocos representam a estrutura de dados oficial para comunicação entre o Add-on e o Backend.
+
+### 4.1. Dados Nativos (Add-on -> Backend)
+*Arquivo: 1-dados_nativos_addon.json*
+```json
+{
+  "docId": "1uH2G_vB..._Exemplo_Id",
+  "length": 1450,
+  "wordCount": 240,
+  "structureSignature": [120, 45, 800, 485],
+  "fullTextChunk": "O tubarão é um animal fascinante que habita os oceanos..."
+}
+```
+
+### 4.2. Dados Calculados e Biometria (Sidebar -> Backend)
+*Arquivo: 2-dados_calculados_sidebar.json*
+```json
+{
+  "behavioralMetrics": {
+    "activeFocusTimeMinutes": 12.5,
+    "idleGapCount": 1,
+    "editRatio": "0.18",
+    "structureChanges": 1,
+    "charsAdded": 1450,
+    "charsDeleted": 260,
+    "pasteEvents": {
+      "count": 1,
+      "massiveInsertionsDetected": true,
+      "avgCharsPerPaste": 450
+    },
+    "typingSpeed": {
+      "avgCharsPerMinute": 42,
+      "peakCharsPerMinute": 58
+    },
+    "isFinalSubmission": true
+  }
+}
+```
+
+### 4.3. APIs Avançadas e Contexto (Item 3 -> Backend)
+*Arquivo: 3-dados_apis_avancadas.json*
+```json
+{
+  "studentContext": {
+    "professorEmail": "professor@escola.com",
+    "gradeLevel": "Turma 9A",
+    "institutionId": "ESCOLA_COM"
+  },
+  "metadataHistory": {
+    "revisionsCount": 24
+  }
+}
+```
+
+### 4.4. Resposta Processada e Insights (Backend -> Add-on)
+*Arquivo: 4-dados_processados_backend.json*
+```json
+{
+  "status": 200,
+  "toneChangeDetected": true,
+  "riskEvidence": "Mudança de tom detectada no parágrafo 3: possível vocabulário complexo repentino.",
+  "pedagogicalAdvice": "Pergunte ao aluno como ele estruturou este parágrafo ou se ele usou alguma ferramenta para ajudar.",
+  "quizStatus": "AVAILABLE",
+  "quizData": [
+    {
+      "question": "Com base no trecho, qual o principal argumento apresentado?",
+      "options": ["Foco em tecnologia", "Impacto social", "Ausência de evidências"],
+      "answer": 0
+    }
+  ],
+  "sourceAnalysis": [
+    {
+      "url": "https://exemplo1.edu.br",
+      "isReliable": true,
+      "status": "ACTIVE",
+      "message": "Fonte Confiável (Acadêmica/Institucional)."
+    }
+  ]
+}
+```
+
+### 2. Biometria Comportamental Avançada
+Expandimos a captura de dados para além da velocidade de digitação, focando agora na **qualidade do processo**:
+
+- **Edit Ratio (Índice de Revisão)**: Proporção entre caracteres deletados e adicionados. Alunos com escrita orgânica apresentam alta atividade de revisão (correções/ajustes), enquanto textos colados ou gerados por IA apresentam índice próximo de zero.
+- **Idle Gaps (Detecção de Bloqueio)**: Monitoramento de intervalos de 5 minutos de inatividade total. Permite ao professor identificar alunos que estão "travados" no rascunho sem evolução (enviado ao retomar a escrita).
+- **Detecção de Rearranjo Estrutural**: O sistema gera uma "assinatura digital" da ordem dos parágrafos. Se o aluno mover blocos grandes de texto de lugar, o sistema registra uma mudança estrutural (indicativo de edição madura ou reestruturação de conteúdo).
+
+### 3. Melhorias de UX na Sidebar
+- **Tooltips Flutuantes**: Pré-visualizações aparecem em balões "Noir" (fundo preto) posicionados dinamicamente à direita do radar, com cálculo de precisão em relação ao viewport.
+- **Identificação Composta**: O `studentId` agora é uma chave única que amarra Professor, Turma, Aluno e Documento, garantindo rastreabilidade total no Backend.

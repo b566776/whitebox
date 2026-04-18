@@ -1,14 +1,20 @@
 {
   "behavioralMetrics": {
-    "activeFocusTimeMinutes": 3,
+    "activeFocusTimeMinutes": 12.5,
+    "idleGapCount": 1,
+    "editRatio": "0.18",
+    "structureChanges": 1,
+    "charsAdded": 1450,
+    "charsDeleted": 260,
     "pasteEvents": {
-      "count": 2,
+      "count": 1,
       "massiveInsertionsDetected": true,
-      "avgCharsPerPaste": 250
+      "avgCharsPerPaste": 450
     },
     "typingSpeed": {
-      "avgCharsPerMinute": 85,
-      "peakCharsPerMinute": 110
-    }
+      "avgCharsPerMinute": 42,
+      "peakCharsPerMinute": 58
+    },
+    "isFinalSubmission": true
   }
 }

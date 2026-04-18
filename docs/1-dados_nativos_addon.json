@@ -1,15 +1,7 @@
 {
-  "documentId": "1uH2G_vB..._Exemplo_Id",
-  "timestamp": 1713360000000,
-  "studentContext": {
-    "studentId": "professor@escola.com+Turma 9A+aluno@escola.com+1uH2G_vB..._Exemplo_Id"
-  },
-  "contentAnalysis": {
-    "fullText": "Conteúdo integral do rascunho...",
-    "selectedFragment": "Trecho selecionado pelo professor para o gatilho..."
-  },
-  "metadataHistory": {
-    "created": "2026-04-10T10:00:00Z",
-    "lastUpdate": "2026-04-15T20:40:00Z"
-  }
+  "docId": "1uH2G_vB..._Exemplo_Id",
+  "length": 1450,
+  "wordCount": 240,
+  "structureSignature": [120, 45, 800, 485],
+  "fullTextChunk": "O tubarão é um animal fascinante que habita os oceanos..."
 }
