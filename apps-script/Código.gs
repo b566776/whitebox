@@ -65,9 +65,17 @@ function getSubmissionStatus() {
   // No Classroom, o aluno vira VIEWER. Se ele não pode editar, consideramos entregue.
   const isViewerOnly = (accessLevel === DocumentApp.Permission.VIEW || accessLevel === DocumentApp.Permission.COMMENT);
   
+  // SEGURANÇA [CR]: Nunca bloquear o professor, mesmo que o documento mude permissões.
+  const ctx = getAdvancedItem3Data();
+  const userEmail = Session.getActiveUser().getEmail();
+  const isProfessor = (userEmail === ctx.professorEmail);
+  
+  const finalStatus = isProfessor ? false : (isFlagged || isViewerOnly);
+
   return {
-    isSubmitted: isFlagged || isViewerOnly,
-    method: isFlagged ? 'manual' : (isViewerOnly ? 'automatic_classroom' : 'none')
+    isSubmitted: finalStatus,
+    method: isFlagged ? 'manual' : (isViewerOnly ? 'automatic_classroom' : 'none'),
+    isProfessor: isProfessor
   };
 }
 
@@ -229,11 +237,15 @@ function sendToBackend(payload) {
     
     if (responseCode !== 200) {
       Logger.log("Erro na API (" + targetUrl + "): " + response.getContentText());
-      // Fallback para mock em caso de erro na API de homologação para não travar a UI?
-      // Por enquanto vamos retornar o erro ou o mock se for 404/500
+      return {
+        status: responseCode,
+        error: "Erro na comunicação com o servidor de triagem.",
+        details: response.getContentText().substring(0, 100)
+      };
     }
   } catch (e) {
     Logger.log("Falha na conexão com " + targetUrl + ": " + e.toString());
+    return { status: 500, error: "Falha crítica de conexão." };
   }
 
   Utilities.sleep(1000); // Pequeno delay para feedback visual
@@ -390,6 +402,11 @@ function scrollToParagraph(paragraphIndex) {
     // Se o parágrafo tiver conteúdo, colocamos o cursor no início dele
     if (target.getNumChildren() > 0) {
        doc.setCursor(doc.newPosition(target.getChild(0), 0));
+       
+       // UX [CR]: Adiciona uma seleção momentânea para dar brilho ao parágrafo
+       const rangeBuilder = doc.newRange();
+       rangeBuilder.addRangeElement(target);
+       doc.setSelection(rangeBuilder.build());
     } else {
        // Backup: seleciona o parágrafo inteiro se estiver vazio
        doc.setSelection(doc.newRange().addRangeElement(target).build());

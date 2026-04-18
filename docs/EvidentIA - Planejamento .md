@@ -333,3 +333,87 @@ Expandimos a captura de dados para além da velocidade de digitação, focando a
 ### 3. Melhorias de UX na Sidebar
 - **Tooltips Flutuantes**: Pré-visualizações aparecem em balões "Noir" (fundo preto) posicionados dinamicamente à direita do radar, com cálculo de precisão em relação ao viewport.
 - **Identificação Composta**: O `studentId` agora é uma chave única que amarra Professor, Turma, Aluno e Documento, garantindo rastreabilidade total no Backend.
+
+---
+
+## Anexo 4 - Dicionários de Dados e Contratos JSON (Dev 2)
+
+Estes contratos definem a comunicação entre o Add-on (Apps Script) e o Backend (vía `triagem.cliv.app`).
+
+### 1. Dados Nativos (Extração Pura do Doc)
+`1-dados_nativos_addon.json`
+```json
+{
+  "docId": "1uH2G_vB..._Exemplo_Id",
+  "length": 1450,
+  "wordCount": 240,
+  "structureSignature": [120, 45, 800, 485],
+  "fullTextChunk": "O tubarão é um animal fascinante..."
+}
+```
+
+### 2. Dados Calculados (Biometria na Sidebar)
+`2-dados_calculados_sidebar.json`
+```json
+{
+  "behavioralMetrics": {
+    "activeFocusTimeMinutes": 12.5,
+    "idleGapCount": 1,
+    "editRatio": "0.18",
+    "structureChanges": 1,
+    "charsAdded": 1450,
+    "charsDeleted": 260,
+    "pasteEvents": { "count": 1, "massiveInsertionsDetected": true, "avgCharsPerPaste": 450 },
+    "typingSpeed": { "avgCharsPerMinute": 42, "peakCharsPerMinute": 58 },
+    "isFinalSubmission": true
+  }
+}
+```
+
+### 3. Contexto de APIs Avançadas (Item 3)
+`3-dados_apis_avancadas.json`
+```json
+{
+  "studentContext": {
+    "professorEmail": "professor@escola.com",
+    "gradeLevel": "Turma 9A",
+    "institutionId": "ESCOLA_COM"
+  },
+  "metadataHistory": { "revisionsCount": 24 }
+}
+```
+
+### 4. Resposta do Backend (IA / NLP)
+`4-dados_processados_backend.json`
+```json
+{
+  "status": 200,
+  "toneChangeDetected": true,
+  "riskEvidence": "Mudança de tom detectada no parágrafo 3...",
+  "pedagogicalAdvice": "Pergunte ao aluno como ele estruturou...",
+  "quizStatus": "AVAILABLE",
+  "quizData": [
+    { "question": "...", "options": ["...", "..."], "answer": 0 }
+  ],
+  "sourceAnalysis": [
+    { "url": "...", "isReliable": true, "status": "ACTIVE", "message": "..." }
+  ]
+}
+```
+
+---
+
+## Anexo 5 - Auditoria de Código [CR] e Refatoração de Produção
+
+Em 18/04/2026, o projeto passou por uma auditoria de qualidade sênior para garantir a escalabilidade do sistema.
+
+### 🛡️ Melhorias de Resiliência Implementadas
+1. **Polling Recursivo**: Substituição do `setInterval` por `setTimeout` recursivo no rastreio do aluno. 
+   - *Explicação*: Evita que requisições se acumulem no Google Apps Script em caso de latência, garantindo uma única execução por vez.
+2. **Imunidade de Papel (Professor)**: O sistema de segurança agora valida o e-mail do usuário logado contra o e-mail do professor. 
+   - *Explicação*: Professores não são bloqueados pelo gatilho de submissão, permitindo auditoria contínua mesmo em documentos entregues.
+3. **Radar com Debounce de 500ms**: A atualização do Mapa de Calor (Heatmap) foi otimizada para aguardar um silêncio operacional antes de processar o documento.
+4. **Smart Scroll com Destaque**: A navegação pelo radar agora inclui uma seleção visual momentânea do parágrafo no Google Docs, melhorando a rastreabilidade do olhar do professor.
+5. **Automação de Abertura**: O Radar de Esforço agora é disparado automaticamente ao abrir a visão do professor, eliminando etapas manuais.
+
+### ✅ Estado Atual: **Pronto para Homologação**.

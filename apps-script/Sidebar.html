@@ -333,10 +333,24 @@
         from { transform: translateY(-10px); opacity: 0; }
         to { transform: translateY(0); opacity: 1; }
       }
+      .error-banner {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        background: var(--error-color);
+        color: white;
+        padding: 10px;
+        font-size: 12px;
+        text-align: center;
+        z-index: 20000;
+        display: none;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      }
     </style>
   </head>
   <body>
 
+    <div id="error-banner" class="error-banner">⚠️ Falha na conexão com o EvidencIA. Tentando reconectar...</div>
+    
     <!-- Toggle Role (MOCK Dev 1) -->
     <a class="role-toggle" onclick="toggleRole()">Alternar visão (Atual: <span id="current-role-label">Sincronizando...</span>)</a>
 
@@ -459,8 +473,8 @@
       let activeFocusMinutes = 0;
       let lastTextLength = 0;
       let pasteCount = 0;
-      let typingInterval;
-      let lastGeneratedQuiz = []; // Armazena o último quiz recebido da API
+      let trackingTimeout; // Mudado de Interval para Timeout
+      let lastGeneratedQuiz = []; 
       
       function init() {
         // Pega o contexto pré-configurado do backend
@@ -477,7 +491,7 @@
             if (status.isSubmitted) {
               setFinalizedState(status.method);
             } else if (ctx.initialRole === 'student') {
-              startStudentTracking(); // Só inicia se não estiver entregue
+              startStudentTracking(); 
             }
           }).getSubmissionStatus();
           
@@ -505,105 +519,108 @@
           document.getElementById('teacher-view').classList.add('hidden');
         } else {
           document.getElementById('student-view').classList.add('hidden');
-          document.getElementById('teacher-view').classList.add('hidden');
+          document.getElementById('teacher-view').classList.remove('hidden');
+          refreshHeatmap(); // Auto-refresh ao abrir a visão
         }
       }
 
       // --- LOGICA DE ALUNO (Rastreio Prático Avançado - ITEM 2) ---
       
-      // Estado real de acompanhamento
-      let activeFocusMs = 0;
-      let lastLoopTime = 0;
-      
-      let typingSpeedData = { totalCharsTyped: 0, peakCpm: 0 };
-      let pasteData = { count: 0, totalCharsPasted: 0 };
-      let behavioralMetrics = {
-        totalAdded: 0,
-        totalDeleted: 0,
-        idleCycles: 0,
-        idleGapCount: 0,
-        structureChanges: 0,
-        lastSignature: []
-      };
       let pollingIntervalMs = 15000; 
       
       function startStudentTracking() {
-        if(typingInterval) clearInterval(typingInterval);
+        if(trackingTimeout) clearTimeout(trackingTimeout);
         lastLoopTime = Date.now();
+        trackingPulse(); // Inicia o primeiro pulso
+      }
+      
+      function trackingPulse() {
+        const now = Date.now();
+        const elapsed = now - lastLoopTime;
+        lastLoopTime = now;
         
-        typingInterval = setInterval(function() {
-          const now = Date.now();
-          const elapsed = now - lastLoopTime;
-          lastLoopTime = now;
+        activeFocusMs += elapsed;
+        activeFocusMinutes = Math.floor(activeFocusMs / 60000);
+        
+        const displayMins = (activeFocusMs / 60000).toFixed(1);
+        if(document.getElementById('stu-time')) document.getElementById('stu-time').innerText = displayMins + " min";
+        
+        google.script.run.withSuccessHandler(function(stats) {
+          if(!stats) return reschedulePulse();
           
-          activeFocusMs += elapsed;
-          activeFocusMinutes = Math.floor(activeFocusMs / 60000);
+          if(document.getElementById('stu-words')) document.getElementById('stu-words').innerText = stats.wordCount;
           
-          const displayMins = (activeFocusMs / 60000).toFixed(1);
-          document.getElementById('stu-time').innerText = displayMins + " min";
-          
-          google.script.run.withSuccessHandler(function(stats) {
-            document.getElementById('stu-words').innerText = stats.wordCount;
+          let hasChanged = false;
+          if (lastTextLength !== 0) {
+            const sizeDiff = stats.length - lastTextLength;
             
-            let hasChanged = false;
-            if (lastTextLength !== 0) {
-              const sizeDiff = stats.length - lastTextLength;
+            if (sizeDiff !== 0) {
+              hasChanged = true;
+              behavioralMetrics.idleCycles = 0;
               
-              if (sizeDiff !== 0) {
-                hasChanged = true;
-                behavioralMetrics.idleCycles = 0; // Reset ao detectar atividade
-                
-                if (sizeDiff > 0) {
-                  behavioralMetrics.totalAdded += sizeDiff;
-                  // Lógica de Velocidade/Paste
-                  if (sizeDiff >= 50) {
-                    pasteData.count++;
-                    pasteData.totalCharsPasted += sizeDiff;
-                  } else {
-                    typingSpeedData.totalCharsTyped += sizeDiff;
-                    const charsPerMinuteThisPulse = (sizeDiff / (pollingIntervalMs / 1000)) * 60;
-                    if (charsPerMinuteThisPulse > typingSpeedData.peakCpm) {
-                      typingSpeedData.peakCpm = charsPerMinuteThisPulse;
-                    }
-                  }
+              if (sizeDiff > 0) {
+                behavioralMetrics.totalAdded += sizeDiff;
+                if (sizeDiff >= 50) {
+                  pasteData.count++;
+                  pasteData.totalCharsPasted += sizeDiff;
                 } else {
-                  // Deleção detectada
-                  behavioralMetrics.totalDeleted += Math.abs(sizeDiff);
+                  typingSpeedData.totalCharsTyped += sizeDiff;
+                  const charsPerMinuteThisPulse = (sizeDiff / (pollingIntervalMs / 1000)) * 60;
+                  if (charsPerMinuteThisPulse > typingSpeedData.peakCpm) {
+                    typingSpeedData.peakCpm = charsPerMinuteThisPulse;
+                  }
                 }
               } else {
-                // Nenhuma alteração de tamanho detectada neste pulso
-                behavioralMetrics.idleCycles++;
-                if (behavioralMetrics.idleCycles >= 20) { // 20 * 15s = 5 min
-                  behavioralMetrics.idleGapCount++;
-                  behavioralMetrics.idleCycles = 0;
-                }
-              }
-              
-              // Detecção de Rearranjo Estrutural
-              if (behavioralMetrics.lastSignature.length > 0) {
-                 const sigStr = JSON.stringify(stats.structureSignature);
-                 const lastSigStr = JSON.stringify(behavioralMetrics.lastSignature);
-                 if (sigStr !== lastSigStr && stats.length === lastTextLength) {
-                    behavioralMetrics.structureChanges++;
-                 }
+                behavioralMetrics.totalDeleted += Math.abs(sizeDiff);
               }
             } else {
-                hasChanged = true; 
+              behavioralMetrics.idleCycles++;
+              if (behavioralMetrics.idleCycles >= 20) { 
+                behavioralMetrics.idleGapCount++;
+                behavioralMetrics.idleCycles = 0;
+              }
             }
             
-            lastTextLength = stats.length;
-            behavioralMetrics.lastSignature = stats.structureSignature;
-            
-            if (hasChanged) {
-                sendBackgroundData(stats);
+            if (behavioralMetrics.lastSignature.length > 0) {
+              const sigStr = JSON.stringify(stats.structureSignature);
+              const lastSigStr = JSON.stringify(behavioralMetrics.lastSignature);
+              if (sigStr !== lastSigStr && stats.length === lastTextLength) {
+                behavioralMetrics.structureChanges++;
+              }
             }
-          }).getDocumentStats();
+          }
           
-        }, pollingIntervalMs);
+          lastTextLength = stats.length;
+          behavioralMetrics.lastSignature = stats.structureSignature;
+          
+          if (hasChanged) {
+            sendBackgroundData(stats);
+          }
+          
+          reschedulePulse();
+        })
+        .withFailureHandler(function() {
+          showErrorBanner("Erro de sincronização. Tentando reconectar...");
+          reschedulePulse();
+        })
+        .getDocumentStats();
+      }
+      
+      function reschedulePulse() {
+        if (currentRole === 'student') {
+          trackingTimeout = setTimeout(trackingPulse, pollingIntervalMs);
+        }
       }
       
       function stopStudentTracking() {
-        if(typingInterval) clearInterval(typingInterval);
+        if(trackingTimeout) clearTimeout(trackingTimeout);
+      }
+      
+      function showErrorBanner(msg) {
+        const banner = document.getElementById('error-banner');
+        banner.innerText = msg;
+        banner.style.display = 'block';
+        setTimeout(() => { banner.style.display = 'none'; }, 5000);
       }
       
       function handleFinalize() {
@@ -622,7 +639,7 @@
       }
       
       function setFinalizedState(method) {
-        if(typingInterval) clearInterval(typingInterval);
+        if(trackingTimeout) clearTimeout(trackingTimeout);
         document.getElementById('btn-finalize').style.display = 'none';
         document.getElementById('finalize-hint').style.display = 'none';
         document.getElementById('submission-status').style.display = 'block';
@@ -672,9 +689,16 @@
         };
         
         google.script.run.withSuccessHandler(function(res) {
+          if (res.error) {
+            showErrorBanner("Erro no Servidor: " + res.error);
+          }
           document.getElementById('sync-dot').style.backgroundColor = "var(--success-color)";
           document.getElementById('stu-sync-msg').innerText = "Métricas salvas e enviadas.";
-        }).sendToBackend(payload);
+        })
+        .withFailureHandler(function() {
+           showErrorBanner("Falha crítica de comunicação com o backend.");
+        })
+        .sendToBackend(payload);
       }
       
       function validateSource() {
@@ -801,57 +825,60 @@
       }
 
       let hoverScrollTimer;
+      let refreshHeatmapTimer;
 
       function refreshHeatmap() {
-        const container = document.getElementById('aura-map');
-        container.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; width:100%; color:var(--text-muted); font-size:10px;"><span class="spinner"></span> Analisando...</div>';
+        // Debounce [CR]: Evita chamadas excessivas em documentos grandes
+        if (refreshHeatmapTimer) clearTimeout(refreshHeatmapTimer);
         
-        google.script.run.withSuccessHandler(function(data) {
-          container.innerHTML = '';
-          if (!data || data.length === 0) {
-            container.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; width:100%; font-size:10px;">Documento vazio</div>';
-            return;
-          }
+        refreshHeatmapTimer = setTimeout(() => {
+          const container = document.getElementById('aura-map');
+          container.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; width:100%; color:var(--text-muted); font-size:10px;"><span class="spinner"></span> Analisando...</div>';
           
-          data.forEach(seg => {
-            const div = document.createElement('div');
-            div.className = 'heatmap-segment';
-            div.style.backgroundColor = seg.color;
+          google.script.run.withSuccessHandler(function(data) {
+            container.innerHTML = '';
+            if (!data || data.length === 0) {
+              container.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; width:100%; font-size:10px;">Documento vazio</div>';
+              return;
+            }
             
-            // Altura proporcional ao TAMANHO REAL do texto (Item 3)
-            // 1px para cada 10 caracteres, com mínimo de 10px
-            const calcHeight = Math.max(10, Math.round(seg.charCount / 10));
-            div.style.flexBasis = calcHeight + "px"; 
-            
-            div.onmouseenter = (e) => {
-              const tooltip = document.getElementById('aura-tooltip');
-              const rect = div.getBoundingClientRect();
-              tooltip.innerHTML = `<strong>${seg.score}% Original</strong><br>${seg.preview}`;
-              tooltip.style.display = 'block';
-              tooltip.style.top = rect.top + 'px'; // Corrigido: rect.top já é relativo ao viewport
-              tooltip.style.left = (rect.right + 10) + 'px';
+            data.forEach(seg => {
+              const div = document.createElement('div');
+              div.className = 'heatmap-segment';
+              div.style.backgroundColor = seg.color;
               
-              // Inicia timer para scroll automático
-              clearTimeout(hoverScrollTimer);
-              hoverScrollTimer = setTimeout(() => {
+              // Altura proporcional ao TAMANHO REAL do texto
+              const calcHeight = Math.max(10, Math.round(seg.charCount / 10));
+              div.style.flexBasis = calcHeight + "px"; 
+              
+              div.onmouseenter = (e) => {
+                const tooltip = document.getElementById('aura-tooltip');
+                const rect = div.getBoundingClientRect();
+                tooltip.innerHTML = `<strong>${seg.score}% Original</strong><br>${seg.preview}`;
+                tooltip.style.display = 'block';
+                tooltip.style.top = rect.top + 'px'; 
+                tooltip.style.left = (rect.right + 10) + 'px';
+                
+                clearTimeout(hoverScrollTimer);
+                hoverScrollTimer = setTimeout(() => {
+                  google.script.run.scrollToParagraph(seg.index);
+                }, 400);
+              };
+              
+              div.onmouseleave = () => {
+                document.getElementById('aura-tooltip').style.display = 'none';
+                clearTimeout(hoverScrollTimer);
+              };
+              
+              div.onclick = () => {
+                clearTimeout(hoverScrollTimer);
                 google.script.run.scrollToParagraph(seg.index);
-              }, 400);
-            };
-            
-            div.onmouseleave = () => {
-              document.getElementById('aura-tooltip').style.display = 'none';
-              clearTimeout(hoverScrollTimer);
-            };
-            
-            // Foco imediato no clique
-            div.onclick = () => {
-              clearTimeout(hoverScrollTimer);
-              google.script.run.scrollToParagraph(seg.index);
-            };
-            
-            container.appendChild(div);
-          });
-        }).getDocumentAuraMap();
+              };
+              
+              container.appendChild(div);
+            });
+          }).getDocumentAuraMap();
+        }, 500);
       }
 
       window.onload = init;
