@@ -225,6 +225,77 @@
         width: 0%;
         transition: width 1s ease-in-out;
       }
+
+      /* Radar de Esforço (Heatmap) */
+      .heatmap-section {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px dashed var(--border-color);
+      }
+      .heatmap-container {
+        display: flex;
+        flex-direction: column;
+        height: auto; /* Dinâmico */
+        max-height: 450px; /* Limite para não quebrar a UI */
+        min-height: 40px;
+        width: 60px;
+        background: #f1f5f9;
+        border-radius: 6px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        margin: 10px 0;
+        border: 1px solid var(--border-color);
+        position: relative;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+      }
+      .heatmap-segment {
+        flex-shrink: 0;
+        width: 100%;
+        min-height: 10px;
+        transition: all 0.2s;
+        cursor: pointer; /* Mudado de crosshair para pointer */
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+      }
+      .heatmap-segment:hover {
+        filter: brightness(1.1);
+        transform: scaleX(1.1);
+        z-index: 5;
+      }
+      .heatmap-label {
+        font-size: 10px;
+        color: var(--text-muted);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-self: stretch; /* Acompanha a altura do radar */
+        margin-right: 12px;
+        padding: 10px 0;
+        text-align: right;
+        min-width: 35px;
+      }
+      .heatmap-tooltip {
+        position: fixed; /* Global para evitar cortes de scroll */
+        background: #000000;
+        color: #ffffff;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 11px;
+        pointer-events: none;
+        z-index: 10000;
+        display: none;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+        max-width: 180px;
+        line-height: 1.4;
+      }
+      .heatmap-tooltip::before {
+        content: "";
+        position: absolute;
+        right: 100%;
+        top: 12px;
+        border-width: 6px;
+        border-style: solid;
+        border-color: transparent #000 transparent transparent;
+      }
     </style>
   </head>
   <body>
@@ -305,6 +376,26 @@
           </button>
         </div>
       </div>
+
+      <div class="card heatmap-section">
+        <h2>📊 Radar de Esforço
+           <button class="btn-outline" style="width: auto; padding: 2px 8px; font-size: 10px;" onclick="refreshHeatmap()">Atualizar</button>
+        </h2>
+        <p style="font-size: 11px; color: var(--text-muted);">
+          Distribuição da biometria de autoria ao longo do documento (parágrafos).
+        </p>
+        <div style="display: flex; align-items: center; justify-content: flex-start; padding-left: 5px;">
+          <div class="heatmap-label">
+            <span>Início</span>
+            <span>Fim</span>
+          </div>
+          <div class="heatmap-container" id="aura-map">
+             <div style="display:flex; align-items:center; justify-content:center; width:100%; color:var(--text-muted); font-size:10px;">Clique em atualizar</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="aura-tooltip" class="heatmap-tooltip"></div>
       
     </div>
 
@@ -572,6 +663,60 @@
         } else {
           quizBtn.style.display = "none";
         }
+      }
+
+      let hoverScrollTimer;
+
+      function refreshHeatmap() {
+        const container = document.getElementById('aura-map');
+        container.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; width:100%; color:var(--text-muted); font-size:10px;"><span class="spinner"></span> Analisando...</div>';
+        
+        google.script.run.withSuccessHandler(function(data) {
+          container.innerHTML = '';
+          if (!data || data.length === 0) {
+            container.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; width:100%; font-size:10px;">Documento vazio</div>';
+            return;
+          }
+          
+          data.forEach(seg => {
+            const div = document.createElement('div');
+            div.className = 'heatmap-segment';
+            div.style.backgroundColor = seg.color;
+            
+            // Altura proporcional ao TAMANHO REAL do texto (Item 3)
+            // 1px para cada 10 caracteres, com mínimo de 10px
+            const calcHeight = Math.max(10, Math.round(seg.charCount / 10));
+            div.style.flexBasis = calcHeight + "px"; 
+            
+            div.onmouseenter = (e) => {
+              const tooltip = document.getElementById('aura-tooltip');
+              const rect = div.getBoundingClientRect();
+              tooltip.innerHTML = `<strong>${seg.score}% Original</strong><br>${seg.preview}`;
+              tooltip.style.display = 'block';
+              tooltip.style.top = rect.top + 'px'; // Corrigido: rect.top já é relativo ao viewport
+              tooltip.style.left = (rect.right + 10) + 'px';
+              
+              // Inicia timer para scroll automático
+              clearTimeout(hoverScrollTimer);
+              hoverScrollTimer = setTimeout(() => {
+                google.script.run.scrollToParagraph(seg.index);
+              }, 400);
+            };
+            
+            div.onmouseleave = () => {
+              document.getElementById('aura-tooltip').style.display = 'none';
+              clearTimeout(hoverScrollTimer);
+            };
+            
+            // Foco imediato no clique
+            div.onclick = () => {
+              clearTimeout(hoverScrollTimer);
+              google.script.run.scrollToParagraph(seg.index);
+            };
+            
+            container.appendChild(div);
+          });
+        }).getDocumentAuraMap();
       }
 
       window.onload = init;

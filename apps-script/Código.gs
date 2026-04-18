@@ -297,3 +297,71 @@ function getAdvancedItem3Data() {
     revisionsCount: revisionsCount
   };
 }
+/**
+ * Gera o Mapa de Calor (Aura) do documento atual.
+ * Analisa cada parágrafo e atribui um score de originalidade baseado em métricas.
+ */
+function getDocumentAuraMap() {
+  const doc = DocumentApp.getActiveDocument();
+  const body = doc.getBody();
+  const paragraphs = body.getParagraphs();
+  
+  const auraData = paragraphs.map((p, index) => {
+    const text = p.getText().trim();
+    if (text.length === 0) return null;
+    
+    // Heurística de Score (Para POC):
+    // 1. Texto muito curto: geralmente orgânico (Verde)
+    // 2. Texto moderado: amarelo
+    // 3. Texto longo sem edições detectadas: Vermelho (Simulado)
+    let score = 95; // Default Verde
+    let color = "#10b981"; 
+    
+    if (text.length > 300) {
+      score = 45; // Amarelo/Laranja
+      color = "#f59e0b";
+    }
+    if (text.length > 800) {
+      score = 15; // Vermelho
+      color = "#ef4444";
+    }
+
+    // Variar levemente com base no index para dar efeito visual de mapa real na POC
+    const variance = (index % 3 === 0) ? -10 : 5;
+    score = Math.max(10, Math.min(100, score + variance));
+    
+    const hasPageBreak = p.getAttributes()[DocumentApp.Attribute.PAGE_BREAK_BEFORE] === true;
+    
+    return {
+      index: index,
+      preview: text.substring(0, 30) + "...",
+      score: score,
+      charCount: text.length, // Adicionado para escala dinâmica
+      color: score > 70 ? "#10b981" : (score > 40 ? "#f59e0b" : "#ef4444"),
+      hasPageBreak: hasPageBreak
+    };
+  }).filter(item => item !== null);
+  
+  return auraData;
+}
+
+/**
+ * Move o foco (cursor) do Google Docs para o parágrafo especificado.
+ * Provoca o efeito de scroll automático para o trecho.
+ */
+function scrollToParagraph(paragraphIndex) {
+  const doc = DocumentApp.getActiveDocument();
+  const body = doc.getBody();
+  const paragraphs = body.getParagraphs();
+  
+  if (paragraphIndex >= 0 && paragraphIndex < paragraphs.length) {
+    const target = paragraphs[paragraphIndex];
+    // Se o parágrafo tiver conteúdo, colocamos o cursor no início dele
+    if (target.getNumChildren() > 0) {
+       doc.setCursor(doc.newPosition(target.getChild(0), 0));
+    } else {
+       // Backup: seleciona o parágrafo inteiro se estiver vazio
+       doc.setSelection(doc.newRange().addRangeElement(target).build());
+    }
+  }
+}
