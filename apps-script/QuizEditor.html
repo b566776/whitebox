@@ -7,17 +7,18 @@
         --primary-color: #4338ca;
         --bg-color: #f8fafc;
         --text-main: #0f172a;
+        --text-muted: #64748b;
         --border-color: #e2e8f0;
+        --success-color: #16a34a;
       }
       body {
         font-family: 'Inter', sans-serif;
         padding: 20px;
         background-color: var(--bg-color);
         color: var(--text-main);
+        font-size: 14px;
       }
-      .container {
-        max-width: 100%;
-      }
+      .container { max-width: 100%; }
       h1 {
         font-size: 18px;
         margin-bottom: 20px;
@@ -38,7 +39,7 @@
         font-weight: 600;
         font-size: 12px;
         margin-bottom: 5px;
-        color: #64748b;
+        color: var(--text-muted);
       }
       textarea {
         width: 100%;
@@ -48,24 +49,70 @@
         font-size: 14px;
         resize: vertical;
         margin-bottom: 10px;
+        box-sizing: border-box;
       }
-      .option-group {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 8px;
-      }
-      .option-input {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      input[type="text"] {
+      .option-group { display: grid; grid-template-columns: 1fr; gap: 8px; }
+      .option-input { display: flex; align-items: center; gap: 8px; }
+      input[type="text"], input[type="email"] {
         flex: 1;
         padding: 8px;
         border: 1px solid var(--border-color);
         border-radius: 4px;
         font-size: 13px;
+        width: 100%;
+        box-sizing: border-box;
       }
+
+      /* Seção de Email */
+      .email-section {
+        background: white;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      }
+      .email-toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .email-toggle-row input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        accent-color: var(--primary-color);
+      }
+      .email-toggle-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-main);
+        margin: 0;
+      }
+      .email-fields {
+        display: none;
+        margin-top: 14px;
+        animation: fadeIn 0.2s ease;
+      }
+      .email-fields.visible { display: block; }
+      .email-field-group { margin-bottom: 10px; }
+      .email-field-group label {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+      .email-note {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 8px;
+        padding: 6px 10px;
+        background: #f1f5f9;
+        border-radius: 4px;
+      }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
       .footer {
         margin-top: 20px;
         display: flex;
@@ -78,44 +125,139 @@
         font-weight: 600;
         cursor: pointer;
         border: none;
+        font-size: 14px;
       }
       .btn-primary { background: var(--primary-color); color: white; }
+      .btn-primary:hover { background: #3730a3; }
       .btn-secondary { background: #e2e8f0; color: #475569; }
+      .btn-secondary:hover { background: #cbd5e1; }
+      .btn-danger {
+        background: none;
+        border: 1px solid #fca5a5;
+        color: #dc2626;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .btn-danger:hover { background: #fee2e2; }
+      .btn-add-question {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: none;
+        border: 2px dashed var(--border-color);
+        color: var(--text-muted);
+        width: 100%;
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-bottom: 20px;
+        justify-content: center;
+        transition: all 0.15s ease;
+      }
+      .btn-add-question:hover {
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+        background: #eef2ff;
+      }
+      .question-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      .question-header label {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-muted);
+        margin: 0;
+      }
     </style>
   </head>
   <body>
     <div class="container">
       <h1>📋 Revisão do Quiz de Autonomia</h1>
       <div id="quiz-list">
-        <!-- Questions will be rendered here -->
+        <!-- Questions rendered by JS -->
       </div>
-      
+
+      <button class="btn-add-question" onclick="addQuestion()">➕ Adicionar Pergunta</button>
+
+      <!-- Seção de notificação por email -->
+      <div class="email-section">
+        <label class="email-toggle-row" for="send-email-toggle">
+          <input type="checkbox" id="send-email-toggle" onchange="toggleEmailFields()">
+          <span class="email-toggle-label">📧 Notificar aluno por email</span>
+        </label>
+
+        <div class="email-fields" id="email-fields">
+          <div class="email-field-group">
+            <label for="student-email-input">Email do aluno:</label>
+            <input type="email" id="student-email-input" placeholder="aluno@exemplo.com">
+          </div>
+          <div class="email-field-group">
+            <label for="email-message">Mensagem pessoal (opcional):</label>
+            <textarea id="email-message" rows="3"
+              placeholder="Ex: Preciso entender melhor como você chegou a esta conclusão..."></textarea>
+          </div>
+          <div class="email-note">
+            ℹ️ O email incluirá as perguntas do desafio e um link de instrução para responder na sidebar.
+          </div>
+        </div>
+      </div>
+
       <div class="footer">
         <button class="btn btn-secondary" onclick="google.script.host.close()">Cancelar</button>
         <button class="btn btn-primary" onclick="submitQuiz()">ENVIAR PARA O ALUNO</button>
       </div>
     </div>
 
+    <!-- Dado do quiz injetado via GAS templating (fora do contexto JS para evitar lint) -->
+    <script type="application/json" id="quiz-data-json"><?!= JSON.stringify(quizData) ?></script>
+
     <script>
-      // O dado do quiz é injetado via templating
-      let quizData = <?!= JSON.stringify(quizData) ?>;
+      // Mutable: precisa ser let para collectCurrentState poder reatribuir
+      let quizData = JSON.parse(document.getElementById('quiz-data-json').textContent);
+
+      /** Salva os valores atuais do DOM de volta em quizData antes de re-renderizar */
+      function collectCurrentState() {
+        quizData = quizData.map((item, qIndex) => {
+          const qEl = document.getElementById('q-' + qIndex);
+          const question = qEl ? qEl.value : item.question;
+          const options = item.options.map((_, oIndex) => {
+            const el = document.getElementById('q-' + qIndex + '-o-' + oIndex);
+            return el ? el.value : item.options[oIndex];
+          });
+          const checked = document.querySelector('input[name="correct-' + qIndex + '"]:checked');
+          const answer = checked ? parseInt(checked.value) : item.answer;
+          return { question, options, answer };
+        });
+      }
 
       function renderQuiz() {
         const container = document.getElementById('quiz-list');
         container.innerHTML = '';
-        
         quizData.forEach((item, qIndex) => {
           const div = document.createElement('div');
           div.className = 'quiz-item';
           div.innerHTML = `
-            <label>PERGUNTA ${qIndex + 1}:</label>
+            <div class="question-header">
+              <label>PERGUNTA ${qIndex + 1}</label>
+              <button class="btn-danger" onclick="removeQuestion(${qIndex})">
+                🗑 Remover
+              </button>
+            </div>
             <textarea id="q-${qIndex}">${item.question}</textarea>
-            
-            <label>OPÇÕES:</label>
+            <label>OPÇÕES: <span style="font-weight:400;">(marque o rádio na opção correta)</span></label>
             <div class="option-group">
               ${item.options.map((opt, oIndex) => `
                 <div class="option-input">
-                  <input type="radio" name="correct-${qIndex}" ${item.answer === oIndex ? 'checked' : ''} value="${oIndex}">
+                  <input type="radio" name="correct-${qIndex}"
+                    ${item.answer === oIndex ? 'checked' : ''} value="${oIndex}">
                   <input type="text" id="q-${qIndex}-o-${oIndex}" value="${opt}">
                 </div>
               `).join('')}
@@ -125,26 +267,86 @@
         });
       }
 
+      function removeQuestion(idx) {
+        if (quizData.length <= 1) {
+          alert('O quiz deve ter pelo menos uma pergunta.');
+          return;
+        }
+        collectCurrentState();
+        quizData.splice(idx, 1);
+        renderQuiz();
+      }
+
+      function addQuestion() {
+        collectCurrentState();
+        quizData.push({
+          question: 'Nova pergunta...',
+          options: ['Opção A', 'Opção B', 'Opção C', 'Opção D'],
+          answer: 0
+        });
+        renderQuiz();
+        // Rola até a nova pergunta
+        document.getElementById('quiz-list').lastElementChild
+          .scrollIntoView({ behavior: 'smooth' });
+      }
+
+      function toggleEmailFields() {
+        const toggle = document.getElementById('send-email-toggle');
+        const fields = document.getElementById('email-fields');
+        fields.classList.toggle('visible', toggle.checked);
+      }
+
       function submitQuiz() {
-        // Captura as alterações
+        // Captura as alterações do professor
         const updatedQuiz = quizData.map((item, qIndex) => {
           const question = document.getElementById(`q-${qIndex}`).value;
-          const options = item.options.map((_, oIndex) => {
-             return document.getElementById(`q-${qIndex}-o-${oIndex}`).value;
-          });
-          const answer = parseInt(document.querySelector(`input[name="correct-${qIndex}"]:checked`).value);
-          
+          const options = item.options.map((_, oIndex) =>
+            document.getElementById(`q-${qIndex}-o-${oIndex}`).value
+          );
+          const checkedRadio = document.querySelector(`input[name="correct-${qIndex}"]:checked`);
+          const answer = checkedRadio ? parseInt(checkedRadio.value) : 0;
           return { question, options, answer };
         });
 
+        // Opções de email
+        const sendEmail = document.getElementById('send-email-toggle').checked;
+        const emailOptions = { sendEmail: sendEmail };
+
+        if (sendEmail) {
+          const emailInput = document.getElementById('student-email-input').value.trim();
+          if (!emailInput) {
+            alert('Por favor, informe o email do aluno para enviar a notificação.');
+            return;
+          }
+          emailOptions.studentEmail = emailInput;
+          emailOptions.message = document.getElementById('email-message').value.trim();
+        }
+
+        const btn = document.querySelector('.btn-primary');
+        btn.disabled = true;
+        btn.innerText = 'Enviando...';
+
         google.script.run
-          .withSuccessHandler(() => {
+          .withSuccessHandler(function() {
             google.script.host.close();
           })
-          .submitFinalQuiz(updatedQuiz);
+          .withFailureHandler(function(err) {
+            btn.disabled = false;
+            btn.innerText = 'ENVIAR PARA O ALUNO';
+            alert('Erro ao enviar: ' + err.message);
+          })
+          .submitFinalQuiz(updatedQuiz, emailOptions);
       }
 
-      window.onload = renderQuiz;
+      window.onload = function() {
+        renderQuiz();
+        // Pré-preenche o email do aluno se já estiver salvo
+        google.script.run
+          .withSuccessHandler(function(email) {
+            if (email) document.getElementById('student-email-input').value = email;
+          })
+          .getStudentEmail();
+      };
     </script>
   </body>
 </html>

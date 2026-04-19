@@ -297,7 +297,7 @@
         border-color: transparent #000 transparent transparent;
       }
       .btn-submit {
-        background: var(--primary);
+        background: var(--success-color);
         color: white;
         width: 100%;
         padding: 12px;
@@ -311,11 +311,11 @@
         align-items: center;
         justify-content: center;
         gap: 8px;
-        box-shadow: 0 4px 15px rgba(108, 92, 231, 0.3);
+        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
       }
       .btn-submit:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(108, 92, 231, 0.4);
+        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
         filter: brightness(1.1);
       }
       .submission-banner {
@@ -345,6 +345,36 @@
         display: none;
         box-shadow: 0 2px 10px rgba(0,0,0,0.2);
       }
+
+      /* Quiz do Aluno */
+      .quiz-question {
+        margin-bottom: 14px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border-color);
+      }
+      .quiz-question:last-child { border-bottom: none; }
+      .quiz-question p {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-main);
+        margin: 0 0 8px 0;
+        line-height: 1.4;
+        /* Impede seleção de texto das perguntas */
+        user-select: none;
+        -webkit-user-select: none;
+        cursor: default;
+      }
+      .quiz-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 5px;
+        cursor: pointer;
+        line-height: 1.4;
+      }
+      .quiz-option input { margin-top: 2px; flex-shrink: 0; }
     </style>
   </head>
   <body>
@@ -391,6 +421,18 @@
         <div class="sync-status" id="stu-sync-msg">Salvando metadados silenciosamente...</div>
       </div>
       
+      <!-- Card: Desafio de Autonomia (aparece quando o professor envia um quiz) -->
+      <div id="quiz-card" class="card hidden">
+        <h2>📝 Desafio de Autonomia</h2>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          Seu professor enviou um desafio. Responda com honestidade — isso faz parte da sua avaliação de autoria!
+        </p>
+        <div id="quiz-questions"></div>
+        <button class="btn btn-primary" onclick="submitStudentAnswers()" style="margin-top: 12px;">
+          ✅ Enviar Respostas
+        </button>
+      </div>
+
       <div class="card">
         <h2>🔍 Validador de Fontes</h2>
         <input type="text" id="source-url" style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Cole o link da fonte aqui...">
@@ -570,12 +612,10 @@
         if (currentRole === 'student') {
           document.getElementById('student-view').classList.remove('hidden');
           document.getElementById('teacher-view').classList.add('hidden');
-          stopHeatmapPolling();
         } else {
           document.getElementById('student-view').classList.add('hidden');
           document.getElementById('teacher-view').classList.remove('hidden');
-          refreshHeatmap(); // Carga imediata
-          startHeatmapPolling(); // Auto-refresh a cada 30s
+          refreshHeatmap(); // Carga ao entrar na view do professor
         }
       }
 
@@ -593,6 +633,7 @@
         isTracking = true;
         if(trackingTimeout) clearTimeout(trackingTimeout);
         lastLoopTime = Date.now();
+        checkForPendingQuiz(); // Verificar quiz pendente ao iniciar
         trackingPulse(); // Inicia o primeiro pulso
       }
       
@@ -668,8 +709,15 @@
         .getDocumentStats();
       }
       
+      let quizPulseCounter = 0;
+      const QUIZ_CHECK_EVERY = 4; // Checa quiz a cada 4 pulsos (~60s)
+
       function reschedulePulse() {
         if (currentRole === 'student') {
+          quizPulseCounter++;
+          if (quizPulseCounter % QUIZ_CHECK_EVERY === 0) {
+            checkForPendingQuiz();
+          }
           trackingTimeout = setTimeout(trackingPulse, pollingIntervalMs);
         }
       }
@@ -731,7 +779,8 @@
           documentId: stats.docId,
           timestamp: Date.now(),
           studentContext: { 
-             studentId: currentRole === 'student' ? compositeStudentId : "professor_view" 
+             studentId: currentRole === 'student' ? compositeStudentId : "professor_view",
+             rawEmail: currentRole === 'student' ? studentEmail : null
           },
           behavioralMetrics: {
              activeFocusTimeMinutes: activeFocusMinutes,
@@ -766,6 +815,109 @@
         .sendToBackend(payload);
       }
       
+      // --- QUIZ DO ALUNO ---
+
+      // [F-04] Flag para evitar chamadas paralelas a getStudentQuiz
+      var isQuizChecking = false;
+
+      function checkForPendingQuiz() {
+        if (isQuizChecking) return;
+        isQuizChecking = true;
+        google.script.run
+          .withSuccessHandler(function(quiz) {
+            isQuizChecking = false;
+            if (quiz && quiz.questions && quiz.questions.length > 0) {
+              renderStudentQuiz(quiz);
+            } else {
+              document.getElementById('quiz-card').classList.add('hidden');
+            }
+          })
+          .withFailureHandler(function() {
+            isQuizChecking = false; // Libera flag mesmo em falha
+          })
+          .getStudentQuiz();
+      }
+
+      // [F-03] DOM seguro: usa textContent para evitar XSS
+      function renderStudentQuiz(quiz) {
+        var container = document.getElementById('quiz-questions');
+        container.innerHTML = '';
+        quiz.questions.forEach(function(q, idx) {
+          var div = document.createElement('div');
+          div.className = 'quiz-question';
+
+          var p = document.createElement('p');
+          p.textContent = (idx + 1) + '. ' + q.question;
+          div.appendChild(p);
+
+          q.options.forEach(function(opt, oIdx) {
+            var label = document.createElement('label');
+            label.className = 'quiz-option';
+            var radio = document.createElement('input');
+            radio.type = 'radio';
+            radio.name = 'sq' + idx;
+            radio.value = String(oIdx);
+            var span = document.createElement('span');
+            span.textContent = opt;
+            label.appendChild(radio);
+            label.appendChild(span);
+            div.appendChild(label);
+          });
+
+          container.appendChild(div);
+        });
+
+        // Interceptar evento copy no card: esvazia clipboard
+        var card = document.getElementById('quiz-card');
+        card.oncopy = function(e) {
+          e.preventDefault();
+          if (e.clipboardData) e.clipboardData.setData('text/plain', '');
+        };
+
+        card.classList.remove('hidden');
+      }
+
+      function submitStudentAnswers() {
+        var container = document.getElementById('quiz-questions');
+        var questions = container.querySelectorAll('.quiz-question');
+        var answers = {};
+        var allAnswered = true;
+
+        questions.forEach(function(_, idx) {
+          var selected = container.querySelector('input[name="sq' + idx + '"]:checked');
+          if (selected) {
+            answers[idx] = parseInt(selected.value);
+          } else {
+            allAnswered = false;
+          }
+        });
+
+        if (!allAnswered) {
+          alert('Por favor, responda todas as perguntas antes de enviar.');
+          return;
+        }
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            if (res && res.success) {
+              document.getElementById('quiz-card').classList.add('hidden');
+              var msg = document.createElement('div');
+              msg.className = 'alert alert-success';
+              msg.style.margin = '8px 0';
+              msg.innerText = '✅ Respostas enviadas ao professor!';
+              var studentView = document.getElementById('student-view');
+              studentView.insertBefore(msg, studentView.firstChild);
+              setTimeout(function() { if(msg.parentNode) msg.remove(); }, 4000);
+            } else {
+              alert('Erro ao enviar: ' + ((res && res.error) || 'Tente novamente.'));
+            }
+          })
+          .withFailureHandler(function() {
+            alert('Falha de comunicação. Tente novamente.');
+          })
+          .submitStudentQuizAnswers(answers);
+      }
+
       function validateSource() {
         const url = document.getElementById('source-url').value;
         const resDiv = document.getElementById('source-result');
@@ -891,24 +1043,6 @@
 
       let hoverScrollTimer;
       let refreshHeatmapTimer;
-      let heatmapPollingInterval = null;  // Auto-refresh do mapa de calor
-      const HEATMAP_POLL_MS = 30000;       // 30 segundos
-
-      function startHeatmapPolling() {
-        stopHeatmapPolling(); // Garante que não há polling duplicado
-        heatmapPollingInterval = setInterval(function() {
-          if (currentRole !== 'student') { // Só atualiza na view do professor
-            refreshHeatmap();
-          }
-        }, HEATMAP_POLL_MS);
-      }
-
-      function stopHeatmapPolling() {
-        if (heatmapPollingInterval) {
-          clearInterval(heatmapPollingInterval);
-          heatmapPollingInterval = null;
-        }
-      }
 
       function refreshHeatmap() {
         // Debounce [CR]: Evita chamadas excessivas em documentos grandes

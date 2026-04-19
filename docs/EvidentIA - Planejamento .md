@@ -25,7 +25,7 @@ O foco é estabelecer a comunicação entre o Google Docs e o backend.
 
   O professor utiliza a ferramenta para sair do jogo de "adivinhação" e agir com base em evidências.
 
-* **Criação da Tarefa e Abertura da "Caixa-Preta":**Distribuição via Google Classroom: O professor cria uma atividade e anexa um Google Docs com a opção "Fazer uma cópia para cada aluno".   
+* **Criação da Tarefa e Abertura da "Caixa-Preta":**Distribuição via Google Classroom: O professor cria uma atividade e anexa um Google Docs com a opção "Distribuir uma cópia para cada aluno".   
   Ativação Automática: Assim que o aluno abre sua cópia, o Add-on inicia o registro silencioso de metadados, tempo de edição e histórico de rascunhos.  
   Configuração de Parâmetros: Através da Sidebar, o docente define se a tarefa exigirá validação de fontes via Google Scholar e ativará alertas para inserções massivas de texto (indícios de automação).  
   Transparência Pedagógica: O professor orienta a turma que o processo de construção (e não apenas o arquivo pronto) será visível, promovendo o uso ético da IA e o letramento digital desde o rascunho.   
@@ -33,7 +33,7 @@ O foco é estabelecer a comunicação entre o Google Docs e o backend.
 * **Análise de Indicadores:** O docente revisa os relatórios que apontam padrões de escrita e a confiabilidade das fontes citadas.  
 * **Análise do texto produzido**: O professor seleciona o aluno/trabalho quando ele abre o trabalho de um aluno específico: Diferente de uma aplicação externa, o Add-on funciona dentro do arquivo aberto. Informando o e-mail do proprietário do arquivo; a Sidebar "acorda" já sabendo que aquele texto pertence ao Aluno X, permitindo que o professor visualize o nível de autonomia daquele trabalho específico sem precisar selecioná-lo em uma lista.  
   Caso o professor suspeite de um parágrafo específico ou queira validar uma fonte isolada, poderá destacar (seleciona com o mouse) um trecho do texto no Google Docs.e clicar em "Analisar Evolução" na Sidebar, e a aplicação mostrará se aquele trecho específico "mudou o tom repentinamente".  
-* **Disparo da Validação:** Se o professor notar indícios de automação pura ou falta de reflexão, ele aciona o **Gerador de Quiz** baseado no texto entregue, .  
+* **Disparo da Validação:** Se o professor notar indícios de automação pura ou falta de reflexão, ele aciona o **Gerador de Quiz** baseado no texto entregue.  
 * **Oportunidade de Conversa:** Com o resultado do quiz em mãos, o professor recebe sugestões de como conversar com o aluno para desenvolver o senso crítico e o uso ético das ferramentas digitais.  
 * **Veredito Pedagógico:** O quiz não substitui o professor; ele serve como uma evidência adicional para que a decisão final sobre o aprendizado seja justa e fundamentada.
 
