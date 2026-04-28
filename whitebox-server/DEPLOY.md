@@ -50,34 +50,45 @@
 
 ---
 
-## PASSO 5: Adicionar Professores (Painel Admin)
+## PASSO 5: Cadastrar Professores
 
-Você pode adicionar professores de duas formas:
+Existem três formas de adicionar professores à base do Whitebox:
 
-**Opção A — Via Função (Programático)**
+**Opção A — Onboarding Automático (Recomendado)**
+1. No `Dashboard.html`, clique em **"Gerar Link de Inscrição Segura"**.
+2. Defina o nome da leva e a data limite. O sistema criará um Google Form.
+3. Envie o formulário aos professores. O robô validará a permissão do Drive deles em background e fará o cadastro automático!
+
+**Opção B — Via Função (Programático)**
 ```javascript
 // Execute no editor do BrainProxy:
-adicionarProfessor("professor@escola.com.br", "Escola XYZ", false); // sem chave global
-adicionarProfessor("vip@escola.com.br", "Escola XYZ", true);        // com chave global
+// (email, escola, usaChaveGlobal, idArquivoDrive)
+adicionarProfessor("professor@escola.com.br", "Escola XYZ", false, "1BxiMVs0XRY5..."); // Cofre Individual
+adicionarProfessor("vip@escola.com.br", "Escola XYZ", true, ""); // Chave Global
 ```
 
-**Opção B — Via Planilha (Manual)**
+**Opção C — Via Planilha (Manual)**
 1. Abra a planilha Whitebox Admin.
 2. Na aba "Assinaturas", adicione uma linha com:
-   - `Email` | `Escola` | `Status: Ativo` | `UsaChaveGlobal: Sim/Não`
+   - `Email` | `Escola` | `Status: Ativo` | `UsaChaveGlobal: Sim/Não` | `ChaveIndividual: ID_DO_ARQUIVO_DRIVE`
 
 ---
 
-## Hierarquia de Chaves API (Regras de Negócio)
+## Hierarquia de Chaves API & Segurança de Dados
+
+Para garantir que as chaves da API não fiquem vulneráveis no banco de dados, utilizamos a estratégia de **Cofre no Drive (Delegação de Acesso)**.
 
 ```
 Para cada requisição de análise:
 
-1. O professor está na lista? Se não → retorna "NAO_CADASTRADO" (modo offline)
-2. Status == "Inativo"? → retorna "INATIVO"
-3. UsaChaveGlobal == "Sim" E GEMINI_GLOBAL_KEY existe? → usa chave global ✅
-4. ChaveIndividual preenchida? → usa chave do professor ✅
-5. Nenhuma das anteriores → modo offline (métricas são salvas, análise não é feita)
+1. O professor está na lista? Se não → retorna "NAO_CADASTRADO" (modo offline).
+2. Status == "Inativo"? → retorna "INATIVO".
+3. UsaChaveGlobal == "Sim" E GEMINI_GLOBAL_KEY configurada? → usa a chave da instituição ✅
+4. ChaveIndividual preenchida com um ID do Google Drive? 
+   ↳ O Proxy tenta ler o arquivo no Drive do professor. 
+   ↳ Se conseguiu ler e tem a chave válida → usa a chave privada do professor ✅
+5. Nenhuma das anteriores → entra no MODO OFFLINE nativo.
+   ↳ (As métricas pedagógicas são salvas na planilha do professor, mas o texto não é enviado para o Gemini).
 ```
 
 ---

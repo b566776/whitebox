@@ -13,6 +13,7 @@ Bem-vindo à documentação gerada sob-demanda do estado atual do **Whitebox**. 
 
 - [Project Overview](./project-overview.md)
 - [Architecture](./architecture.md)
+- [Guia de Operação (Admin, Professor, Aluno)](./user-guides.md)
 - [Classroom API Patches e Code Review Log](./project-scan-report.json) _(Reflete correções de paginação feitas na versão recente)_
 
 ### Componentes Principais Encontrados
@@ -22,10 +23,11 @@ Bem-vindo à documentação gerada sob-demanda do estado atual do **Whitebox**. 
 - **`Código.gs`**: Lógica de container-bound. Extrai telemetria, gerencia Propriedades e envia dados (POST) protegidos com `SHARED_TOKEN` para o Brain Proxy.
 
 #### 2. whitebox-server (Brain Proxy e Admin App)
-- **`BrainProxy.gs`**: Rotas `doGet` e `doPost`. Atua como firewall e injetor da Gemini API.
+- **`BrainProxy.gs`**: Rotas `doGet` e `doPost`. Agora implementa a lógica de **Cofre no Drive** (Alternativa 2) para resolução segura de chaves API sem armazenamento em texto plano.
 - **`AdminSetup.gs`**: Auto-provisionador de planilhas. Gerencia a Planilha Global de Assinaturas e provisiona lógicas B2B isoladas por professor.
-- **`ClassroomService.gs`**: Integração com a Google Classroom API (agora com suporte à repaginação robusta).
-- **`Dashboard.html`**: Painel visual de controle e monitoramento de *heatmaps* (com botões protegidos contra "duplo clique").
+- **`ClassroomService.gs`**: Integração com a Google Classroom API (com suporte à repaginação robusta).
+- **`FormOnboarding.gs`**: NOVO! Gerenciador de formulários por levas (cohorts) com automação de cadastros e validação de chaves.
+- **`Dashboard.html`**: Painel visual de controle, monitoramento de *heatmaps* e agora **Gerador de Levas de Onboarding**.
 
 ### Próximos Passos (Recomendações da Análise de Negócios)
 1. **Monitorar o Limite do PropertiesService:** Atualmente há limite de cotas do Google (9KB) para persistir o `PENDING_QUIZ`. Para crescimento em B2C e grandes textos, é recomendado planejar a offload dessas sessões para Firebase ou Cache interno.

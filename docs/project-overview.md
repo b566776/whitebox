@@ -12,16 +12,20 @@ A aplicação é dividida em dois grandes módulos interconectados via APIs segu
    - Requer autenticação com o servidor usando um `SHARED_TOKEN`.
 
 2. **whitebox-server** (Brain Proxy & Admin)
-   - Atua como um proxy de segurança isolando as chaves de API da IA.
-   - Fornece um painel administrativo (`Dashboard.html`) para gerenciamento de professores, turmas e integração com Google Classroom.
+   - Atua como um proxy de segurança isolando as chaves de API da IA através da estratégia de **Cofre no Drive**.
+   - Fornece um painel administrativo (`Dashboard.html`) para gerenciamento de professores, turmas, integração com Google Classroom e geração de **Levas de Onboarding**.
+   - Gerencia o **Onboarding Autônomo** via Google Forms com validação em tempo real de permissões de arquivo.
    - Registra todos os logs em uma Planilha Global (Google Sheets) via `AdminSetup.gs`.
 
-## Arquitetura
+## Arquitetura e Segurança
 - **Plataforma:** Google Apps Script (GAS)
+- **Segurança de Dados (Cofre no Drive):** Professores não fornecem chaves de API diretamente ao sistema; eles compartilham um arquivo de texto no seu próprio Drive. O sistema acessa a chave apenas em tempo de execução, garantindo soberania total ao docente.
+- **Onboarding:** Fluxo automatizado via Google Forms que valida chaves, provisiona bancos de dados e notifica usuários sem intervenção humana.
+- **Modo Offline:** Suporte nativo para operação sem IA caso chaves não sejam fornecidas ou autorizadas.
 - **Frontend:** HTML/JS/CSS puros (Vanilla), com Tailwind/Google Fonts e interface estilo Glassmorphism.
 - **Backend:** Roteamento via `doGet` e `doPost` no `BrainProxy.gs` (Standalone Script).
 - **Banco de Dados:** Google Sheets (gerenciado via SpreadsheetApp).
-- **Integrações:** Google Classroom API, Google Drive API, Gemini API (Generative Language API).
+- **Integrações:** Google Classroom API, Google Drive API, Gemini API (Generative Language API), Google Forms API.
 
 ## Stack Tecnológico
 | Categoria | Tecnologia | Justificativa |

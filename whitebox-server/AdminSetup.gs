@@ -84,9 +84,9 @@ function criarPlanilhaProfessor(email, instituicao) {
   return ss.getId();
 }
 /**
- * Adiciona um professor manualmente à planilha global (para uso via painel)
+ * Adiciona um professor manualmente à planilha global (para uso via painel ou form)
  */
-function adicionarProfessor(email, escola, usaChaveGlobal) {
+function adicionarProfessor(email, escola, usaChaveGlobal, chaveIndividual = '') {
   const cfg   = getConfig();
   const sheet = getPlanilhaGlobal(cfg.adminSpreadsheetId);
   sheet.appendRow([
@@ -94,7 +94,7 @@ function adicionarProfessor(email, escola, usaChaveGlobal) {
     escola || 'Não informada',
     'Ativo',
     usaChaveGlobal ? 'Sim' : 'Não',
-    '',            // ChaveIndividual (será preenchida pelo próprio professor)
+    chaveIndividual, // ChaveIndividual (ID do Cofre Drive)
     '',            // SpreadsheetId (será criado automaticamente)
     new Date().toISOString()
   ]);

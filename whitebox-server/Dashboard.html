@@ -262,7 +262,29 @@
       </div>
       <div id="heatmapList" style="margin-top: 1.5rem;">
         <!-- Graficos de barra serao injetados aqui -->
+    </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🚀 Gerar Onboarding de Professores</h2>
+    <p style="color: var(--text-dim); margin-bottom: 1rem; font-size: 0.9rem;">
+      Crie um link de cadastro para uma nova leva de professores. O link expirará automaticamente na data configurada.
+    </p>
+    <div class="config-grid">
+      <div>
+        <label>Nome da Leva</label>
+        <input type="text" id="levaName" placeholder="Ex: Professores Ingressantes 2026/1">
       </div>
+      <div>
+        <label>Data Limite (Expiração do Link)</label>
+        <input type="datetime-local" id="levaDeadline">
+      </div>
+    </div>
+    <button onclick="gerarLeva()" style="margin-top: 1rem; background: #8b5cf6;">🔗 Gerar Link de Inscrição Segura</button>
+    <div id="levaResult" style="margin-top: 1rem; display: none; padding: 1rem; background: rgba(16, 185, 129, 0.1); border: 1px dashed var(--success); border-radius: 0.5rem; text-align: center; word-break: break-all;">
+      <p style="color: var(--success); font-weight: bold; margin-bottom: 0.5rem;">Link Gerado com Sucesso!</p>
+      <a id="levaLink" href="#" target="_blank" style="color: var(--text); text-decoration: none; font-family: monospace;"></a>
     </div>
   </div>
 
@@ -446,6 +468,34 @@
         showToast('Falha na distribuição: ' + err, true);
       })
       .distribuirMestreParaProfessor(email, adminToken);
+  }
+
+  function gerarLeva() {
+    const nome = document.getElementById('levaName').value;
+    const dataLimite = document.getElementById('levaDeadline').value;
+    
+    if (!nome) {
+      return showToast('Preencha o Nome da Leva', true);
+    }
+    
+    showLoader(true);
+    google.script.run
+      .withSuccessHandler(res => {
+        showLoader(false);
+        if (res.success) {
+          showToast('Leva criada com sucesso!');
+          const resDiv = document.getElementById('levaResult');
+          const resLink = document.getElementById('levaLink');
+          resLink.href = res.url;
+          resLink.innerText = res.url;
+          resDiv.style.display = 'block';
+        }
+      })
+      .withFailureHandler(err => {
+        showLoader(false);
+        showToast('Erro ao criar Leva: ' + err, true);
+      })
+      .gerarLevaOnboarding(adminToken, nome, dataLimite);
   }
 
   // Initial load
