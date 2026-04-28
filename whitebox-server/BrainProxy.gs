@@ -186,7 +186,7 @@ function buscarConfigPedagogicaLocal(profEmail, courseId, assignmentId) {
     for (let i = 1; i < data.length; i++) {
       if (data[i][courseCol] == courseId && data[i][assignmentCol] == assignmentId) {
         return {
-          instrucoes: instrucesCol !== -1 ? data[i][instrucoesCol] : '',
+          instrucoes: instrucoesCol !== -1 ? data[i][instrucoesCol] : '',
           rigor:      rigorCol !== -1     ? data[i][rigorCol]      : 'Médio'
         };
       }
@@ -343,6 +343,12 @@ function getHeatmapData(token, scope, identifier) {
  * chamadas à Spreadsheet API. O cache elimina esse custo para chamadas
  * repetidas dentro da janela de 1h, que é aceitável para heatmaps
  * pedagógicos (não requerem dados em tempo real).
+ *
+ * TODO [ARCH-07] ESCALABILIDADE (MIGRAÇÃO FUTURA):
+ * À medida que o sistema escalar, as iterações `SpreadsheetApp.openById`
+ * estourarão a cota de 6 minutos. No futuro, será estritamente necessário
+ * utilizar uma infraestrutura de Data Warehouse, como o Google BigQuery ou
+ * Data Studio (Looker), com ingestão assíncrona para análises globais.
  *
  * Para forçar recalculo antes do TTL, chame invalidarCacheHeatmap(email).
  *
