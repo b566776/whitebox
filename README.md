@@ -1,9 +1,9 @@
-# EvidentIA - Google Docs Add-on
+# WhiteBox- Google Docs Add-on
 
-## O que é o EvidentIA?
-O EvidentIA é uma ferramenta inteligente criada para o ambiente educacional do Google Workspace. Ele se integra perfeitamente ao **Google Docs** na forma de um painel lateral (Add-on) cuja missão é abrir a "caixa-preta" do processo da escrita. 
+## O que é o WhiteBox?
+O WhiteBoxé uma ferramenta inteligente criada para o ambiente educacional do Google Workspace. Ele se integra perfeitamente ao **Google Docs** na forma de um painel lateral (Add-on) cuja missão é abrir a "caixa-preta" do processo da escrita. 
 
-Ao rastrear metadados como  tempo de foco, rítmo de digitação e comportamentos massivos de cópia e cola, o EvidentIA fornece aos educadores as **evidências da construção do aluno**, desmistificando intervenções de IA Generativa. A ideia não é atuar como uma punição ("caça às bruxas"), mas sim como um escudo que confere mérito ao estudante que se esforçou, fomentando relatórios práticos para a mediação pedagógica em sala de aula de maneira justa!
+Ao rastrear metadados como  tempo de foco, rítmo de digitação e comportamentos massivos de cópia e cola, o WhiteBoxfornece aos educadores as **evidências da construção do aluno**, desmistificando intervenções de IA Generativa. A ideia não é atuar como uma punição ("caça às bruxas"), mas sim como um escudo que confere mérito ao estudante que se esforçou, fomentando relatórios práticos para a mediação pedagógica em sala de aula de maneira justa!
 
 ---
 
@@ -19,8 +19,8 @@ Ao rastrear metadados como  tempo de foco, rítmo de digitação e comportamento
 3. **Importante:** Marque a opção de distribuição como **"Fazer uma cópia para cada aluno"**. Essa é a mágica do Workspace: a cópia que chegará pro aluno herdará todos os rastreios embutidos no seu documento modelo!
 
 **3. Entendendo Onde Estão as Evidências**
-1. Como **Professor(a)**, ao abrir o documento entregue por um **Aluno(a)**, o EvidentIA reconhecerá automaticamente a qual turma e estudante aquele texto pertence. Com isso, o painel lateral exibirá para você um resumo comportamental exclusivo daquela entrega, focando sempre em ilustrar perfeitamente para você o nível de esforço e originalidade daquele Aluno na produção do conteúdo. 
-2. A IA atestará (ex: *"Mudança brusca de estilo e complexidade detectada"* ou *"80% das palavras foram produto de colagens massivas do teclado"*). E na própria tela da ferramenta, lhe oferecerá dicas _"sócraticas"_ de quais os próximos passos pedagógicos você pode engajar com o aluno específico na devolutiva.
+1. Como **Professor(a)**, ao abrir o documento entregue por um **Aluno(a)**, o WhiteBoxreconhecerá automaticamente a qual turma e estudante aquele texto pertence. Com isso, o painel lateral exibirá para você um resumo comportamental exclusivo daquela entrega, focando sempre em ilustrar perfeitamente para você o nível de esforço e originalidade daquele Aluno na produção do conteúdo. 
+2. A IA atestará o processo (ex: *"Mudança brusca de estilo e complexidade detectada"*), incluindo a opção de alertar se *"80% das palavras foram produzidas e coladas massivamente no teclado"*, **independente do uso de chave API**. E na própria tela da ferramenta, lhe oferecerá dicas _"socráticas"_ de quais os próximos passos pedagógicos você pode engajar com o aluno específico na devolutiva.
 
 **4. ⚠️ A Regra de Ouro Pedagógica (Ativação Passiva)**
 Por bloqueios rigorosos de privacidade e antivírus do sistema web do Google, nenhum rastreador de conteúdo no formato _Add-on_ consegue rodar e "vigiá-lo" oculto assim que o documento é aberto. Ou seja, você precisará firmar um contrato pedagógico com a sua turma.
@@ -33,7 +33,7 @@ Sempre instrua a sua sala no envio da atividade:
 
 **1. Aceitando a Tarefa Transparente**
 1. Ao acessar uma atividade do seu professor no Google Classroom e abrir o seu arquivo de texto, o Aluno verá que pode focar no que importa e começar a desenvolver o seu texto.
-2. O "EvidentIA" opera de forma protetiva registrando o seu verdadeiro processo construtivo.
+2. O "WhiteBox" opera de forma protetiva registrando o seu verdadeiro processo construtivo.
 
 **2. Apoiando a Produção Limpa**
 1. O Aluno pode abrir o painel lateral do nosso Add-on clicando no ícone dentro do Docs para checar seus pômordos.

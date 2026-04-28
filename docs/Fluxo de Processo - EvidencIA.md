@@ -60,7 +60,7 @@ graph TD
 ## Detalhamento dos Gatilhos (Itens 2 e 3)
 
 ### Para o Aluno
-*   **Registro Silencioso**: Ativado no `onOpen` e mantido pelo polling de metadados. Gera o "historio de rascunhos".
+*   **Registro Silencioso**: Ativado no `onOpen` e mantido pelo polling de metadados. Gera o "histórico de rascunhos".
 *   **Validador de Fontes**: Ferramenta proativa para o aluno garantir a qualidade de suas citações.
 *   **Desafio de Autonomia**: Interface bloqueante ou de destaque quando o professor solicita a validação.
 
@@ -80,46 +80,54 @@ Este diagrama representa a interação entre os atores conforme descrito nos ite
 sequenceDiagram
     autonumber
     actor V as Virdia
-    participant DA as Dashboard (Backend)
     actor P as Professor
-    V->>P: Entrega arquivo Google Doc com Addon
-    participant UI as Addon do documento (Sidebar)
+    V->>P: Entrega arquivo<br/>(Google Doc-Semente)<br/>com Addon
+    participant UI as WhiteBox<br/>Addon - DocSidebar / UI - mobile responsiva
     actor A as Aluno
     participant BE as Backend & IA
 
-    Note over P, A: Fase 1: Início e Configuração
-    P->>P: Cria atividade no Google Classroom
-    P->>P: copia do arquivo semente 
-    P->>UI: Define parâmetros (define tarefa, prazo, Alertas)
+    Note over P, A: Fase 1: Início e Configuração<br/>(Google Classroom ou na nossa UI responsiva)
+    P-->>P: Cria Tarefa 
+    P-->>P: Faz uma copia do arquivo<br/> google doc (semente) 
+    P->>UI: Publica Tarefa
     
     Note over P, A: Fase 2: Produção e Rastreamento
-    A->>A: Abre o Google Doc da atividade
-    UI->>UI: Inicia rastreamento silencioso de rascunhos
-    A->>A: Escreve o texto e pesquisa fontes
+    UI->>A: Envia link da Tarefa
+    A-->>A: Abre o Google Doc da atividade
+    A-->>A: Aceita termos de uso e cria<br/>uma cópia do arquivo google doc emente 
+    A-->>A: Inicia a produção do texto
+    UI-->>UI: Inicia rastreamento<br/>silencioso (coleta de metadados)
+    A-->>A: Escreve o texto e pesquisa fontes
     UI->>BE: Envia metadados (tempo, ritmo, colagens)
-    BE->>UI: Atualiza Radar de Esforço em tempo real
-    P->>UI: Monitora o Radar e métricas do Aluno
+    BE-->>UI: Atualiza, para o Professor,<br/>Radar de Esforço em tempo real
+    P->>UI: Pode monitorar (on-the-fly) o mapa<br/>de calor e métricas do Aluno
     A->>UI: Formaliza entrega do trabalho
-    UI->>BE: COntabiliza entrega e envia metadados finais
+    UI->>BE: Contabiliza entrega e envia metadados finais
     
     Note over P, A: Fase 3: Auditoria do Professor
-
-    P->>P: Analisa metricas e mapa de calor dos trabalhos dos alunos  
-    P->>P: Analisa metricas e mapa de calor dos trabalhos dos alunos    
-    P->>UI: Seleciona trecho suspeito e clica em "Analisar"
+    P->>UI: Acessa DASHBOARD
+    BE->>UI: Envia métricas Turmas/Aluno
+    P-->>P: Analisa métricas e mapa de calor<br>dos trabalhos por Turma/Aluno
+    P->>UI: Seleciona, no doc do aluno, um <br>trecho suspeito e solicita análise
     UI->>BE: Solicita análise de tom e consistência
-    BE->>UI: Retorna evidências de risco e sugestões socráticas
+   
     
     Note over P, A: Fase 4: Desafio e Validação
-    P->>UI: Solicita disparo do Quiz de Autonomia
-    UI->>A: Exibe Quiz personalizado na Sidebar do Aluno
-    A->>UI: Responde ao Quiz
-    UI->>BE: Salva respostas e gera relatório final
+    BE-->>UI: Retorna evidências de risco<br>e sugestões socráticas
+    P->>UI: Solicita disparo do <br>Quiz de Autonomia para o Aluno
+    UI-->>A: Exibe Quiz personalizado
+    A-->>A: Responde ao Quiz
+    A->>UI: Envia respostas ao Quiz
+    UI->>BE: Salva respostas 
+    UI->>UI: Gera Relatório final
     
     Note over P, A: Fase 5: Diálogo e Veredito
-    BE-->>UI: Disponibiliza resultados do Quiz
-    P->>UI: Revisa respostas e evidências finais
-    P->>A: Realiza conversa pedagógica baseada em evidências
+    P->UI: Solicita resultados do Quiz e Relatório Final
+    BE->>UI: Disponibiliza dados
+    P->>UI: Solicitarespostas do aluno e evidências finais
+    UI->>P: Exibe respostas do aluno e evidências finais
+    P->>P: Revisa respostas do aluno e evidências finais
+    P->>A: Realiza devolutiva com conversa<br/>pedagógica baseada em evidências
 ```
 
 ## Fluxo de Informação (Arquitetura de Dados)
@@ -134,27 +142,27 @@ sequenceDiagram
     participant DB as Banco de Dados (Postgres/Supabase)
     participant AI as IA Engine (Gemini Pro/NLP)
 
-    Note over AD, GS: Captura de Metadados (Debounce 3s)
-    AD->>GS: google.script.run.sendToBackend(payload)
+    Note over AD, GS: "Captura de Metadados (Debounce 3s)"
+    AD->>GS: "google.script.run.sendToBackend(payload)"
     
-    GS->>BE: POST /api/send (JSON + ID Token)
+    GS->>BE: "POST /api/send (JSON + ID Token)"
     
     rect rgba(62, 60, 60, 1)
         Note right of BE: Processamento no Backend
-        BE->>DB: Busca Histórico de Estilo (studentId)
+        BE->>DB: "Busca Histórico de Estilo (studentId)"
         DB-->>BE: Retorna padrão de escrita anterior
         
         BE->>AI: Envia Fragmento + Contexto do Aluno
         Note right of AI: Análise de Tom e Consistência
         AI-->>BE: Retorna Score e Perguntas do Quiz
         
-        BE->>DB: Salva métricas e estado do Quiz
+        BE->>DB: "Salva métricas e estado do Quiz"
     end
     
-    BE-->>GS: JSON Response (toneChange, quizData, advice)
-    GS-->>AD: Callback Success(response)
+    BE-->>GS: "JSON Response (toneChange, quizData, advice)"
+    GS-->>AD: "Callback Success(response)"
     
-    AD->>AD: Atualiza UI (Semáforos, Radar, Quiz)
+    AD->>AD: "Atualiza UI (Semáforos, Radar, Quiz)"
 ```
 
 ---
