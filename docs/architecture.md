@@ -1,60 +1,63 @@
-# Arquitetura Técnica: Whitebox
+# Arquitetura & Design - Whitebox
 
-## Padrão Arquitetural
-A arquitetura do Whitebox baseia-se em um modelo **Client-Server com Proxy Reverso Centralizado** adaptado para o ambiente do Google Apps Script. 
+## 1. Visão Geral do Sistema
+O Whitebox é arquitetado como um ecossistema desacoplado que consiste em um Add-on de cliente (Google Docs) e um Web App/Proxy de API no lado do servidor. Este design garante que a lógica sensível (como prompts de IA e acesso a bancos de dados) permaneça protegida no servidor, enquanto o cliente foca na interação com o usuário e telemetria.
 
-- O **Cliente** (Container-bound Script no Google Docs) funciona como um agente de borda (Edge Agent), coletando telemetria de edição, gerindo a UI interativa (Sidebar) e formatando o payload.
-- O **Servidor** (Standalone Script) funciona como um "Brain Proxy", centralizando a inteligência de negócios (prompts), o acesso a recursos externos (Gemini API) e a persistência de dados (Google Sheets) para contornar limitações de segurança e acesso do lado do cliente.
+## 2. Diagrama de Arquitetura de Alto Nível
 
-## Fluxo de Integração (Integration Architecture)
-Existem dois fluxos principais de comunicação entre os sistemas:
+```mermaid
+graph TD
+    subgraph "Google Cloud / Apps Script Runtime"
+        A[Whitebox Client Add-on] -->|doPost + SHARED_TOKEN| B[Whitebox Server Proxy]
+        B -->|REST| C[Gemini AI API]
+        B -->|Internal API| D[Google Classroom API]
+        B -->|SpreadsheetApp| E[Global Admin Sheet]
+        B -->|SpreadsheetApp| F[Professor Sheets]
+        A -->|DocumentApp| G[Student Document]
+    end
+```
 
-### 1. Auditoria e Telemetria (Client → Server)
-Quando o aluno finaliza o trabalho:
-1. `whitebox-client` agrupa o Documento (texto) e a Telemetria (Cpm, Tempo Ativo, Colagens).
-2. O payload é enviado via requisição `POST` para a rota pública do `BrainProxy`.
-3. O `BrainProxy.gs` autentica a requisição e resolve a **Chave API**:
-   - Tenta ler do **Cofre no Drive** do professor (ID do arquivo via `DriveApp`).
-   - Se falhar ou estiver vazio, tenta a **Chave Global**.
-   - Se ambas falharem, opera em **Modo Offline**.
-4. O Gemini 1.5 Flash realiza a análise Socrática.
-5. O resultado é registrado na Planilha do Professor e retornado para a Aura no cliente.
+## 3. Detalhamento dos Componentes
 
-### 2. Distribuição Mestre e Classroom (Server → Google API)
-Quando o Admin/Professor atua no Dashboard:
-1. `Dashboard.html` faz chamadas RPC (`google.script.run`) para `ClassroomService.gs` e `AdminSetup.gs`.
-2. A integração `publishToClassroom` aciona a Google Classroom API para clonar o "Doc Semente" e distribuí-lo aos alunos da turma selecionada (`courseStates: ['ACTIVE']`).
-3. O rastreio entre Turma, Tarefa (Assignment) e Documento do Aluno é feito via `findAssignmentIdByDocId` que faz fallback iterativo nas submissões usando curso e usuário logado.
+### 3.1. Whitebox Client (Add-on)
+- **Papel**: Sensor de telemetria e interface do aluno.
+- **Arquivos Chave**:
+    - `Código.gs`: Inicialização da UI e gatilhos de telemetria.
+    - `Constants.gs`: Configuração do lado do cliente.
+    - `Utils.gs`: Wrapper de comunicação (`callProxy`).
+- **Loop de Telemetria**:
+    1. Rastreia tempo de foco ativo via eventos `focus` e `blur` na barra lateral.
+    2. Monitora eventos `onEdit` para calcular CPM e deltas de contagem de palavras.
+    3. Detecta eventos de colagem (paste) massiva usando limiares de contagem de caracteres.
 
-### 3. Onboarding Autônomo por Levas (Dashboard → Form → Server)
-1. O Admin gera uma "Leva" no Dashboard, especificando nome e deadline.
-2. O sistema clona um **Formulário Semente**, configura triggers de submissão e um gatilho temporal para fechamento automático.
-3. O professor submete o formulário com seu link de Cofre (Drive).
-4. O `FormOnboarding.gs` valida a permissão de acesso ao arquivo.
-5. Se aprovado, o professor é inserido na Planilha Global e seu banco individual é provisionado.
+### 3.2. Whitebox Server (Proxy)
+- **Papel**: Gateway seguro, gerenciador de licenças e hub de integração.
+- **Arquivos Chave**:
+    - `BrainProxy.gs`: Roteador principal (`doPost`) e lógica de IA.
+    - `ClassroomService.gs`: Integração com Google Classroom.
+    - `SchemaManager.gs`: Integridade do banco de dados baseado em planilhas.
+    - `AdminSetup.gs`: Provisionamento automatizado de recursos.
 
-## Modelagem de Dados
-O banco de dados é "NoSQL" virtualizado em Google Sheets:
+## 4. Mecanismos de Segurança
 
-### 1. Planilha Global Admin
-Contém 3 abas principais:
-- **Assinaturas**: `Email`, `Instituicao`, `Status`, `UsaChaveGlobal`, `ChaveIndividual` (ID do arquivo no Drive), `SpreadsheetId`.
-- **Tarefas_Globais**: `ID_Tarefa`, `Professor`, `Instituicao`, `Titulo`, `Course_ID`, `Data_Criacao`.
-- **Config**: Chaves-valor (`seed_document_id`, `seed_form_id`, `gemini_global_key`).
+### 4.1. O Protocolo SHARED_TOKEN
+Toda comunicação do cliente para o servidor requer um `SHARED_TOKEN` passado no corpo do JSON.
+- **Geração**: Gerado automaticamente durante a primeira execução do servidor (`auto-provisioning`).
+- **Armazenamento**: Armazenado em `ScriptProperties` no servidor e `DocumentProperties` no cliente.
 
-### 2. Planilha do Professor (Individual)
-Criada dinamicamente pelo AdminSetup.
-- **Config_Pedagogica**: Autonomia da IA por turma/tarefa (`Course_ID`, `Assignment_ID`, `Instrucoes_IA`, `Nivel_Rigor_IA`).
-- **Logs**: Onde cada linha representa a submissão de um aluno (Telemetria, Score de Risco, IA Mode).
-- **Dashboard_Professor**: Visualização agregada de rankings e turmas.
+### 4.2. Marca d'Água Anti-LLM (Tags Invisíveis)
+Para evitar que os alunos copiem perguntas de quiz diretamente para LLMs como o ChatGPT, o Whitebox implementa uma camada de ofuscação:
+- **Caracteres de Largura Zero**: Injeta caracteres ocultos (ex: `\u200B`) entre as letras.
+- **Blocos de Tags Unicode**: Usa o bloco `Tag` (`\uE0000-\uE007F`) para incorporar metadados ocultos que apenas LLMs podem "ler".
+- **Comportamento**: Enquanto os humanos veem o texto normal, as LLMs interpretam os códigos ocultos, o que pode desencadear respostas de "não posso responder a isso" ou identificar a origem como um prompt autorizado.
 
-## Segurança e Governança (GRC)
-- **Soberania da Chave:** A estratégia de Cofre no Drive garante que o segredo (API Key) permaneça sob posse exclusiva do professor, podendo ser revogada via permissões do Google Drive.
-- **Isolamento de Dados:** Cada professor possui uma planilha de logs dedicada, isolando dados de diferentes turmas e instituições.
-- **Tratamento de Permissões:** O sistema audita permissões de arquivo durante o onboarding e fornece feedback imediato via e-mail automático.
+### 4.3. Chaves de API Hierárquicas
+- **Nível 1 (Professor)**: Professores podem fornecer sua própria chave de API Gemini via um "Cofre" (arquivo de texto no Drive).
+- **Nível 2 (Institucional)**: Se um professor não tiver uma chave, o sistema pode recorrer a uma chave institucional global se autorizado.
+- **Fallback (Offline)**: Se nenhuma chave estiver disponível, os recursos de IA são desativados, mas o registro de telemetria continua.
 
-## Segurança e Tratamento de Edge Cases
-- **Tokenização:** `SHARED_TOKEN` gerado dinamicamente no Auto-Provisionamento. O frontend usa o token em memória e só executa as ações privilegiadas passando a validação em `validateAdminAccess()`.
-- **Prevenção Duplo-Clique:** Interface (`Dashboard.html`) bloqueia botões durante requests de rede via `google.script.run`.
-- **Tratamentos de Falha na UI:** Chamadas como `getDocumentAuraMap` possuem fallback com `.withFailureHandler` para evitar bloqueios de loaders eternos na view.
-- **Paginação em APIs Google:** As requisições para `Classroom.Courses.list` implementam loops `do...while` com `nextPageToken` para cobrir professores com vasto número de turmas/alunos.
+## 5. Fluxo de Dados: Persistência de Telemetria
+1. O cliente coleta métricas a cada 30 segundos (ou ao fechar o documento).
+2. O cliente chama `/logar_metricas` no Servidor.
+3. O servidor identifica o ID da planilha dedicada do professor na tabela `Assinaturas`.
+4. O servidor anexa a entrada de log à aba `Logs` da planilha do professor.

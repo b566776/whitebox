@@ -1,22 +1,28 @@
-# Whitebox Client – Guia do Administrador (Add-on)
+# Whitebox Client - Guia Administrativo
 
-Objetivo
-- Orientar a instalação, configuração de proxy e gestão dos objetos de licença para o ambiente de Google Docs via Add-on.
+Este documento é destinado a administradores de TI e desenvolvedores que gerenciam a implantação do Add-on Whitebox Client.
 
-Conteúdo
-- Requisitos de instalação
-- Configuração de BRAIN_PROXY_URL e SHARED_TOKEN
-- Fluxo de provisionamento do servidor (integração com Brain Proxy)
-- Gerenciamento de usuários e permissões via Admin Console
-- Diagnóstico e logs
+## ⚙️ Propriedades de Configuração
+O comportamento do Add-on é governado pelas `ScriptProperties` e `DocumentProperties`:
 
-Configurações
-- BRAIN_PROXY_URL: URL do Web App do BrainProxy
-- SHARED_TOKEN: Token compartilhado entre Client e Brain Proxy
+### Script Properties (Globais)
+- `BRAIN_PROXY_URL`: A URL do Web App `whitebox-server` implantado.
+- `SHARED_TOKEN`: O segredo de autenticação compartilhado entre o Cliente e o Proxy.
 
-Guia de Operação
-- Primeiro uso: configurar o proxy, autorizar o Add-on no Docs, iniciar sessão como administrador.
-- Monitorar chamadas ao Brain Proxy via console/logs do Script.
+### Document Properties (Por Documento)
+- `assignmentId`: O ID da Tarefa do Classroom vinculada a este documento.
+- `courseId`: O ID do Curso do Classroom.
+- `lastSync`: Timestamp do último envio de telemetria para o servidor.
 
-Notas de Segurança
-- Tokens devem ser protegidos; não vazar URLs de proxy ou tokens em logs públicos.
+## 🚀 Checklist de Implantação
+1.  **Publicação**: Certifique-se de que o Add-on foi publicado como um script "vinculado ao documento" dentro do modelo **Doc Mestre**.
+2.  **Escopos**: O script requer `https://www.googleapis.com/auth/documents` e `https://www.googleapis.com/auth/script.external_request`.
+3.  **Link do Proxy**: Verifique se a `BRAIN_PROXY_URL` nas Script Properties aponta corretamente para a implantação ativa do `whitebox-server`.
+
+## 🔍 Solução de Problemas
+- **Erros de Rede**: Use o console do desenvolvedor do navegador para verificar chamadas `UrlFetch` que falharam para o proxy.
+- **Permissão Negada**: Certifique-se de que os alunos autorizaram o Add-on a rodar em seu domínio.
+- **Falhas de Sincronização**: Verifique os logs do servidor (Brain Proxy) para erros `UNAUTHORIZED`, que indicam uma incompatibilidade de `SHARED_TOKEN`.
+
+---
+*Documentação gerada via metodologia BMAD.*

@@ -1,27 +1,23 @@
-# Walkthrough — Whitebox Hardening Patch
+# Whitebox Server - Auditoria de Hardening & Segurança
 
-Resumo
-- Aplicamos uma série de patches de alta precisão para aumentar a segurança, proteção de concorrência e robustez da infraestrutura Whitebox autônoma.
+Este documento detalha as camadas de segurança e os patches de robustez implementados para proteger a infraestrutura Whitebox.
 
-Mudanças Implementadas
-- 🛡️ Security Hardening (BrainProxy.gs & Dashboard.html)
-- Admin API Protection: Implemented validateAdminAccess(token) logic. Funções como getAdminUIData, salvarSeedId e distribuirMestreParaProfessor agora exigem um SHARED_TOKEN válido enviado do frontend.
-- Unauthorized Guard: Se o usuário chamar essas funções sem o token (por exemplo, via console), o servidor retorna 401 UNAUTHORIZED.
-- Client Handshake: O Dashboard de Admin agora captura o token na primeira chamada bem-sucedida. Se a autenticação falhar, ele solicita ao administrador que forneça o token.
-- 🧵 Concurrency Protection (BrainProxy.gs)
-- Provisioning Lock: Adicionado LockService à rota do doGet para evitar condições de corrida onde várias visitas simultâneas à URL inicial poderiam criar planilhas admin duplicadas.
-- 🏗️ System Robustness (AdminSetup.gs & BrainProxy.gs)
-- Safe Initialization: setupPlanilhaGlobal agora reutiliza inteligentemente planilhas existentes em vez de falhar se já existirem.
-- Input Validation: Adicionadas checagens de integridade dos headers da planilha em getAdminUIData.
-- Error Transparency: Falhas de distribuição (p. ex., Seed Doc ausente ou limites de Mail) são agora capturadas e relatadas com mensagens de erro específicas, em vez de falhar silenciosamente ou indicar sucesso falso.
+## 🛡️ Hardening de API & Autenticação
+- **`validateAdminAccess`**: Todas as funções administrativas (licenciamento, seeding, distribuição) são protegidas por uma verificação obrigatória de `SHARED_TOKEN`. Tentativas não autorizadas disparam um erro 401.
+- **Handshake do Cliente**: O Painel Admin captura o token na primeira sessão bem-sucedida e impõe seu uso para todas as operações subsequentes que alteram o estado do sistema.
 
-Próximos Passos
-- Verificar o comportamento dos novos mecanismos: token, concorrência e robustez.
-- Testar chamadas com/sem token para confirmar 401 quando token ausente.
-- Testar concorrência ao acessar a URL do Web App simultaneamente.
-- Verificar reutilização de planilhas existentes ao inicializar.
-- Simular falhas de distribuição para validar mensagens de erro detalhadas.
-- Adaptar a integração frontend (Dashboard) para inserir/retirar tokens apropriadamente.
+## 🧵 Proteção de Concorrência & Condição de Corrida
+- **`LockService`**: Implementação de travas (locks) em nível de script nas rotas `doGet` (provisionamento) e `onProfessorFormSubmit` (onboarding). Isso evita a corrupção de dados ou a criação de recursos duplicados durante requisições simultâneas.
+- **Operações Atômicas**: Garantia de que o registro do professor e a criação da planilha sejam tratados como blocos atômicos para manter a integridade do banco de dados.
 
-Observação
-- Este patch foca em hardening do servidor; o Client continua dependendo do handshake com o Brain Proxy e do token de autorização.
+## 🏗️ Robustez & Integridade do Sistema
+- **Gestão de Esquema**: O módulo `SchemaManager.gs` realiza a validação de cabeçalhos antes de cada leitura/escrita, garantindo que edições manuais nas planilhas não quebrem o sistema.
+- **Inicialização Segura**: A lógica de provisionamento agora reutiliza planilhas e estruturas existentes, permitindo re-implantações seguras ou reinicializações do servidor.
+- **Parsing de JSON Robusto**: Implementação de multi-estratégia para extração de JSON para lidar com respostas do Gemini que podem conter formatação Markdown ou texto adicional.
+
+## 📡 Limite de Taxa (Rate Limiting) & Gestão de Cotas
+- **Emulação de Token Bucket**: O sistema limita as requisições de análise por aluno/hora usando `CacheService` para evitar o esgotamento da cota da API Gemini.
+- **Validação de E-mail**: Validação estrita baseada em regex para todas as entradas de e-mail para evitar injeção ou corrupção de planilhas.
+
+---
+*Documentação gerada via metodologia BMAD.*

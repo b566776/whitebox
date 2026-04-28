@@ -1,15 +1,23 @@
-# Whitebox Client – Guia do Aluno (Add-on)
+# Whitebox Client - Guia do Aluno
 
-Objetivo
-- Explicar ao aluno como interagir com o Add-on Whitebox via Google Docs para acompanhar atividades analíticas/gráficas, com base no que o professor autorizar.
+O Whitebox é um assistente pedagógico que ajuda você a refletir sobre seu processo de escrita e garante a integridade acadêmica.
 
-Fluxo de Uso
-- Abrir painel Whitebox no Docs para visualizar instruções/pontos de análise.
-- Selecionar trechos de texto para análise (quando permitido) e acionar envio para o Brain Proxy via Client.
-- Visualizar resultados/feedback retornados pelo proxy (quando disponível).
+## 📝 Como Funciona
+Quando você trabalha em um Google Doc ativado pelo Whitebox, o sistema rastreia o "processo" da sua escrita:
+- **Tempo de Edição Ativa**: O sistema reconhece o tempo que você gasta trabalhando ativamente no documento.
+- **Ritmo de Escrita**: Ele rastreia sua velocidade de digitação (CPM) para ajudar a identificar fluxos de escrita naturais.
+- **Consciência de Colagem**: Pesquisas legítimas são aceitáveis, mas colagens massivas de texto gerado por IA são sinalizadas para discussão pedagógica.
 
-Privacidade
-- Dados enviados ao Brain Proxy são controlados pela instituição; apenas trechos permitidos devem ser enviados.
+## 🤖 Interagindo com o Auditor de IA
+A barra lateral do Whitebox fornece orientação socrática:
+1.  **Analisar**: Você pode solicitar uma "Análise Pedagógica" do seu rascunho atual.
+2.  **Feedback Socrático**: Em vez de apenas corrigir você, a IA fará perguntas sobre suas escolhas e fontes.
+3.  **Refletir**: Use essas perguntas para melhorar a profundidade e a originalidade do seu trabalho.
 
-Resumo de Segurança
-- Token de autenticação evita uso indevido; não compartilhar tokens.
+## 🔒 Privacidade e Transparência
+- **Coleta de Dados**: O Whitebox apenas rastreia métricas relacionadas ao processo de escrita no documento específico fornecido pelo seu professor.
+- **Propósito**: Todos os dados são usados pelo seu professor para fornecer melhor feedback e garantir a justiça em toda a classe.
+- **Segurança**: Todos os dados são criptografados e gerenciados através do servidor proxy institucional.
+
+---
+*Documentação gerada via metodologia BMAD.*

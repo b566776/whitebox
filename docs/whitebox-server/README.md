@@ -1,21 +1,30 @@
-# Whitebox Server (Servidor)
+# Whitebox Server - Brain Proxy & Administração
 
-Visão geral do componente Whitebox Server (Brain Proxy e Administração de backend).
+O Whitebox Server é um Web App autônomo do Google Apps Script que serve como o "cérebro" e o gateway seguro para todo o ecossistema Whitebox. Ele gerencia a telemetria dos alunos, as requisições de IA pedagógica e as operações administrativas.
 
-- Papel: administração de configuração, provisionamento automático e APIs de servidor.
-- Público: Administrador técnico e equipe de infraestrutura.
-- Conteúdo: arquitetura, configuração, fluxo de provisionamento, guias de operação e segurança.
+## 🏗️ Papel Arquitetural
+O servidor atua como uma camada intermediária entre o **Whitebox Client** e os serviços externos (IA Gemini, Google Classroom).
+- **Proxy Seguro**: Protege as chaves de API e os prompts sensíveis de serem expostos no lado do cliente.
+- **Persistência de Dados**: Gerencia a partição dos logs dos alunos em planilhas específicas dos professores.
+- **Hub de Integração**: Orquestra a gestão de cursos do Classroom e a distribuição automatizada de recursos.
 
-Estrutura desta documentação:
-- Administrador: guia de setup, configuração de planilha global, gestão de professores.
-- Professor: (ver Whitebox Client) fluxo de uso relacionado ao servidor.
-- Aluno: (ver Whitebox Client) fluxo de uso relacionado ao cliente.
+## 📡 Rotas Principais de API (`doPost`)
+- `/analisar`: Lida com a análise socrática de IA de fragmentos de escrita.
+- `/logar_metricas`: Persiste a telemetria comportamental no sistema de logs descentralizado.
+- `/status_licenca`: Valida o status ativo do professor e a disponibilidade do modo IA.
+- `/registrar_chave`: Permite que os professores registrem suas chaves de API Gemini privadas.
 
-Nota: partes sensíveis do código (Brain Proxy) devem permanecer protegidas; este documento foca no uso, configuração e fluxo de dados.
+## 🔑 Segurança & Proteção
+- **SHARED_TOKEN**: Cada requisição do cliente deve ser autenticada com um segredo compartilhado.
+- **Rate Limiting**: Evita o abuso das cotas de API limitando as requisições de análise por aluno/hora.
+- **Concurrency Locks**: Usa o `LockService` para evitar condições de corrida durante o auto-provisionamento.
+- **Chaves Hierárquicas**: Resolve as chaves de API com preferência para o "Cofre do Drive" do professor antes de recorrer às chaves globais.
 
-Links úteis:
-- Admin/API setup: whitebox-server/Admin.md
-- Fluxos de usuário: whitebox-server/Teacher.md e whitebox-server/Student.md
- 
-Walkthrough — Whitebox Hardening Patch
-- Uma visão consolidada das mudanças recentes de hardening aplicadas ao Whitebox Server. Consulte Admin.md para detalhes e o arquivo dedicado em Hardening.md para um walkthrough completo.
+## 📊 Painel Administrativo
+O servidor fornece um painel HTML integrado para:
+- Gestão de licenciamento e status dos professores.
+- Visualização de mapas de calor (heatmaps) de esforço e integridade dos alunos.
+- Criação automatizada de "Formulários de Onboarding" para novas turmas de professores.
+
+---
+*Documentação gerada via metodologia BMAD.*

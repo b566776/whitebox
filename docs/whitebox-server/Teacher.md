@@ -1,30 +1,22 @@
-# Whitebox Server – Guia do Professor (Administração de Fluxos de Licença)
+# Whitebox Server - Guia Técnico do Professor
 
-Objetivo
-- Descrever como o professor interage com o Whitebox Server, com foco em configuração de chave API, status de licença e fluxo de análise via proxy.
+Este guia explica a infraestrutura do lado do servidor que suporta o fluxo de trabalho pedagógico do professor.
 
-Condições de uso
-- Este guia supõe que o professor já tenha feito provisionamento ou tenha acesso via Add-on Client <docs/whitebox-client/Teacher.md>.
-- Endereços de API/URLs estão disponíveis via BrainProxy e Configurações do Admin.
+## 📁 Registro de Logs Descentralizado
+Ao contrário dos sistemas centralizados, o Whitebox particiona os dados para dar aos professores total propriedade:
+- **Sua Planilha**: Cada professor tem uma planilha do Google dedicada chamada `Whitebox - Log Professor (Email)`.
+- **Transparência**: Toda a telemetria dos alunos, pontuações de risco e respostas de IA para suas classes são armazenadas aqui.
+- **Autonomia**: Você pode excluir ou arquivar seus logs a qualquer momento sem afetar outros usuários.
 
-Fluxo de Configuração da Chave API (Gemini)
-- Salvar chave Gemini do professor no Brain Proxy via client call: registrar_chave
-- Verificar status de licença do professor com status_licenca
-- Caso o proxy não esteja configurado, exibirá o erro PROXY_NOT_CONFIGURED
+## 🤖 Configuração de IA & Autonomia
+O servidor concede a você autonomia sobre como a IA interage com seus alunos:
+- **Config_Pedagogica**: Esta aba em sua planilha pessoal permite definir o rigor e as instruções específicas de IA para cada tarefa do Classroom.
+- **Hierarquia de Chaves**: O servidor verifica seu "Cofre do Drive" pessoal (um arquivo de texto compartilhado com o servidor) em busca de uma chave de API Gemini antes de usar qualquer fallback institucional.
 
-Como funciona a verificação de licença
-- getTeacherLicenseStatus chama o Brain Proxy com professorEmail; o proxy retorna: ATIVO, INATIVO, PROXY_NAO_CONFIGURADO, etc.
+## 🎓 Serviço de Integração com o Classroom
+O servidor orquestra o link entre seus documentos e a API do Google Classroom:
+- **Mapeamento Automático**: Quando um aluno abre um documento, o servidor tenta encontrar a qual tarefa do Classroom ele pertence, garantindo que as métricas sejam arquivadas corretamente.
+- **Gestão de Coursework**: O servidor lida com a publicação de "Modelos Mestre" como cópias individuais dos alunos através do endpoint `publishToClassroom`.
 
-Observabilidade
-- Logs de chamadas para o proxy ajudam a diagnosticar problemas de configuração.
-- Erros comuns: TOKEN ausente, ADMIN_SPREADSHEET_ID não configurado, GEMINI_GLOBAL_KEY ausente quando esperado.
-
-Fluxo de Jurisdição de Dados
-- Dados do professor são enviados ao Brain Proxy apenas com consentimento de fluxo de dados; consulte a política de privacidade interna.
-
-Roteiro de Problemas Comuns
-- Proxy não configurado: verifique BRAIN_PROXY_URL e SHARED_TOKEN no Add-on Cliente.
-- Licença inativa: verifique a planilha global de admin para status correspondente.
-
-Observação
-- Este guia foca no lado servidor de aquisição de chaves e status de licenças; operações detalhadas de uso pedagógico são cobertas no Whitebox Client (Aluno/Professor).
+---
+*Documentação gerada via metodologia BMAD.*
