@@ -2,3 +2,9 @@
 # MemPalace per-project files (issue #185)
 mempalace.yaml
 entities.json
+
+# apps-script/ é LEGADO e ARQUIVADO — ver apps-script/ARCHIVED.md
+# Nunca adicionar .clasp.json nesse diretório para evitar deploy acidental.
+
+# Credenciais locais do clasp (nunca commitar)
+.clasprc.json

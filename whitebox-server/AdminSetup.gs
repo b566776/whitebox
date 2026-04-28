@@ -14,7 +14,7 @@ function setupPlanilhaGlobal() {
   const ss = SpreadsheetApp.create('Whitebox - Painel Global Admin');
   const targetFolder = getOrCreateTargetFolder();
   DriveApp.getFileById(ss.getId()).moveTo(targetFolder);
-
+  Logger.log('[AdminSetup] Planilha Global criada: ' + ss.getId());
 
   // ---- Aba de Assinaturas (Professores) ----
   let assinaturas = ss.getSheets()[0];
@@ -38,9 +38,10 @@ function setupPlanilhaGlobal() {
   let config = ss.getSheetByName('Config') || ss.insertSheet('Config');
   config.appendRow(['Parametro', 'Valor', 'Descricao']);
   config.getRange('1:1').setFontWeight('bold').setBackground('#444444').setFontColor('#ffffff');
-  config.appendRow(['versao_addon', '2.1', 'Versão com Integração Classroom']);
-  config.appendRow(['gemini_model', 'gemini-1.5-flash', 'Modelo Gemini']);
-  config.appendRow(['seed_document_id', '', 'Doc Semente Master']);
+  config.appendRow(['VersaoSchema',    SCHEMA_VERSION_ATUAL,  'Versão do schema da Planilha Global (ARCH-05)']);
+  config.appendRow(['versao_addon',    '2.1',                 'Versão com Integração Classroom']);
+  config.appendRow(['gemini_model',    'gemini-1.5-flash',    'Modelo Gemini']);
+  config.appendRow(['seed_document_id', '',                   'Doc Semente Master']);
 
   return { id: ss.getId(), url: ss.getUrl() };
 }
@@ -52,7 +53,7 @@ function criarPlanilhaProfessor(email, instituicao) {
   const ss = SpreadsheetApp.create('Whitebox - Log Professor (' + email + ')');
   const targetFolder = getOrCreateTargetFolder();
   DriveApp.getFileById(ss.getId()).moveTo(targetFolder);
-
+  Logger.log('[AdminSetup] Planilha do professor criada: ' + email + ' | ID: ' + ss.getId());
 
   // 1. Aba de Configuração Pedagógica (Autonomia da IA)
   let configPedagogica = ss.getSheets()[0];
@@ -95,10 +96,10 @@ function adicionarProfessor(email, escola, usaChaveGlobal, chaveIndividual = '')
     'Ativo',
     usaChaveGlobal ? 'Sim' : 'Não',
     chaveIndividual, // ChaveIndividual (ID do Cofre Drive)
-    '',            // SpreadsheetId (será criado automaticamente)
+    '',              // SpreadsheetId (provisionado automaticamente)
     new Date().toISOString()
   ]);
-  Logger.log('[Admin] Professor adicionado: ' + email);
+  Logger.log('[AdminSetup] Professor adicionado: ' + email);
 }
 
 /**
@@ -145,28 +146,25 @@ function configurarChaveGlobal(email, usar) {
 
 /**
  * Utilitário: Garante a criação ou navegação para a pasta raiz do projeto.
- * Caminho: Meu Drive -> GDrive Meus Documentos -> Projetos -> whitebox
+ * Caminho: Meu Drive → GDrive Meus Documentos → Projetos → whitebox
+ *
+ * [LOW-01 FIX] Substituída iteração manual O(n) por getFoldersByName(),
+ * que usa a API de busca do Drive internamente — muito mais eficiente
+ * em drives com muitas pastas.
  */
 function getOrCreateTargetFolder() {
-  const path = ["GDrive Meus Documentos", "Projetos", "whitebox"];
+  const path = ['GDrive Meus Documentos', 'Projetos', 'whitebox'];
   let folder = DriveApp.getRootFolder();
-  
+
   for (let i = 0; i < path.length; i++) {
-    const targetName = path[i].toLowerCase().trim();
-    const folders = folder.getFolders();
-    let found = false;
-    
-    while (folders.hasNext()) {
-      const f = folders.next();
-      if (f.getName().toLowerCase().trim() === targetName) {
-        folder = f;
-        found = true;
-        break;
-      }
-    }
-    
-    if (!found) {
-      folder = folder.createFolder(path[i]);
+    const name    = path[i];
+    const results = folder.getFoldersByName(name);
+
+    if (results.hasNext()) {
+      folder = results.next(); // Pasta encontrada diretamente
+    } else {
+      folder = folder.createFolder(name);
+      Logger.log('[AdminSetup] Pasta criada: ' + name);
     }
   }
   return folder;

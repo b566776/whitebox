@@ -18,14 +18,9 @@
 //  CONFIGURAÇÃO: lê das Script Properties (seguro)
 // =====================================================
 
-function getConfig() {
-  const props = PropertiesService.getScriptProperties();
-  return {
-    sharedToken:       props.getProperty('SHARED_TOKEN'),
-    adminSpreadsheetId: props.getProperty('ADMIN_SPREADSHEET_ID'),
-    geminiGlobalKey:   props.getProperty('GEMINI_GLOBAL_KEY') || null
-  };
-}
+// getConfig() → ver Utils.gs
+// [ARCH-02] Movida para Utils.gs (Utilitários Compartilhados)
+
 
 // =====================================================
 //  ROTEADOR WEB (doGet) - AUTO-PROVISIONAMENTO
@@ -48,6 +43,9 @@ function doGet(e) {
       const result = setupPlanilhaGlobal(); 
       props.setProperty('ADMIN_SPREADSHEET_ID', result.id);
       
+      // [ARCH-05] Registrar VersaoSchema imediatamente após o provisionamento
+      migrarSchemaSeNecessario(result.id);
+      
       let generatedToken = props.getProperty('SHARED_TOKEN');
       if (!generatedToken) {
         generatedToken = 'WBX-' + Utilities.getUuid();
@@ -68,6 +66,19 @@ function doGet(e) {
     }
   }
   
+  // [ARCH-05] Verificar schema em cada acesso — detecta divergências
+  // introduzidas por edições manuais na planilha global antes de servir o Dashboard.
+  try {
+    const adminId = props.getProperty(PROP_ADMIN_SPREADSHEET_ID);
+    if (adminId) {
+      const schemaCheck = verificarSchemaGlobal(adminId);
+      if (!schemaCheck.ok) {
+        Logger.log('[BrainProxy] AVISO SCHEMA: ' + schemaCheck.mensagem);
+      }
+    }
+  } catch (schemaErr) {
+    Logger.log('[BrainProxy] Erro na verificação de schema: ' + schemaErr);
+  }
   return serveDashboard();
 }
 
@@ -78,17 +89,9 @@ function serveDashboard() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/** 
- * Validação interna para funções Admin chamadas via google.script.run
- * @param {string} token O token passado pelo frontend
- */
-function validateAdminAccess(token) {
-  const props = PropertiesService.getScriptProperties();
-  const shared = props.getProperty('SHARED_TOKEN');
-  if (!shared || token !== shared) {
-    throw new Error('UNAUTHORIZED: Token Administrativo inválido ou ausente.');
-  }
-}
+// validateAdminAccess() → ver Utils.gs
+// [ARCH-02] Movida para Utils.gs (Utilitários Compartilhados)
+
 
 // =====================================================
 //  ADMIN API: Funções para o Dashboard HTML
@@ -150,29 +153,46 @@ function buscarConfigPedagogicaLocal(profEmail, courseId, assignmentId) {
   try {
     const adminSheet = getPlanilhaGlobal(PropertiesService.getScriptProperties().getProperty('ADMIN_SPREADSHEET_ID'));
     const dataProf = adminSheet.getDataRange().getValues();
-    // Encontrar o ID da planilha do professor
-    let profSSId = '';
-    for(let i=1; i<dataProf.length; i++) {
-       if(dataProf[i][0] === profEmail) {
-         profSSId = dataProf[i][5]; // Coluna SpreadsheetId
-         break;
-       }
+    const headersProf = dataProf[0];
+
+    // [HIGH-03 FIX] Resolver coluna por nome, nunca por índice posicional
+    const ssColIdx = headersProf.indexOf('SpreadsheetId');
+    if (ssColIdx === -1) {
+      Logger.log('[BrainProxy] CRÍTICO: Coluna "SpreadsheetId" não encontrada na aba Assinaturas.');
+      return null;
     }
-    
+
+    let profSSId = '';
+    for (let i = 1; i < dataProf.length; i++) {
+      if (dataProf[i][0] === profEmail) {
+        profSSId = dataProf[i][ssColIdx];
+        break;
+      }
+    }
+
     if (!profSSId) return null;
-    
+
     const ss = SpreadsheetApp.openById(profSSId);
     const sheet = ss.getSheetByName('Config_Pedagogica');
     const data = sheet.getDataRange().getValues();
-    
-    // Buscar por Course e Assignment
-    for(let i=1; i<data.length; i++) {
-      if(data[i][0] == courseId && data[i][1] == assignmentId) {
-        return { instrucoes: data[i][3], rigor: data[i][4] };
+
+    // Buscar por Course e Assignment usando headers para robustez
+    const h = data[0];
+    const courseCol      = h.indexOf('Course_ID');
+    const assignmentCol  = h.indexOf('Assignment_ID');
+    const instrucoesCol  = h.indexOf('Instrucoes_IA');
+    const rigorCol       = h.indexOf('Nivel_Rigor_IA');
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][courseCol] == courseId && data[i][assignmentCol] == assignmentId) {
+        return {
+          instrucoes: instrucesCol !== -1 ? data[i][instrucoesCol] : '',
+          rigor:      rigorCol !== -1     ? data[i][rigorCol]      : 'Médio'
+        };
       }
     }
   } catch (e) {
-    Logger.log('Erro ao buscar config local: ' + e);
+    Logger.log('[BrainProxy] Erro ao buscar config local: ' + e);
   }
   return null;
 }
@@ -265,11 +285,15 @@ function salvarSeedId(id, token) {
 
 function distribuirMestreParaProfessor(email, token) {
   validateAdminAccess(token);
+
+  // [MED-06 FIX] Validar email antes de qualquer operação com ele
+  validarEmail(email);
+
   const uiData = getAdminUIData(token);
   const seedId = uiData.seedId;
-  
+
   if (!seedId) throw new Error('ID do Documento Semente não configurado.');
-  
+
   try {
     // 1. Clonar o Documento Semente e colocar na pasta Admin
     const originalFile = DriveApp.getFileById(seedId);
@@ -312,51 +336,229 @@ function getHeatmapData(token, scope, identifier) {
   throw new Error('Escopo de heatmap não suportado: ' + scope);
 }
 
+/**
+ * [ARCH-04] calcularHeatmapAluno com cache CacheService (TTL 1 hora).
+ *
+ * O cálculo real é O(n_professores × n_logs) — potencialmente centenas de
+ * chamadas à Spreadsheet API. O cache elimina esse custo para chamadas
+ * repetidas dentro da janela de 1h, que é aceitável para heatmaps
+ * pedagógicos (não requerem dados em tempo real).
+ *
+ * Para forçar recalculo antes do TTL, chame invalidarCacheHeatmap(email).
+ *
+ * @param {string} emailAluno
+ * @returns {{ labels: string[], valores: number[], alertas: number[],
+ *             _fromCache?: boolean, _cachedAt?: string, _calculatedAt?: string }}
+ */
 function calcularHeatmapAluno(emailAluno) {
-  // Mock logic for aggregation (search all logs where student email matches)
+  if (!emailAluno) return { labels: [], valores: [], alertas: [] };
+
+  // ===== L1: Cache CacheService (1 hora) =====
+  const cache    = CacheService.getScriptCache();
+  const cacheKey = 'HEATMAP_ALUNO_' + emailAluno.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      Logger.log('[BrainProxy] calcularHeatmapAluno: cache HIT para ' + emailAluno);
+      return Object.assign(parsed, { _fromCache: true });
+    } catch (e) {
+      Logger.log('[BrainProxy] calcularHeatmapAluno: cache inválido, recalculando...');
+    }
+  }
+
+  Logger.log('[BrainProxy] calcularHeatmapAluno: cache MISS, varrendo planilhas...');
+  const startMs = Date.now();
+
+  // ===== Cálculo real: varre planilhas de todos os professores =====
+  const cfg     = getConfig();
+  const assSheet = getPlanilhaGlobal(cfg.adminSpreadsheetId);
+  const assData    = assSheet.getDataRange().getValues();
+  const assHeaders = assData[0];
+  const ssColIdx   = assHeaders.indexOf(COL_SPREADSHEET_ID); // [HIGH-03] header-based
+  const emailColIdx = assHeaders.indexOf(COL_EMAIL);
+
+  if (ssColIdx === -1 || emailColIdx === -1) {
+    Logger.log('[BrainProxy] calcularHeatmapAluno: colunas obrigatórias ausentes na aba Assinaturas.');
+    return { labels: [], valores: [], alertas: [] };
+  }
+
+  // Índices estáveis da aba Logs (definidos em inicializarPlanilhaProfessor)
+  // Timestamp | Turma | DocId | Email_Aluno | Palavras | Tempo_Ativo_Min | Colar_Eventos
+  // Taxa_Edicao | Alteracoes_Estrutura | Chars_Adicionados | Chars_Deletados | Colagem_Massiva
+  // Cpm_Medio | Cpm_Pico | RiscoScore | Whitebox_Risco | Conselho_Pedagogico
+  // Pergunta_Socratica | Modo_IA | Entrega_Final
+  const LOG_EMAIL_COL  = 3;   // Email_Aluno
+  const LOG_DOC_COL    = 2;   // DocId
+  const LOG_TURMA_COL  = 1;   // Turma
+  const LOG_RISCO_COL  = 14;  // RiscoScore
+  const LOG_ESFORCO_COL = 5;  // Tempo_Ativo_Min
+  const LOG_FINAL_COL  = 19;  // Entrega_Final
+  const RISCO_ALERT_THRESHOLD = 60; // Risco > 60 é alerta
+
+  const aggregated = {}; // docId → { riscoTotal, esforcoTotal, count, alertas, turma }
+  let   planilhasVarriadas = 0;
+
+  for (let r = 1; r < assData.length; r++) {
+    const profSSId = assData[r][ssColIdx];
+    if (!profSSId || String(profSSId).trim() === '') continue;
+
+    try {
+      const profSS   = SpreadsheetApp.openById(profSSId);
+      const logSheet = profSS.getSheetByName(SHEET_LOGS);
+      if (!logSheet) continue;
+
+      const logs = logSheet.getDataRange().getValues();
+      planilhasVarriadas++;
+
+      for (let i = 1; i < logs.length; i++) {
+        if (logs[i][LOG_EMAIL_COL] !== emailAluno) continue;
+
+        const docId   = String(logs[i][LOG_DOC_COL] || ('Doc_' + i));
+        const risco   = parseFloat(logs[i][LOG_RISCO_COL]) || 0;
+        const esforco = parseFloat(logs[i][LOG_ESFORCO_COL]) || 0;
+        const isFinal = logs[i][LOG_FINAL_COL] === 'Sim';
+        const turma   = String(logs[i][LOG_TURMA_COL] || '');
+
+        if (!aggregated[docId]) {
+          aggregated[docId] = { riscoTotal: 0, esforcoTotal: 0, count: 0, alertas: 0, turma: turma };
+        }
+        aggregated[docId].riscoTotal   += risco;
+        aggregated[docId].esforcoTotal += esforco;
+        aggregated[docId].count++;
+        if (isFinal && risco > RISCO_ALERT_THRESHOLD) aggregated[docId].alertas++;
+      }
+    } catch (e) {
+      Logger.log('[BrainProxy] calcularHeatmapAluno: erro na planilha ' + profSSId + ': ' + e);
+    }
+  }
+
+  const elapsedMs = Date.now() - startMs;
+  Logger.log('[BrainProxy] calcularHeatmapAluno: varreu ' + planilhasVarriadas +
+             ' planilhas em ' + elapsedMs + 'ms para ' + emailAluno);
+
+  const labels   = Object.keys(aggregated);
+  const valores  = labels.map(l => {
+    const { riscoTotal, count } = aggregated[l];
+    // Invertemos: risco alto → score de integridade baixo (0-100)
+    const mediaRisco = count > 0 ? riscoTotal / count : 0;
+    return Math.round(100 - mediaRisco);
+  });
+  const alertas  = labels.map(l => aggregated[l].alertas);
+  const esforcos = labels.map(l => {
+    const { esforcoTotal, count } = aggregated[l];
+    return count > 0 ? Math.round(esforcoTotal / count) : 0;
+  });
+
+  const resultado = {
+    labels,
+    valores,
+    alertas,
+    esforcos,              // Minutos médios de escrita por documento
+    _calculatedAt: new Date().toISOString(),
+    _elapsedMs:    elapsedMs,
+    _fromCache:    false
+  };
+
+  // ===== Persistir no cache (excluindo _fromCache do payload armazenado) =====
+  try {
+    const payload = Object.assign({}, resultado, { _fromCache: false });
+    // CacheService limita valores a 100KB; verificar tamanho antes
+    const serialized = JSON.stringify(payload);
+    if (serialized.length < 90000) {
+      cache.put(cacheKey, serialized, 3600); // TTL: 1 hora (3600s)
+      Logger.log('[BrainProxy] calcularHeatmapAluno: resultado em cache por 1h.');
+    } else {
+      Logger.log('[BrainProxy] calcularHeatmapAluno: resultado > 90KB, cache ignorado.');
+    }
+  } catch (e) {
+    Logger.log('[BrainProxy] calcularHeatmapAluno: falha ao persistir no cache: ' + e);
+  }
+
+  return resultado;
+}
+
+/**
+ * [ARCH-04] Invalida o cache do heatmap de um aluno específico.
+ * Deve ser chamada quando novos logs são gravados para o aluno,
+ * garantindo que o próximo getHeatmapData reflita os novos dados.
+ *
+ * @param {string} emailAluno
+ */
+function invalidarCacheHeatmap(emailAluno) {
+  if (!emailAluno) return;
+  const cache    = CacheService.getScriptCache();
+  const cacheKey = 'HEATMAP_ALUNO_' + emailAluno.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  cache.remove(cacheKey);
+  Logger.log('[BrainProxy] Cache heatmap invalidado para: ' + emailAluno);
+}
+
+/**
+ * [ARCH-04] Stub defensivo para heatmap por instituição (implementação futura).
+ * Documenta a intenção sem retornar dados falsos.
+ */
+function calcularHeatmapInstituicao(nomeInstituicao) {
+  Logger.log('[BrainProxy] calcularHeatmapInstituicao: não implementado para ' + nomeInstituicao);
   return {
-    labels: ['Tarefa 1', 'Tarefa 2', 'Tarefa 3'],
-    valores: [85, 40, 92], // Scores de integridade/autonomia
-    alertas: [0, 1, 0]
+    _incomplete: true,
+    _reason:    'Implementação pendente: requer índice de instituições na planilha global.',
+    labels:     [],
+    valores:    [],
+    alertas:    []
   };
 }
+
 
 function calcularHeatmapTurma(courseId) {
   const profEmail = Session.getActiveUser().getEmail();
   const ssId = buscarSpreadsheetProfessor(profEmail);
   if (!ssId) return { labels: [], media_esforco: [], media_integridade: [] };
-  
-  const ss = SpreadsheetApp.openById(ssId);
+
+  const ss    = SpreadsheetApp.openById(ssId);
   const sheet = ss.getSheetByName('Logs');
-  const data = sheet.getDataRange().getValues();
-  
-  // Agregação por Assignment_ID
+  const data  = sheet.getDataRange().getValues();
+  const h     = data[0];
+
+  // Resolver colunas por header para robustez
+  const courseCol      = h.indexOf('Turma');          // Coluna Turma (0-based)
+  const assignmentCol  = h.indexOf('DocId');           // Agrupamos por DocId como proxy de Assignment
+  const esforcoCol     = h.indexOf('Tempo_Ativo_Min');
+  const integridadeCol = h.indexOf('RiscoScore');
+
   const stats = {};
-  for(let i=1; i<data.length; i++) {
-    const cid = data[i][3];
-    if (cid != courseId) continue;
-    
-    const aid = data[i][2];
+  for (let i = 1; i < data.length; i++) {
+    // Filtrar pelo courseId: comparamos com a coluna Turma
+    if (data[i][courseCol] != courseId) continue;
+
+    const aid = data[i][assignmentCol] || 'SEM_DOC';
     if (!stats[aid]) stats[aid] = { esforco: 0, integridade: 0, count: 0 };
-    stats[aid].esforco += data[i][4];
-    stats[aid].integridade += data[i][6];
+    stats[aid].esforco      += parseFloat(data[i][esforcoCol])     || 0;
+    stats[aid].integridade  += parseFloat(data[i][integridadeCol]) || 0;
     stats[aid].count++;
   }
-  
+
   const labels = Object.keys(stats);
   return {
-    labels: labels,
-    media_esforco: labels.map(l => stats[l].esforco / stats[l].count),
-    media_integridade: labels.map(l => stats[l].integridade / stats[l].count)
+    labels,
+    media_esforco:     labels.map(l => stats[l].count > 0 ? stats[l].esforco     / stats[l].count : 0),
+    media_integridade: labels.map(l => stats[l].count > 0 ? stats[l].integridade / stats[l].count : 0)
   };
 }
 
+/**
+ * [HIGH-03 FIX] Busca SpreadsheetId do professor por nome de coluna (não índice).
+ */
 function buscarSpreadsheetProfessor(email) {
   const adminId = PropertiesService.getScriptProperties().getProperty('ADMIN_SPREADSHEET_ID');
-  const sheet = SpreadsheetApp.openById(adminId).getSheetByName('Assinaturas');
-  const data = sheet.getDataRange().getValues();
-  for(let i=1; i<data.length; i++) {
-    if(data[i][0] === email) return data[i][5];
+  const sheet   = SpreadsheetApp.openById(adminId).getSheetByName('Assinaturas');
+  const data    = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const emailIdx = headers.indexOf('Email');
+  const ssIdx    = headers.indexOf('SpreadsheetId');
+  if (emailIdx === -1 || ssIdx === -1) return null;
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][emailIdx] === email) return data[i][ssIdx];
   }
   return null;
 }
@@ -384,13 +586,13 @@ function doPost(e) {
 
     // 2. Roteamento
     switch (route) {
-      case 'registrar_chave':
+      case ROUTE_REGISTRAR_CHAVE:
         return handleRegistrarChave(body, cfg);
-      case 'analisar':
+      case ROUTE_ANALISAR:
         return handleAnalisar(body, cfg);
-      case 'logar_metricas':
+      case ROUTE_LOGAR_METRICAS:
         return handleLogarMetricas(body, cfg);
-      case 'status_licenca':
+      case ROUTE_STATUS_LICENCA:
         return handleStatusLicenca(body, cfg);
       default:
         return jsonResponse({ error: 'ROUTE_NOT_FOUND' }, 404);
@@ -440,13 +642,20 @@ function handleRegistrarChave(body, cfg) {
   const { professorEmail, apiKey } = body;
   if (!professorEmail) return jsonResponse({ error: 'EMAIL_REQUIRED' }, 400);
 
-  const sheet = getPlanilhaGlobal(cfg.adminSpreadsheetId);
-  const data = sheet.getDataRange().getValues();
+  // [MED-06 FIX] Validar formato do email antes de gravar na planilha
+  try {
+    validarEmail(professorEmail);
+  } catch (validationErr) {
+    return jsonResponse({ error: 'EMAIL_INVALIDO', message: validationErr.message }, 400);
+  }
+
+  const sheet   = getPlanilhaGlobal(cfg.adminSpreadsheetId);
+  const data    = sheet.getDataRange().getValues();
   const headers = data[0]; // Email | Instituicao | Status | UsaChaveGlobal | ChaveIndividual | SpreadsheetId
 
-  const emailCol         = headers.indexOf('Email');
-  const chaveCol         = headers.indexOf('ChaveIndividual');
-  const spreadsheetCol   = headers.indexOf('SpreadsheetId');
+  const emailCol       = headers.indexOf('Email');
+  const chaveCol       = headers.indexOf('ChaveIndividual');
+  const spreadsheetCol = headers.indexOf('SpreadsheetId');
 
   // Buscar linha existente
   for (let i = 1; i < data.length; i++) {
@@ -479,9 +688,21 @@ function handleRegistrarChave(body, cfg) {
 // =====================================================
 
 function handleAnalisar(body, cfg) {
-  const { professorEmail, fragmento, metricas } = body;
+  const { professorEmail, alunoEmail, fragmento, metricas } = body;
   if (!professorEmail || !fragmento) {
     return jsonResponse({ error: 'PARAMS_REQUIRED' }, 400);
+  }
+
+  // [ARCH-06] Rate Limiting: previne abuso da API Gemini (tokens)
+  const usuario = alunoEmail || 'anonimo';
+  if (!verificarRateLimit(professorEmail, usuario)) {
+    return jsonResponse({
+      error: 'RATE_LIMIT_EXCEEDED',
+      message: 'Muitas análises solicitadas. Aguarde um momento antes de pedir novas análises.',
+      modoIA: false,
+      riskEvidence: null,
+      pedagogicalAdvice: null
+    }, 429); // Too Many Requests
   }
 
   const registro = buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId);
@@ -643,42 +864,19 @@ function analisarComGemini(fragmento, metricas, apiKey) {
 /**
  * Utilitário para extrair JSON de strings que podem conter Markdown
  */
-function extrairJSON(texto) {
-  try {
-    // Tenta parse direto primeiro
-    return JSON.parse(texto);
-  } catch (e) {
-    // Procura por blocos de código markdown: ```json { ... } ``` ou ``` { ... } ```
-    const match = texto.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (match && match[1]) {
-      try {
-        return JSON.parse(match[1].trim());
-      } catch (e2) {
-        Logger.log('Falha ao parsear JSON dentro de blocos Markdown');
-      }
-    }
-    // Se não encontrar blocos, tenta limpar caracteres extras antes/depois das chaves
-    const fallbackMatch = texto.match(/\{[\s\S]*\}/);
-    if (fallbackMatch) {
-      try {
-        return JSON.parse(fallbackMatch[0]);
-      } catch (e3) {
-        Logger.log('Falha no fallback de extração de chaves');
-      }
-    }
-    throw new Error('Não foi possível extrair um JSON válido da resposta da IA');
-  }
-}
+// extrairJSON() → ver Utils.gs
+// [ARCH-02] Movida para Utils.gs (Utilitários Compartilhados)
+
 
 // =====================================================
 //  PROMPT SOCRÁTICO PEDAGÓGICO (Lógica Proprietária)
 // =====================================================
 
 function construirPromptSocratico(fragmento, metricas) {
-  const editRatio   = metricas?.editRatio ?? 'desconhecido';
-  const pasteCount  = metricas?.pasteEvents?.count ?? 0;
-  const activeMins  = metricas?.activeFocusTimeMinutes ?? 0;
-  const peakCpm     = metricas?.typingSpeed?.peakCharsPerMinute ?? 0;
+  const editRatio  = metricas?.editRatio ?? 'desconhecido';
+  const pasteCount = metricas?.pasteEvents?.count ?? 0;
+  const activeMins = metricas?.activeFocusTimeMinutes ?? 0;
+  const peakCpm    = metricas?.typingSpeed?.peakCharsPerMinute ?? 0;
 
   return `
 Você é um auditor pedagógico socrático do sistema Whitebox. 
@@ -696,6 +894,8 @@ MÉTRICAS COMPORTAMENTAIS:
 - Taxa de edição (deleções/total): ${editRatio}
 - Pico de digitação: ${peakCpm} caracteres/minuto
 
+IDIOMA: Responda SEMPRE em português brasileiro, independentemente do idioma do trecho acima.
+
 RESPONDA SOMENTE em JSON válido com a seguinte estrutura, sem qualquer texto adicional:
 {
   "toneChangeDetected": true | false,
@@ -707,53 +907,13 @@ RESPONDA SOMENTE em JSON válido com a seguinte estrutura, sem qualquer texto ad
 `;
 }
 
-// =====================================================
-//  PLANILHA GLOBAL (Admin / Desenvolvedor)
-// =====================================================
+// getPlanilhaGlobal() → ver Utils.gs
+// [ARCH-02] Movida para Utils.gs (Utilitários Compartilhados)
 
-function getPlanilhaGlobal(spreadsheetId) {
-  const ss = SpreadsheetApp.openById(spreadsheetId);
-  let sheet = ss.getSheetByName('Assinaturas');
-  if (!sheet) {
-    sheet = ss.getSheets()[0];
-    const firstHeader = sheet.getRange('A1').getValue();
-    if (firstHeader !== 'Email') {
-      throw new Error('CRÍTICO: A aba principal "Assinaturas" não foi encontrada e a primeira aba foi alterada. Os dados podem ter sido perdidos.');
-    }
-  }
-  return sheet;
-}
+// buscarRegistroProfessor() → ver Utils.gs
+// [ARCH-02] Movida para Utils.gs (Utilitários Compartilhados)
 
-function buscarRegistroProfessor(email, adminSpreadsheetId) {
-  try {
-    const sheet = getPlanilhaGlobal(adminSpreadsheetId);
-    const data  = sheet.getDataRange().getValues();
-    const h     = data[0];
-    const emailCol  = h.indexOf('Email');
-    const escolaCol = h.indexOf('Instituicao');
-    const statusCol = h.indexOf('Status');
-    const globalCol = h.indexOf('UsaChaveGlobal');
-    const chaveCol  = h.indexOf('ChaveIndividual');
-    const ssCol     = h.indexOf('SpreadsheetId');
 
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][emailCol] === email) {
-        return {
-          email:           data[i][emailCol],
-          escola:          data[i][escolaCol],
-          status:          data[i][statusCol],
-          usaChaveGlobal:  data[i][globalCol],
-          chaveIndividual: data[i][chaveCol],
-          spreadsheetId:   data[i][ssCol]
-        };
-      }
-    }
-    return null;
-  } catch (err) {
-    Logger.log('[BrainProxy] Erro ao buscar professor: ' + err);
-    return null;
-  }
-}
 
 // =====================================================
 //  PLANILHA DO PROFESSOR (Logs Individuais)
@@ -830,29 +990,38 @@ function logarNaPlanilhaProfessor(params) {
     isFinal ? 'Sim' : 'Não'
   ]);
 
+  // [ARCH-04] Invalidar cache do heatmap do aluno após novo log.
+  // Garante que a próxima chamada a getHeatmapData reflita os dados atuais.
+  invalidarCacheHeatmap(alunoEmail);
+
   // Atualizar aba de Turmas
   atualizarTurma(ss, turma);
 }
 
+/**
+ * [HIGH-04 FIX] Registra ou atualiza a turma no dashboard do professor.
+ * Incrementa Total_Alunos a cada novo log registrado.
+ */
 function atualizarTurma(ss, turma) {
   const sheet = ss.getSheetByName('Turmas') || ss.insertSheet('Turmas');
   const data  = sheet.getDataRange().getValues();
+
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === turma) {
+      // [HIGH-04 FIX] Incrementar Total_Alunos (coluna 2) em vez de manter sempre = 1
+      const currentTotal = parseInt(data[i][1]) || 0;
+      sheet.getRange(i + 1, 2).setValue(currentTotal + 1);
       sheet.getRange(i + 1, 3).setValue(new Date().toISOString());
       return;
     }
   }
-  // Turma nova
+  // Turma nova: inicializar com 1
   sheet.appendRow([turma, 1, new Date().toISOString()]);
 }
 
-// =====================================================
-//  UTILITÁRIO: Resposta JSON Padronizada
-// =====================================================
-
-function jsonResponse(data, httpCode) {
-  return ContentService
-    .createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
-}
+// jsonResponse() → ver Utils.gs
+// [ARCH-02] Movida para Utils.gs (Utilitários Compartilhados)
+//
+// LIMITAÇÃO: ContentService sempre retorna HTTP 200 no Apps Script.
+// O status real é embutido em body._httpStatus quando != 200.
+// Ref: https://issuetracker.google.com/issues/36759757

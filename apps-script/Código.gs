@@ -1,4 +1,25 @@
-﻿/**
+/**
+ * ============================================================
+ *  ⚠️  MÓDULO LEGADO — DEPRECATED — NÃO USAR EM PRODUÇÃO
+ * ============================================================
+ *
+ * Este arquivo pertence à versão LEGADA do Whitebox (EvidencIA v1).
+ * Ele enviava dados para `triagem.cliv.app` (endpoint externo de terceiro)
+ * e NÃO utiliza a arquitetura atual de Brain Proxy.
+ *
+ * ✅ MÓDULO ATIVO: use `whitebox-client/Código.gs` em produção.
+ *
+ * Mantido apenas como referência histórica. Não realizar deploy deste
+ * diretório via clasp. Qualquer chamada a sendToBackend() neste módulo
+ * será bloqueada por segurança.
+ *
+ * Para entender a arquitetura atual, consulte:
+ *   docs/architecture.md
+ *   whitebox-client/Código.gs
+ * ============================================================
+ */
+
+/**
  * Ao abrir o documento, adiciona o menu do Add-on Whitebox.
  */
 function onOpen(e) {
@@ -24,6 +45,7 @@ function showSidebar() {
     .setWidth(300);
   DocumentApp.getUi().showSidebar(ui);
 }
+
 
 /**
  * Abre o modal de edição de Quiz.
@@ -363,89 +385,20 @@ function validateSourceReliability(url) {
 }
 
 /**
- * Envia o payload final do metadado da "Caixa-Preta" para o Backend (API).
- * Como solicitado, estamos operando com MOCK neste momento.
+ * [DEPRECATED — HIGH-02] Esta função foi desativada neste módulo legado.
+ * O módulo ativo é whitebox-client/Código.gs.
+ *
+ * Esta versão enviava dados para `triagem.cliv.app` (endpoint externo),
+ * incompatível com a arquitetura atual de Brain Proxy.
  */
 function sendToBackend(payload) {
-  Logger.log("Payload recebido pelo Google Apps Script:");
-  Logger.log(JSON.stringify(payload, null, 2));
-
-  // Persistir email bruto do aluno para uso futuro (ex: envio de quiz por email)
-  if (payload.studentContext && payload.studentContext.rawEmail) {
-    PropertiesService.getDocumentProperties().setProperty('STUDENT_EMAIL', payload.studentContext.rawEmail);
-  }
-
-  // Endpoints Reais (cliv.app)
-  const metricUrl = "https://triagem.cliv.app/api/send"; 
-  const analysisUrl = "https://triagem.cliv.app/api/fake";
-  
-  const isAnalysisRequest = payload.contentAnalysis && payload.contentAnalysis.selectedFragment;
-  const targetUrl = isAnalysisRequest ? analysisUrl : metricUrl;
-  
-  // MOCK DE RESPOSTA (Simulando o processamento do Dev 2 e NLP/GPT)
-  // Dependendo de se tem fragmento selecionado, simularemos um problema de "mudança de tom".
-  
-  // POST para o backend selecionado
-  const options = {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  };
-
-  try {
-    const response = UrlFetchApp.fetch(targetUrl, options);
-    const responseCode = response.getResponseCode();
-    
-    if (responseCode !== 200) {
-      Logger.log("Erro na API (" + targetUrl + "): " + response.getContentText());
-      return {
-        status: responseCode,
-        error: "Erro na comunicação com o servidor de triagem.",
-        details: response.getContentText().substring(0, 100)
-      };
-    }
-  } catch (e) {
-    Logger.log("Falha na conexão com " + targetUrl + ": " + e.toString());
-    return { status: 500, error: "Falha crítica de conexão." };
-  }
-
-  Utilities.sleep(1000); // Pequeno delay para feedback visual
-  
-  let riskEvidence = "Nenhum risco detectado. O texto flui de forma natural.";
-  let pedagogicalAdvice = "Continue encorajando a busca profunda por fontes diversas.";
-  let toneChangeDetected = false;
-  let quizData = [];
-  
-  if (payload.contentAnalysis && payload.contentAnalysis.selectedFragment) {
-    toneChangeDetected = true;
-    riskEvidence = "Mudança de tom detectada no trecho: possível vocabulário complexo repentino.";
-    pedagogicalAdvice = "Pergunte ao aluno como ele estruturou este parágrafo ou se ele usou alguma ferramenta para ajudar.";
-    // Gera quiz real a partir do trecho selecionado
-    quizData = generateQuizFromText(payload.contentAnalysis.selectedFragment);
-  }
-  
-  // Se for aluno colando massivamente
-  if (payload.behavioralMetrics && payload.behavioralMetrics.pasteEvents && payload.behavioralMetrics.pasteEvents.massiveInsertionsDetected) {
-     riskEvidence = "Foi detectada uma inserção massiva (copy-paste de bloco longo).";
-  }
-  
-  // Simulação de análise de fontes se houver URLs
-  let sourceAnalysis = [];
-  if (payload.contentAnalysis && payload.contentAnalysis.detectedUrls) {
-    sourceAnalysis = payload.contentAnalysis.detectedUrls.map(url => validateSourceReliability(url));
-  }
-  
-  return {
-    status: 200,
-    toneChangeDetected: toneChangeDetected,
-    riskEvidence: riskEvidence,
-    pedagogicalAdvice: pedagogicalAdvice,
-    quizData: quizData,
-    quizStatus: toneChangeDetected ? "AVAILABLE" : "NONE",
-    sourceAnalysis: sourceAnalysis
-  };
+  throw new Error(
+    '[Whitebox LEGADO] sendToBackend() foi chamada no módulo DEPRECATED (apps-script/).\n' +
+    'Use o módulo ativo: whitebox-client/Código.gs.\n' +
+    'Consulte docs/architecture.md para entender a arquitetura atual.'
+  );
 }
+
 
 /**
  * ITEM 3 (Extração via APIs Avançadas Workspace)

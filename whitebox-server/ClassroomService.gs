@@ -128,51 +128,74 @@ function buscarInstituicaoProfessor(email) {
 /**
  * Tenta encontrar qual tarefa (Assignment) gerou este documento de aluno.
  * Cruza o docId com as submissões das turmas onde o aluno está inscrito.
+ *
+ * [MED-05 FIX] Cache via CacheService com TTL de 6 horas.
+ * O mapeamento docId → assignmentId é estável (não muda durante o período escolar),
+ * tornando o cache seguro e muito eficiente para reduzir chamadas à Classroom API.
  */
 function findAssignmentIdByDocId(docId) {
+  if (!docId) return null;
+
+  // 1. Verificar cache
+  const cache     = CacheService.getDocumentCache();
+  const cacheKey  = CACHE_ASSIGNMENT_PREFIX + docId;
+  const cached    = cache.get(cacheKey);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      Logger.log('[ClassroomService] Cache hit para docId=' + docId);
+      return parsed; // { assignmentId, courseId }
+    } catch (e) {
+      // Cache corrompido — prosseguir com busca real
+      Logger.log('[ClassroomService] Cache inválido para ' + docId + ', rebuscando...');
+    }
+  }
+
   try {
-    // 1. Listar turmas do aluno
+    // 2. Listar turmas do aluno (paginado)
     let courses = [];
     let coursePageToken = null;
     do {
-      const coursesResponse = Classroom.Courses.list({ 
-        studentId: 'me', 
+      const coursesResponse = Classroom.Courses.list({
+        studentId:    'me',
         courseStates: ['ACTIVE'],
-        pageToken: coursePageToken 
+        pageToken:    coursePageToken
       });
       if (coursesResponse.courses) courses = courses.concat(coursesResponse.courses);
       coursePageToken = coursesResponse.nextPageToken;
     } while (coursePageToken);
-    
+
     for (const course of courses) {
-      // 2. Listar submissões do aluno nesta turma (filtramos por aluno para ser rápido)
+      // 3. Listar submissões do aluno nesta turma (paginado)
       let submissions = [];
       let subPageToken = null;
       do {
-        const submissionsResponse = Classroom.Courses.CourseWork.StudentSubmissions.list(course.id, '-', { 
-          userId: 'me',
-          pageToken: subPageToken
-        });
-        if (submissionsResponse.studentSubmissions) submissions = submissions.concat(submissionsResponse.studentSubmissions);
+        const submissionsResponse = Classroom.Courses.CourseWork.StudentSubmissions.list(
+          course.id, '-', { userId: 'me', pageToken: subPageToken }
+        );
+        if (submissionsResponse.studentSubmissions) {
+          submissions = submissions.concat(submissionsResponse.studentSubmissions);
+        }
         subPageToken = submissionsResponse.nextPageToken;
       } while (subPageToken);
-      
+
       for (const sub of submissions) {
         if (sub.assignmentSubmission && sub.assignmentSubmission.attachments) {
-          const attachments = sub.assignmentSubmission.attachments;
-          for (const att of attachments) {
+          for (const att of sub.assignmentSubmission.attachments) {
             if (att.driveFile && att.driveFile.id === docId) {
-              return {
-                assignmentId: sub.courseWorkId,
-                courseId: course.id
-              };
+              const result = { assignmentId: sub.courseWorkId, courseId: course.id };
+              // 4. Armazenar no cache (TTL: 6h = 21600s)
+              try { cache.put(cacheKey, JSON.stringify(result), 21600); } catch (e) {}
+              Logger.log('[ClassroomService] Assignment encontrado e cacheado para docId=' + docId);
+              return result;
             }
           }
         }
       }
     }
   } catch (e) {
-    Logger.log('Erro ao buscar assignment via Classroom: ' + e);
+    Logger.log('[ClassroomService] Erro ao buscar assignment via Classroom: ' + e);
   }
-  return null; 
+  return null;
 }
+

@@ -28,17 +28,20 @@ function setupFormularioSemente() {
   form.setAcceptingResponses(true);
   
   const formId = form.getId();
-  const cfg = getConfig();
-  const ss = SpreadsheetApp.openById(cfg.adminSpreadsheetId);
+  const cfg    = getConfig();
+  const ss     = SpreadsheetApp.openById(cfg.adminSpreadsheetId);
   let configTab = ss.getSheetByName('Config');
-  
+
   if (!configTab) {
     configTab = ss.insertSheet('Config');
-    configTab.appendRow(['Chave', 'Valor']);
+    // [LOW-03 FIX] Usar header canônico ['Parametro', 'Valor', 'Descricao']
+    // consistente com AdminSetup.gs — evita conflito de schema na leitura.
+    configTab.appendRow(['Parametro', 'Valor', 'Descricao']);
   }
-  
-  const data = configTab.getDataRange().getValues();
-  let found = false;
+
+  // Verificar se a linha já existe para não duplicar
+  const data  = configTab.getDataRange().getValues();
+  let found   = false;
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === 'seed_form_id') {
       configTab.getRange(i + 1, 2).setValue(formId);
@@ -46,8 +49,9 @@ function setupFormularioSemente() {
       break;
     }
   }
-  
+
   if (!found) {
+    // [LOW-03] Terceira coluna obrigatória para manter schema ['Parametro', 'Valor', 'Descricao']
     configTab.appendRow(['seed_form_id', formId, 'ID do Form Semente para Onboarding']);
   }
 
@@ -108,7 +112,7 @@ function gerarLevaOnboarding(token, nomeLeva, dataLimite) {
                                .getUniqueId();
                                
     const props = PropertiesService.getScriptProperties();
-    props.setProperty('DEADLINE_' + triggerId, formId);
+    props.setProperty(PROP_DEADLINE_PREFIX + triggerId, formId);
   }
 
   return {
@@ -123,11 +127,18 @@ function gerarLevaOnboarding(token, nomeLeva, dataLimite) {
  * Ela olha para as propriedades, acha qual Form venceu agora, e desativa as respostas.
  */
 function fecharFormulariosVencidos(e) {
-  if (!e) return;
+  // [HIGH-05 FIX] Guard explícito: sem triggerUid o lookup retorna 'DEADLINE_undefined'
+  // e o formulário nunca seria fechado sem qualquer log de aviso.
+  if (!e || !e.triggerUid) {
+    Logger.log('[Onboarding] fecharFormulariosVencidos: e.triggerUid ausente. ' +
+               'Essa função deve ser acionada apenas por um gatilho TimeBased — não manualmente.');
+    return;
+  }
+
   const triggerId = e.triggerUid;
-  const props = PropertiesService.getScriptProperties();
-  const formId = props.getProperty('DEADLINE_' + triggerId);
-  
+  const props     = PropertiesService.getScriptProperties();
+  const formId    = props.getProperty(PROP_DEADLINE_PREFIX + triggerId);
+
   if (formId) {
     try {
       const form = FormApp.openById(formId);
@@ -135,44 +146,56 @@ function fecharFormulariosVencidos(e) {
       form.setCustomClosedFormMessage('As inscrições para esta leva de professores foram encerradas.');
       Logger.log('[Onboarding] Formulário fechado automaticamente (Deadline): ' + formId);
     } catch (err) {
-      Logger.log('[Onboarding] Erro ao fechar form: ' + err);
+      Logger.log('[Onboarding] Erro ao fechar form ' + formId + ': ' + err);
     }
-    // Limpeza
-    props.deleteProperty('DEADLINE_' + triggerId);
-    // Limpar o gatilho em si
+    // Limpeza da propriedade
+    props.deleteProperty(PROP_DEADLINE_PREFIX + triggerId);
+    // Remover o gatilho para evitar execuções futuras desnecessárias
     const triggers = ScriptApp.getProjectTriggers();
     for (let i = 0; i < triggers.length; i++) {
       if (triggers[i].getUniqueId() === triggerId) {
         ScriptApp.deleteTrigger(triggers[i]);
+        break; // Encontrado — sair do loop
       }
     }
+  } else {
+    Logger.log('[Onboarding] fecharFormulariosVencidos: nenhum formId encontrado para triggerUid=' + triggerId);
   }
 }
 
 /**
  * Função acionada toda vez que um professor responde o formulário de Onboarding.
  */
+
+// FORM_FIELD_* → ver Constants.gs
+// [ARCH-03] Constantes dos campos do formulário movidas para Constants.gs.
+
+
 function onProfessorFormSubmit(e) {
   if (!e || !e.response) return; // Segurança contra execuções manuais acidentais
-  
-  const email = e.response.getRespondentEmail();
+
+  const email        = e.response.getRespondentEmail();
   const itemResponses = e.response.getItemResponses();
-  
+
   let instituicao = 'Não informada';
-  let linkDrive = '';
-  
+  let linkDrive   = '';
+
   for (let i = 0; i < itemResponses.length; i++) {
-    const title = itemResponses[i].getItem().getTitle();
+    const title  = itemResponses[i].getItem().getTitle();
     const answer = itemResponses[i].getResponse();
-    
-    if (title.includes('Instituição')) {
+
+    // [MED-03 FIX] Matching exato por constante — não por substring impreciso.
+    // O bug anterior usava title.includes('Link do Cofre Drive') que nunca batia com
+    // 'Link do arquivo de Cofre (Google Drive)', forçando todos ao modo offline.
+    if (title === FORM_FIELD_INSTITUICAO) {
       instituicao = answer;
-    } else if (title.includes('Link do Cofre Drive')) {
+    } else if (title === FORM_FIELD_LINK_COFRE) {
       linkDrive = answer;
     }
   }
-  
+
   // 1. Validar e Extrair o File ID do Link (se houver)
+
   let fileId = '';
   let chaveAprovada = false;
   let usouChaveGlobal = false;
@@ -200,18 +223,44 @@ function onProfessorFormSubmit(e) {
   
   // 2. Fluxo de Sucesso ou Falha
   if (chaveAprovada) {
-    // Registra na planilha Global com Status Ativo
-    adicionarProfessor(email, instituicao, usouChaveGlobal, fileId);
-    
-    // Provisiona o banco individual (Log do Professor) e notifica
-    const cfg = getConfig();
-    const sheet = getPlanilhaGlobal(cfg.adminSpreadsheetId);
-    
-    const rowIndex = sheet.getLastRow() - 1; 
-    const data = sheet.getDataRange().getValues();
-    const spreadsheetCol = data[0].indexOf('SpreadsheetId');
-    
-    const spreadsheetId = garantirPlanilhaProfessor(email, sheet, rowIndex, spreadsheetCol);
+    // [CR-03] Serializar registros simultâneos para evitar race condition no rowIndex
+    const lock = LockService.getScriptLock();
+    let spreadsheetId = '';
+    try {
+      lock.waitLock(30000); // Aguarda até 30s por uma submissão anterior
+
+      // Registra na planilha Global com Status Ativo
+      adicionarProfessor(email, instituicao, usouChaveGlobal, fileId);
+
+      // [CR-03 FIX] Buscar o rowIndex REAL do professor por email, não por getLastRow()
+      // Isso garante que dois professores submetendo simultaneamente não troquem suas planilhas.
+      const cfg = getConfig();
+      const sheet = getPlanilhaGlobal(cfg.adminSpreadsheetId);
+      const data = sheet.getDataRange().getValues();
+      const spreadsheetCol = data[0].indexOf('SpreadsheetId');
+
+      let rowIndex = -1;
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][0] === email) { rowIndex = i; break; }
+      }
+
+      if (rowIndex === -1) {
+        throw new Error('[Onboarding] Professor ' + email + ' não encontrado após adicionarProfessor()');
+      }
+
+      spreadsheetId = garantirPlanilhaProfessor(email, sheet, rowIndex, spreadsheetCol);
+
+    } catch (lockErr) {
+      Logger.log('[Onboarding] Erro no lock/provisionamento para ' + email + ': ' + lockErr);
+      MailApp.sendEmail({
+        to: email,
+        subject: '⚠️ Erro Temporário - Whitebox',
+        body: 'Olá!\n\nOcorreu um erro temporário ao processar seu cadastro. Por favor, aguarde alguns minutos e tente novamente.\n\nDesculpe o inconveniente.\n\nEquipe Whitebox'
+      });
+      return;
+    } finally {
+      lock.releaseLock();
+    }
     
     let msgBody = 'Olá!\n\nSeu cadastro foi aprovado com sucesso.\n\n';
     if (fileId) {
