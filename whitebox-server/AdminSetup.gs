@@ -12,42 +12,77 @@
 
 function setupPlanilhaGlobal() {
   const ss = SpreadsheetApp.create('Whitebox - Painel Global Admin');
+  const targetFolder = getOrCreateTargetFolder();
+  DriveApp.getFileById(ss.getId()).moveTo(targetFolder);
+
 
   // ---- Aba de Assinaturas (Professores) ----
-  const assinaturas = ss.getActiveSheet();
+  let assinaturas = ss.getSheets()[0];
   assinaturas.setName('Assinaturas');
   assinaturas.appendRow([
-    'Email', 'Escola', 'Status', 'UsaChaveGlobal', 'ChaveIndividual', 'SpreadsheetId', 'DataCadastro'
+    'Email', 'Instituicao', 'Status', 'UsaChaveGlobal', 'ChaveIndividual', 'SpreadsheetId', 'DataCadastro'
   ]);
   assinaturas.getRange('1:1').setFontWeight('bold').setBackground('#1a73e8').setFontColor('#ffffff');
 
-  // ---- Aba de Escolas ----
-  const escolas = ss.insertSheet('Escolas');
-  escolas.appendRow(['Nome_Escola', 'Total_Professores', 'PlanoGlobal']);
-  escolas.getRange('1:1').setFontWeight('bold').setBackground('#188038').setFontColor('#ffffff');
+  // ---- Aba de Tarefas Globais (Visão Admin) ----
+  let tarefas = ss.insertSheet('Tarefas_Globais');
+  tarefas.appendRow(['ID_Tarefa', 'Professor', 'Instituicao', 'Titulo', 'Course_ID', 'Data_Criacao']);
+  tarefas.getRange('1:1').setFontWeight('bold').setBackground('#8e24aa').setFontColor('#ffffff');
+
+  // ---- Aba de Heatmap & Rankings (Visão Admin) ----
+  let rankings = ss.insertSheet('Ranking_Instituicao');
+  rankings.appendRow(['Instituicao', 'Total_Professores', 'Total_Alunos', 'Media_Autonomia_IA', 'Ultima_Atualizacao']);
+  rankings.getRange('1:1').setFontWeight('bold').setBackground('#f59e0b').setFontColor('#ffffff');
 
   // ---- Aba de Configurações Globais ----
-  const config = ss.insertSheet('Config');
+  let config = ss.getSheetByName('Config') || ss.insertSheet('Config');
   config.appendRow(['Parametro', 'Valor', 'Descricao']);
   config.getRange('1:1').setFontWeight('bold').setBackground('#444444').setFontColor('#ffffff');
-  config.appendRow(['versao_addon', '2.0', 'Versão atual do Add-on Whitebox']);
-  config.appendRow(['gemini_model', 'gemini-1.5-flash', 'Modelo Gemini a ser usado']);
-  config.appendRow(['chave_global_ativa', 'false', 'Definida via Script Properties (GEMINI_GLOBAL_KEY)']);
-  config.appendRow(['seed_document_id', '', 'ID do Google Doc que serve de modelo (Semente)']);
+  config.appendRow(['versao_addon', '2.1', 'Versão com Integração Classroom']);
+  config.appendRow(['gemini_model', 'gemini-1.5-flash', 'Modelo Gemini']);
+  config.appendRow(['seed_document_id', '', 'Doc Semente Master']);
 
-  const url = ss.getUrl();
-  const id  = ss.getId();
-
-  Logger.log('=================================================');
-  Logger.log('✅ Planilha Global criada com sucesso!');
-  Logger.log('📊 URL: ' + url);
-  Logger.log('🔑 ID (salve em Script Properties como ADMIN_SPREADSHEET_ID): ' + id);
-  Logger.log('=================================================');
-
-  // Retornar dados para fácil consulta
-  return { id: id, url: url };
+  return { id: ss.getId(), url: ss.getUrl() };
 }
 
+/**
+ * Cria a planilha individual de um professor onde ele terá autonomia de IA e logs locais.
+ */
+function criarPlanilhaProfessor(email, instituicao) {
+  const ss = SpreadsheetApp.create('Whitebox - Log Professor (' + email + ')');
+  const targetFolder = getOrCreateTargetFolder();
+  DriveApp.getFileById(ss.getId()).moveTo(targetFolder);
+
+
+  // 1. Aba de Configuração Pedagógica (Autonomia da IA)
+  let configPedagogica = ss.getSheets()[0];
+  configPedagogica.setName('Config_Pedagogica');
+  configPedagogica.appendRow(['Course_ID', 'Assignment_ID', 'Titulo_Tarefa', 'Instrucoes_IA', 'Nivel_Rigor_IA']);
+  configPedagogica.getRange('1:1').setFontWeight('bold').setBackground('#4285f4').setFontColor('#ffffff');
+
+  // 2. Aba de Logs de Atividades (Unified Headers)
+  let logs = ss.insertSheet('Logs');
+  logs.appendRow([
+    'Timestamp', 'Turma', 'DocId', 'Email_Aluno',
+    'Palavras', 'Tempo_Ativo_Min', 'Colar_Eventos',
+    'Taxa_Edicao', 'Alteracoes_Estrutura',
+    'Chars_Adicionados', 'Chars_Deletados', 'Colagem_Massiva',
+    'Cpm_Medio', 'Cpm_Pico',
+    'RiscoScore', 'Whitebox_Risco', 'Conselho_Pedagogico',
+    'Pergunta_Socratica', 'Modo_IA', 'Entrega_Final'
+  ]);
+  logs.getRange('1:1').setFontWeight('bold').setBackground('#34a853').setFontColor('#ffffff');
+
+  // 3. Aba de Dashboard do Professor (Snapshot Heatmap)
+  let dash = ss.insertSheet('Dashboard_Professor');
+  dash.appendRow(['Nivel', 'Identificador', 'Media_Esforco', 'Media_IA_Score', 'Alertas_Criticos']);
+  dash.getRange('1:1').setFontWeight('bold').setBackground('#ea4335').setFontColor('#ffffff');
+
+  // Dar permissão ao professor
+  ss.addEditor(email);
+
+  return ss.getId();
+}
 /**
  * Adiciona um professor manualmente à planilha global (para uso via painel)
  */
@@ -106,4 +141,33 @@ function configurarChaveGlobal(email, usar) {
     }
   }
   return false;
+}
+
+/**
+ * Utilitário: Garante a criação ou navegação para a pasta raiz do projeto.
+ * Caminho: Meu Drive -> GDrive Meus Documentos -> Projetos -> whitebox
+ */
+function getOrCreateTargetFolder() {
+  const path = ["GDrive Meus Documentos", "Projetos", "whitebox"];
+  let folder = DriveApp.getRootFolder();
+  
+  for (let i = 0; i < path.length; i++) {
+    const targetName = path[i].toLowerCase().trim();
+    const folders = folder.getFolders();
+    let found = false;
+    
+    while (folders.hasNext()) {
+      const f = folders.next();
+      if (f.getName().toLowerCase().trim() === targetName) {
+        folder = f;
+        found = true;
+        break;
+      }
+    }
+    
+    if (!found) {
+      folder = folder.createFolder(path[i]);
+    }
+  }
+  return folder;
 }

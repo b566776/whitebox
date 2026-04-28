@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
   <head>
     <base target="_top">
@@ -379,7 +379,7 @@
   </head>
   <body>
 
-    <div id="error-banner" class="error-banner">⚠️ Falha na conexão com o EvidencIA. Tentando reconectar...</div>
+    <div id="error-banner" class="error-banner">⚠️ Falha na conexão com o Whitebox. Tentando reconectar...</div>
     
     <!-- Toggle Role (MOCK Dev 1) -->
     <a class="role-toggle" onclick="toggleRole()">Alternar visão (Atual: <span id="current-role-label">Sincronizando...</span>)</a>
@@ -546,7 +546,7 @@
         // Fallback: garante UI mínima funcional se o backend demorar muito
         startupFallback = setTimeout(function() {
           if (document.getElementById('student-view').classList.contains('hidden')) {
-            console.warn('[EvidencIA] getContext() demorou demais. Aplicando fallback de aluno.');
+            console.warn('[Whitebox] getContext() demorou demais. Aplicando fallback de aluno.');
             currentRole = 'student';
             updateUI();
             document.getElementById('student-area').style.display = 'block';
@@ -581,14 +581,14 @@
                 }
               })
               .withFailureHandler(function(err) {
-                console.warn('[EvidencIA] getSubmissionStatus() falhou:', err);
+                console.warn('[Whitebox] getSubmissionStatus() falhou:', err);
                 // Tracking já foi iniciado acima, não faz nada
               })
               .getSubmissionStatus();
           })
           .withFailureHandler(function(err) {
             clearTimeout(startupFallback);
-            console.error('[EvidencIA] getContext() falhou:', err);
+            console.error('[Whitebox] getContext() falhou:', err);
             showErrorBanner('Erro ao carregar contexto. Usando modo offline.');
             // Inicia com defaults de aluno mesmo assim
             currentRole = 'student';
@@ -627,7 +627,7 @@
       
       function startStudentTracking() {
         if (isTracking) {
-          console.warn('[EvidencIA] startStudentTracking() chamado enquanto já ativo. Ignorado.');
+          console.warn('[Whitebox] startStudentTracking() chamado enquanto já ativo. Ignorado.');
           return;
         }
         isTracking = true;

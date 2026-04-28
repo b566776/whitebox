@@ -131,6 +131,44 @@
 
     .badge-active { background: rgba(16, 185, 129, 0.1); color: var(--success); }
     
+    .heatmap-bar {
+      height: 8px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+      margin-top: 0.5rem;
+      overflow: hidden;
+    }
+    .heatmap-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #10b981, #f59e0b, #ef4444);
+      transition: width 0.5s ease-out;
+    }
+
+    select {
+      width: 100%;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--glass-border);
+      color: white;
+      padding: 0.75rem;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .stat-box {
+      padding: 1rem;
+      background: rgba(0,0,0,0.1);
+      border-radius: 0.5rem;
+      text-align: center;
+    }
+    .stat-val { font-size: 1.5rem; font-weight: 700; color: var(--success); }
+    .stat-label { font-size: 0.75rem; color: var(--text-dim); }
+
     .loading-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -183,18 +221,47 @@
   </header>
 
   <div class="card">
-    <h2>Configuração do Master Seed</h2>
+    <h2>Integração Google Classroom</h2>
     <p style="color: var(--text-dim); margin-bottom: 1rem; font-size: 0.9rem;">
-      Cole o ID do Google Doc que servirá de modelo para todos os professores. 
-      Certifique-se de que o código cliente já está com o push feito nele.
+      Selecione uma turma e envie o "Modelo Mestre" como uma atividade. O Google criará cópias individuais automaticamente.
     </p>
     <div class="config-grid">
       <div>
-        <label>ID do Documento Semente</label>
-        <input type="text" id="seedIdInput" placeholder="Ex: 1A2b3c4d5e6f7g8h9i0j...">
+        <label>Selecione a Turma</label>
+        <select id="courseSelect">
+          <option value="">Carregando turmas...</option>
+        </select>
       </div>
-      <div style="display: flex; align-items: flex-end;">
-        <button onclick="saveSeed()">Salvar Configuração</button>
+      <div>
+        <label>Título da Atividade</label>
+        <input type="text" id="assignmentTitle" placeholder="Ex: Redação - A Revolução Industrial">
+      </div>
+    </div>
+    <button onclick="deployClassroom()" style="margin-top: 1rem; width: 100%;">🚀 Publicar no Google Classroom</button>
+  </div>
+
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+      <h2>Inteligência & Mapas de Calor</h2>
+      <select id="heatmapLevel" style="width: auto; margin-bottom: 0;" onchange="loadHeatmap()">
+        <option value="instituicao">Visão Institucional</option>
+        <option value="professor">Visão Total Professor</option>
+        <option value="turma">Por Turma/Atividade</option>
+      </select>
+    </div>
+    <div id="heatmapContent">
+      <div class="stat-grid">
+        <div class="stat-box">
+          <div class="stat-val" id="avgIntegrity">--%</div>
+          <div class="stat-label">Integridade Média</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="activeStudents">--</div>
+          <div class="stat-label">Alunos Ativos</div>
+        </div>
+      </div>
+      <div id="heatmapList" style="margin-top: 1.5rem;">
+        <!-- Graficos de barra serao injetados aqui -->
       </div>
     </div>
   </div>
@@ -220,6 +287,8 @@
 </div>
 
 <script>
+  let adminToken = null;
+
   function showLoader(show) {
     document.getElementById('loader').style.display = show ? 'flex' : 'none';
   }
@@ -237,18 +306,97 @@
     google.script.run
       .withSuccessHandler(data => {
         showLoader(false);
+        adminToken = data.sharedToken; 
         renderData(data);
+        loadClassrooms();
+        loadHeatmap();
       })
       .withFailureHandler(err => {
         showLoader(false);
-        showToast('Erro ao carregar dados: ' + err, true);
+        if (err.message && err.message.includes('UNAUTHORIZED')) {
+          adminToken = prompt('Por favor, insira o SHARED_TOKEN:');
+          if (adminToken) refreshData();
+        } else {
+          showToast('Erro: ' + err, true);
+        }
       })
-      .getAdminUIData();
+      .getAdminUIData(adminToken);
+  }
+
+  function loadClassrooms() {
+    google.script.run
+      .withSuccessHandler(courses => {
+        const select = document.getElementById('courseSelect');
+        select.innerHTML = courses.length ? '' : '<option>Nenhuma turma encontrada</option>';
+        courses.forEach(c => {
+          select.innerHTML += `<option value="${c.id}">${c.name} (${c.section})</option>`;
+        });
+      })
+      .getClassroomCourses();
+  }
+
+  function deployClassroom() {
+    const cid = document.getElementById('courseSelect').value;
+    const title = document.getElementById('assignmentTitle').value;
+    const seedId = document.getElementById('seedIdInput').value;
+    
+    if(!cid || !title || !seedId) return showToast('Preencha Turma, Título e Seed ID', true);
+    
+    showLoader(true);
+    google.script.run
+      .withSuccessHandler(res => {
+        showLoader(false);
+        showToast('Atividade publicada com sucesso!');
+        window.open(res.alternateLink, '_blank');
+      })
+      .withFailureHandler(err => {
+        showLoader(false);
+        showToast('Falha: ' + err, true);
+      })
+      .publishToClassroom(cid, seedId, title, '', adminToken);
+  }
+
+  function loadHeatmap() {
+    const level = document.getElementById('heatmapLevel').value;
+    const id = (level === 'turma') ? document.getElementById('courseSelect').value : 'global';
+    
+    showLoader(true);
+    google.script.run
+      .withSuccessHandler(data => {
+        showLoader(false);
+        const list = document.getElementById('heatmapList');
+        list.innerHTML = '<h4>Distribuição de Esforço por Atividade</h4>';
+        
+        if (!data.labels || data.labels.length === 0) {
+          list.innerHTML += '<p style="color: var(--text-dim); margin-top: 1rem;">Nenhum dado encontrado para este nível.</p>';
+          return;
+        }
+
+        data.labels.forEach((label, i) => {
+          const val = Math.round(data.media_integridade[i] || 0);
+          list.innerHTML += `
+            <div style="margin-bottom: 1rem;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+                <span>${label}</span>
+                <span>${val}% Integridade</span>
+              </div>
+              <div class="heatmap-bar">
+                <div class="heatmap-fill" style="width: ${val}%"></div>
+              </div>
+            </div>
+          `;
+        });
+      })
+      .withFailureHandler(err => {
+        showLoader(false);
+        showToast('Erro ao carregar heatmap: ' + err, true);
+      })
+      .getHeatmapData(adminToken, level === 'turma' ? 'turma_atividades' : 'instituicao', id);
   }
 
   function renderData(data) {
     document.getElementById('seedIdInput').value = data.seedId || '';
-    document.getElementById('sharedTokenDisplay').innerText = 'Token: ' + data.sharedToken;
+    document.getElementById('sharedTokenDisplay').innerText = 'Servidor Autenticado | Token: ' + data.sharedToken.substring(0, 8) + '...';
 
     const tbody = document.getElementById('profTableBody');
     tbody.innerHTML = '';
@@ -260,7 +408,7 @@
         <td>${p.escola}</td>
         <td><span class="badge badge-active">${p.status}</span></td>
         <td>
-          <button onclick="distribute('${p.email}')">Distribuir Template</button>
+          <button onclick="distribute('${p.email}', this)">Distribuir Template</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -279,22 +427,25 @@
         showLoader(false);
         showToast('Erro ao salvar: ' + err, true);
       })
-      .salvarSeedId(id);
+      .salvarSeedId(id, adminToken);
   }
 
-  function distribute(email) {
+  function distribute(email, btn) {
     if(!confirm('Deseja criar um Documento Mestre e enviar para ' + email + '?')) return;
+    if (btn) btn.disabled = true;
     showLoader(true);
     google.script.run
       .withSuccessHandler(result => {
         showLoader(false);
+        if (btn) btn.disabled = false;
         showToast('Template enviado para ' + email + '!');
       })
       .withFailureHandler(err => {
         showLoader(false);
+        if (btn) btn.disabled = false;
         showToast('Falha na distribuição: ' + err, true);
       })
-      .distribuirMestreParaProfessor(email);
+      .distribuirMestreParaProfessor(email, adminToken);
   }
 
   // Initial load

@@ -82,13 +82,20 @@ function callProxy(route, data) {
     });
 
     // [BUG-01] ContentService sempre retorna HTTP 200 — checar campo error no body
-    const body = JSON.parse(response.getContentText());
+    const rawText = response.getContentText();
+    let body;
+    try {
+      body = JSON.parse(rawText);
+    } catch (parseErr) {
+      Logger.log('[Whitebox] Resposta não-JSON do Proxy: ' + rawText.substring(0, 100));
+      return { error: 'PROXY_INVALID_RESPONSE', message: 'O servidor não retornou um JSON válido. Pode estar indisponível ou bloqueado.' };
+    }
     if (body.error) {
       Logger.log('[Whitebox] Proxy retornou erro: ' + body.error + ' | ' + (body.message || ''));
     }
     return body;
   } catch (err) {
-    Logger.log('[Whitebox] Erro ao chamar Proxy: ' + err);
+    Logger.log('[Whitebox] Erro de rede ao chamar Proxy: ' + err);
     return { error: 'PROXY_CONNECTION_FAILED', message: err.toString() };
   }
 }
@@ -186,7 +193,8 @@ function getSelectedTextInfo() {
   }
 
   const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const urls     = selectedText.match(urlRegex) || [];
+  let urls       = selectedText.match(urlRegex) || [];
+  urls = urls.map(url => url.replace(/[.,;)]+$/, ''));
 
   return {
     selectedFragment: selectedText.trim(),

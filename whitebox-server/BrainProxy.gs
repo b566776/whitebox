@@ -36,13 +36,18 @@ function doGet(e) {
   const adminId = props.getProperty('ADMIN_SPREADSHEET_ID');
   
   if (!adminId) {
-    // O proxy detectou que ainda não possui o Banco de Dados Global configurado.
-    // Aciona a criação automática definida no AdminSetup.gs
+    const lock = LockService.getScriptLock();
     try {
-      const result = setupPlanilhaGlobal(); // Função hospedada no AdminSetup.gs
+      // Tentar obter o lock por até 30 segundos
+      lock.waitLock(30000);
+      
+      // Checar novamente se foi provisionado por outro processo simultâneo
+      const reCheckAdminId = props.getProperty('ADMIN_SPREADSHEET_ID');
+      if (reCheckAdminId) return serveDashboard();
+
+      const result = setupPlanilhaGlobal(); 
       props.setProperty('ADMIN_SPREADSHEET_ID', result.id);
       
-      // Auto-gerar o SHARED_TOKEN de segurança
       let generatedToken = props.getProperty('SHARED_TOKEN');
       if (!generatedToken) {
         generatedToken = 'WBX-' + Utilities.getUuid();
@@ -51,50 +56,168 @@ function doGet(e) {
       
       const msg = '✅ SUCESSO: Whitebox Auto-Provisionado!\n\n' +
                   'O Banco de Dados Admin foi criado no seu Google Drive.\n' +
-                  'URL da Planilha: ' + result.url + '\n\n' +
-                  '🔐 SEU TOKEN DE SEGURANÇA FOI GERADO AUTOMATICAMENTE:\n' +
-                  'SHARED_TOKEN = ' + generatedToken + '\n\n' +
-                  '⚠️ COPIE E GUARDE ESTE TOKEN! Você precisará colá-lo no Script do "Documento Modelo" (o código do Cliente).\n\n' +
-                  '🔄 RECARREGUE ESTA PÁGINA PARA ACESSAR O DASHBOARD.';
+                  'URL: ' + result.url + '\n\n' +
+                  '🔐 SHARED_TOKEN = ' + generatedToken + '\n\n' +
+                  '⚠️ COPIE ESTE TOKEN! Ele é exigido no "Documento Modelo" (Cliente).\n\n' +
+                  '🔄 RECARREGUE PARA ACESSAR O DASHBOARD.';
       return ContentService.createTextOutput(msg);
     } catch (err) {
-      return ContentService.createTextOutput('❌ Falha no Auto-Provisionamento:\n' + err.toString());
+      return ContentService.createTextOutput('❌ Falha no Provisionamento (Lock/Exec): ' + err.toString());
+    } finally {
+      lock.releaseLock();
     }
   }
   
-  // Se já provisionado, serve o Dashboard Administrativo
+  return serveDashboard();
+}
+
+/** Serve o Dashboard Administrativo */
+function serveDashboard() {
   return HtmlService.createHtmlOutputFromFile('Dashboard')
     .setTitle('Whitebox Admin')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** 
+ * Validação interna para funções Admin chamadas via google.script.run
+ * @param {string} token O token passado pelo frontend
+ */
+function validateAdminAccess(token) {
+  const props = PropertiesService.getScriptProperties();
+  const shared = props.getProperty('SHARED_TOKEN');
+  if (!shared || token !== shared) {
+    throw new Error('UNAUTHORIZED: Token Administrativo inválido ou ausente.');
+  }
 }
 
 // =====================================================
 //  ADMIN API: Funções para o Dashboard HTML
 // =====================================================
 
-function getAdminUIData() {
+/**
+ * Ponto de entrada para análise via IA.
+ * Agora considera os critérios personalizados do professor definidos na aba Config_Pedagogica.
+ */
+function realizarAuditoriaIA(texto, contexto, courseId, assignmentId) {
+  const cfg = getConfig();
+  
+  // 1. Buscar Instruções Personalizadas
+  let instrucoesProfessor = '';
+  let rigorIA = 'Médio';
+  let professorEmail = null;
+  
+  // Vamos buscar na Planilha Global pela tarefa.
+  const infoTarefa = buscarInfoTarefa(assignmentId);
+  
+  if (infoTarefa) {
+    professorEmail = infoTarefa.professorEmail;
+    const configLocal = buscarConfigPedagogicaLocal(professorEmail, courseId, assignmentId);
+    if (configLocal) {
+      instrucoesProfessor = configLocal.instrucoes;
+      rigorIA = configLocal.rigor;
+    }
+  }
+
+  // 2. Resolver API Key (Hierarquia)
+  const registro = professorEmail ? buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId) : null;
+  const apiKey = resolverChaveApi(registro, cfg.geminiGlobalKey);
+
+  if (!apiKey) {
+    return { 
+      error: 'NO_API_KEY', 
+      message: 'Análise indisponível: nenhuma chave API encontrada para este professor ou globalmente.' 
+    };
+  }
+
+  // 3. Construir o Prompt Dinâmico
+  const systemPrompt = `Você é o Auditor Pedagógico Whitebox. Sua missão é analisar a originalidade e o esforço do aluno.
+Critérios Adicionais do Professor: ${instrucoesProfessor || 'Nenhum específico.'}
+Rigor: ${rigorIA}
+
+Analise o texto abaixo e retorne um JSON com:
+- nota_integridade: (0-100)
+- justificativa: (texto sucinto)
+- alertas: (array de strings)`;
+
+  const promptFinal = `${systemPrompt}\n\nTexto do Aluno:\n${texto}\n\nContexto:\n${contexto}`;
+  return analisarComGemini(promptFinal, {}, apiKey);
+}
+
+/** 
+ * Busca as configurações pedagógicas na planilha individual do professor 
+ */
+function buscarConfigPedagogicaLocal(profEmail, courseId, assignmentId) {
+  try {
+    const adminSheet = getPlanilhaGlobal(PropertiesService.getScriptProperties().getProperty('ADMIN_SPREADSHEET_ID'));
+    const dataProf = adminSheet.getDataRange().getValues();
+    // Encontrar o ID da planilha do professor
+    let profSSId = '';
+    for(let i=1; i<dataProf.length; i++) {
+       if(dataProf[i][0] === profEmail) {
+         profSSId = dataProf[i][5]; // Coluna SpreadsheetId
+         break;
+       }
+    }
+    
+    if (!profSSId) return null;
+    
+    const ss = SpreadsheetApp.openById(profSSId);
+    const sheet = ss.getSheetByName('Config_Pedagogica');
+    const data = sheet.getDataRange().getValues();
+    
+    // Buscar por Course e Assignment
+    for(let i=1; i<data.length; i++) {
+      if(data[i][0] == courseId && data[i][1] == assignmentId) {
+        return { instrucoes: data[i][3], rigor: data[i][4] };
+      }
+    }
+  } catch (e) {
+    Logger.log('Erro ao buscar config local: ' + e);
+  }
+  return null;
+}
+
+function buscarInfoTarefa(assignmentId) {
+  const adminId = PropertiesService.getScriptProperties().getProperty('ADMIN_SPREADSHEET_ID');
+  const sheet = SpreadsheetApp.openById(adminId).getSheetByName('Tarefas_Globais');
+  const data = sheet.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] == assignmentId) {
+      return { professorEmail: data[i][1], instituicao: data[i][2] };
+    }
+  }
+  return null;
+}
+
+function getAdminUIData(token) {
+  validateAdminAccess(token);
+  
   const cfg = getConfig();
   const sheet = getPlanilhaGlobal(cfg.adminSpreadsheetId);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   
-  // Buscar lista de professores
   const professores = [];
-  const emailCol = headers.indexOf('Email');
-  const escolaCol = headers.indexOf('Escola');
+  const emailCol  = headers.indexOf('Email');
+  const escolaCol = headers.indexOf('Instituicao');
   const statusCol = headers.indexOf('Status');
   
+  if (emailCol === -1) throw new Error('Estrutura da planilha inválida: Coluna "Email" não encontrada.');
+
   for (let i = 1; i < data.length; i++) {
-    professores.push({
-      email: data[i][emailCol],
-      escola: data[i][escolaCol] || 'Não informada',
-      status: data[i][statusCol] || 'Ativo'
-    });
+    const email = data[i][emailCol];
+    if (email) {
+      professores.push({
+        email: email,
+        escola: escolaCol !== -1 ? data[i][escolaCol] : 'N/A',
+        status: statusCol !== -1 ? data[i][statusCol] : 'Status N/A'
+      });
+    }
   }
 
   // Buscar Seed ID na aba Config
   const ss = SpreadsheetApp.openById(cfg.adminSpreadsheetId);
-  const configSheet = ss.getSheetByName('Config');
+  let configSheet = ss.getSheetByName('Config');
   let seedId = '';
   if (configSheet) {
     const configData = configSheet.getDataRange().getValues();
@@ -113,7 +236,8 @@ function getAdminUIData() {
   };
 }
 
-function salvarSeedId(id) {
+function salvarSeedId(id, token) {
+  validateAdminAccess(token);
   const cfg = getConfig();
   const ss = SpreadsheetApp.openById(cfg.adminSpreadsheetId);
   let sheet = ss.getSheetByName('Config');
@@ -139,33 +263,102 @@ function salvarSeedId(id) {
   return { success: true };
 }
 
-function distribuirMestreParaProfessor(email) {
-  const uiData = getAdminUIData();
+function distribuirMestreParaProfessor(email, token) {
+  validateAdminAccess(token);
+  const uiData = getAdminUIData(token);
   const seedId = uiData.seedId;
   
   if (!seedId) throw new Error('ID do Documento Semente não configurado.');
   
-  // 1. Clonar o Documento Semente
-  const originalFile = DriveApp.getFileById(seedId);
-  const newName = 'Whitebox - Modelo Mestre (' + email + ')';
-  const copy = originalFile.makeCopy(newName);
-  
-  // 2. Dar permissão de editor ao professor
-  copy.addEditor(email);
-  
-  // 3. (Opcional) Enviar e-mail notificando
   try {
+    // 1. Clonar o Documento Semente e colocar na pasta Admin
+    const originalFile = DriveApp.getFileById(seedId);
+    const newName = 'Whitebox - Modelo Mestre (' + email + ')';
+    const targetFolder = getOrCreateTargetFolder();
+    const copy = originalFile.makeCopy(newName, targetFolder);
+    
+    // 2. Dar permissão de editor ao professor
+    copy.addEditor(email);
+    
+    // 3. Notificar via e-mail
     const subject = '📦 Seu Sistema Whitebox está pronto!';
     const body = `Olá!\n\nSeu Documento Mestre do Whitebox foi gerado e compartilhado com você.\n\n` +
                  `Link do Documento: ${copy.getUrl()}\n\n` +
-                 `Lembre-se: Para usar com seus alunos, anexe este arquivo no Google Classroom e selecione "Fazer uma cópia para cada aluno".\n\n` +
                  `Equipe Whitebox`;
     MailApp.sendEmail(email, subject, body);
+    
+    return { success: true, url: copy.getUrl() };
   } catch (err) {
-    Logger.log('Erro ao enviar e-mail de notificação: ' + err);
+    Logger.log('[distribuirMestre] Erro: ' + err);
+    throw new Error('Falha na distribuição: ' + err.toString());
+  }
+}
+
+/**
+ * Retorna os dados para os mapas de calor solicitados (Snapshot).
+ * Abrande os níveis: Aluno, Turma, Professor e Instituição.
+ */
+function getHeatmapData(token, scope, identifier) {
+  validateAdminAccess(token);
+  
+  if (scope === 'aluno_atividades') {
+    return calcularHeatmapAluno(identifier); // identifier = email_aluno
+  } else if (scope === 'turma_atividades') {
+    return calcularHeatmapTurma(identifier); // identifier = course_id
+  } else if (scope === 'instituicao') {
+    return calcularHeatmapInstituicao(identifier); // identifier = nome_instituicao
   }
   
-  return { success: true, url: copy.getUrl() };
+  throw new Error('Escopo de heatmap não suportado: ' + scope);
+}
+
+function calcularHeatmapAluno(emailAluno) {
+  // Mock logic for aggregation (search all logs where student email matches)
+  return {
+    labels: ['Tarefa 1', 'Tarefa 2', 'Tarefa 3'],
+    valores: [85, 40, 92], // Scores de integridade/autonomia
+    alertas: [0, 1, 0]
+  };
+}
+
+function calcularHeatmapTurma(courseId) {
+  const profEmail = Session.getActiveUser().getEmail();
+  const ssId = buscarSpreadsheetProfessor(profEmail);
+  if (!ssId) return { labels: [], media_esforco: [], media_integridade: [] };
+  
+  const ss = SpreadsheetApp.openById(ssId);
+  const sheet = ss.getSheetByName('Logs');
+  const data = sheet.getDataRange().getValues();
+  
+  // Agregação por Assignment_ID
+  const stats = {};
+  for(let i=1; i<data.length; i++) {
+    const cid = data[i][3];
+    if (cid != courseId) continue;
+    
+    const aid = data[i][2];
+    if (!stats[aid]) stats[aid] = { esforco: 0, integridade: 0, count: 0 };
+    stats[aid].esforco += data[i][4];
+    stats[aid].integridade += data[i][6];
+    stats[aid].count++;
+  }
+  
+  const labels = Object.keys(stats);
+  return {
+    labels: labels,
+    media_esforco: labels.map(l => stats[l].esforco / stats[l].count),
+    media_integridade: labels.map(l => stats[l].integridade / stats[l].count)
+  };
+}
+
+function buscarSpreadsheetProfessor(email) {
+  const adminId = PropertiesService.getScriptProperties().getProperty('ADMIN_SPREADSHEET_ID');
+  const sheet = SpreadsheetApp.openById(adminId).getSheetByName('Assinaturas');
+  const data = sheet.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(data[i][0] === email) return data[i][5];
+  }
+  return null;
 }
 
 // =====================================================
@@ -174,7 +367,12 @@ function distribuirMestreParaProfessor(email) {
 
 function doPost(e) {
   try {
-    const body = JSON.parse(e.postData.contents);
+    let body;
+    try {
+      body = JSON.parse(e.postData.contents);
+    } catch (parseErr) {
+      return jsonResponse({ error: 'BAD_REQUEST', message: 'Payload JSON inválido.' }, 400);
+    }
     const cfg  = getConfig();
 
     // 1. Validação do Token Compartilhado
@@ -244,7 +442,7 @@ function handleRegistrarChave(body, cfg) {
 
   const sheet = getPlanilhaGlobal(cfg.adminSpreadsheetId);
   const data = sheet.getDataRange().getValues();
-  const headers = data[0]; // Email | Escola | Status | UsaChaveGlobal | ChaveIndividual | SpreadsheetId
+  const headers = data[0]; // Email | Instituicao | Status | UsaChaveGlobal | ChaveIndividual | SpreadsheetId
 
   const emailCol         = headers.indexOf('Email');
   const chaveCol         = headers.indexOf('ChaveIndividual');
@@ -264,7 +462,7 @@ function handleRegistrarChave(body, cfg) {
   // Professor não encontrado: cadastrar como novo (Status=Ativo, sem chave global)
   const newRow = new Array(headers.length).fill('');
   newRow[emailCol] = professorEmail;
-  newRow[headers.indexOf('Escola')] = 'Não informada';
+  newRow[headers.indexOf('Instituicao')] = 'Não informada';
   newRow[headers.indexOf('Status')] = 'Ativo';
   newRow[headers.indexOf('UsaChaveGlobal')] = 'Não';
   newRow[chaveCol] = apiKey || '';
@@ -332,7 +530,7 @@ function handleLogarMetricas(body, cfg) {
 }
 
 // =====================================================
-//  LÓGICA: Resolver Chave API (Hierarquia)
+//  LÓGICA: Resolver Chave API (Hierarquia e Cofre Drive)
 // =====================================================
 
 function resolverChaveApi(registro, geminiGlobalKey) {
@@ -343,9 +541,37 @@ function resolverChaveApi(registro, geminiGlobalKey) {
     return geminiGlobalKey;
   }
 
-  // 2. Chave Individual
-  if (registro.chaveIndividual && registro.chaveIndividual.trim().length > 0) {
-    return registro.chaveIndividual.trim();
+  // 2. Chave Individual (Pode ser API Key direta ou ID/Link do Cofre no Drive)
+  let chaveRaw = registro.chaveIndividual;
+  if (chaveRaw && chaveRaw.trim().length > 0) {
+    chaveRaw = chaveRaw.trim();
+    
+    // Se for uma chave direta do Gemini (padrão AIza...)
+    if (chaveRaw.startsWith('AIza')) {
+      return chaveRaw;
+    }
+    
+    // Senão, assumimos que é um Cofre no Drive (Alternativa 2)
+    try {
+      let fileId = chaveRaw;
+      // Extrair o ID caso o admin tenha colado a URL inteira
+      const matchUrl = chaveRaw.match(/\/d\/([-\w]{25,})/);
+      if (matchUrl) fileId = matchUrl[1];
+      
+      const file = DriveApp.getFileById(fileId);
+      const chaveExtraida = file.getBlob().getDataAsString().trim();
+      
+      if (chaveExtraida.startsWith('AIza')) {
+        Logger.log('[Cofre Drive] Chave API lida do cofre do professor com sucesso.');
+        return chaveExtraida;
+      } else {
+        Logger.log('[Cofre Drive] O arquivo lido não contém uma chave Gemini válida.');
+        return null; // Força modo offline
+      }
+    } catch (e) {
+      Logger.log('[Cofre Drive] Erro ao acessar arquivo de cofre. Arquivo inacessível ou não compartilhado. Erro: ' + e.toString());
+      return null; // Força modo offline
+    }
   }
 
   // 3. Modo Offline
@@ -380,23 +606,67 @@ function analisarComGemini(fragmento, metricas, apiKey) {
     });
 
     const code = response.getResponseCode();
+    const content = response.getContentText();
+
     if (code !== 200) {
-      Logger.log('[Gemini] Erro HTTP ' + code + ': ' + response.getContentText());
+      Logger.log('[Gemini] Erro HTTP ' + code + ': ' + content);
       return { error: 'GEMINI_API_ERROR', code: code };
     }
 
-    const result = JSON.parse(response.getContentText());
-    const text   = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+    let result;
+    try {
+      result = JSON.parse(content);
+    } catch (e) {
+      Logger.log('[Gemini] Resposta da API não é um JSON válido: ' + content);
+      return { error: 'GEMINI_INVALID_RESPONSE_FORMAT' };
+    }
+
+    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!text) {
       return { error: 'GEMINI_EMPTY_RESPONSE' };
     }
 
-    // O prompt pede JSON estruturado
-    return JSON.parse(text);
+    // O prompt pede JSON estruturado - uso do extrairJSON para robustez
+    try {
+      return extrairJSON(text);
+    } catch (e) {
+      Logger.log('[Gemini] Erro ao extrair JSON do texto: ' + text);
+      return { error: 'GEMINI_PARSE_ERROR', message: e.toString() };
+    }
   } catch (err) {
     Logger.log('[Gemini] Exceção: ' + err);
     return { error: 'GEMINI_EXCEPTION', message: err.toString() };
+  }
+}
+
+/**
+ * Utilitário para extrair JSON de strings que podem conter Markdown
+ */
+function extrairJSON(texto) {
+  try {
+    // Tenta parse direto primeiro
+    return JSON.parse(texto);
+  } catch (e) {
+    // Procura por blocos de código markdown: ```json { ... } ``` ou ``` { ... } ```
+    const match = texto.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (match && match[1]) {
+      try {
+        return JSON.parse(match[1].trim());
+      } catch (e2) {
+        Logger.log('Falha ao parsear JSON dentro de blocos Markdown');
+      }
+    }
+    // Se não encontrar blocos, tenta limpar caracteres extras antes/depois das chaves
+    const fallbackMatch = texto.match(/\{[\s\S]*\}/);
+    if (fallbackMatch) {
+      try {
+        return JSON.parse(fallbackMatch[0]);
+      } catch (e3) {
+        Logger.log('Falha no fallback de extração de chaves');
+      }
+    }
+    throw new Error('Não foi possível extrair um JSON válido da resposta da IA');
   }
 }
 
@@ -445,8 +715,11 @@ function getPlanilhaGlobal(spreadsheetId) {
   const ss = SpreadsheetApp.openById(spreadsheetId);
   let sheet = ss.getSheetByName('Assinaturas');
   if (!sheet) {
-    sheet = ss.insertSheet('Assinaturas');
-    sheet.appendRow(['Email', 'Escola', 'Status', 'UsaChaveGlobal', 'ChaveIndividual', 'SpreadsheetId', 'DataCadastro']);
+    sheet = ss.getSheets()[0];
+    const firstHeader = sheet.getRange('A1').getValue();
+    if (firstHeader !== 'Email') {
+      throw new Error('CRÍTICO: A aba principal "Assinaturas" não foi encontrada e a primeira aba foi alterada. Os dados podem ter sido perdidos.');
+    }
   }
   return sheet;
 }
@@ -457,7 +730,7 @@ function buscarRegistroProfessor(email, adminSpreadsheetId) {
     const data  = sheet.getDataRange().getValues();
     const h     = data[0];
     const emailCol  = h.indexOf('Email');
-    const escolaCol = h.indexOf('Escola');
+    const escolaCol = h.indexOf('Instituicao');
     const statusCol = h.indexOf('Status');
     const globalCol = h.indexOf('UsaChaveGlobal');
     const chaveCol  = h.indexOf('ChaveIndividual');
@@ -514,6 +787,8 @@ function inicializarPlanilhaProfessor(ss) {
     'Timestamp', 'Turma', 'DocId', 'Email_Aluno',
     'Palavras', 'Tempo_Ativo_Min', 'Colar_Eventos',
     'Taxa_Edicao', 'Alteracoes_Estrutura',
+    'Chars_Adicionados', 'Chars_Deletados', 'Colagem_Massiva',
+    'Cpm_Medio', 'Cpm_Pico',
     'RiscoScore', 'Whitebox_Risco', 'Conselho_Pedagogico',
     'Pergunta_Socratica', 'Modo_IA', 'Entrega_Final'
   ]);
@@ -542,6 +817,11 @@ function logarNaPlanilhaProfessor(params) {
     metricas.pasteEvents?.count || 0,
     metricas.editRatio        || 0,
     metricas.structureChanges || 0,
+    metricas.charsAdded       || 0,
+    metricas.charsDeleted     || 0,
+    metricas.pasteEvents?.massiveInsertionsDetected ? 'Sim' : 'Não',
+    metricas.typingSpeed?.avgCharsPerMinute || 0,
+    metricas.typingSpeed?.peakCharsPerMinute || 0,
     analise?.riskScore        || '',
     analise?.riskEvidence     || '',
     analise?.pedagogicalAdvice || '',
