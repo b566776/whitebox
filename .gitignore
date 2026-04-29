@@ -1,6 +1,8 @@
 _bmad/
-.*/
-x-*/
+.agent/
+.claude/
+.gemini/
+x-deprecated*/
 
 # MemPalace per-project files (issue #185)
 mempalace.yaml
@@ -10,4 +12,5 @@ entities.json
 # Nunca adicionar .clasp.json nesse diretório para evitar deploy acidental.
 
 # Credenciais locais do clasp (nunca commitar)
-.clasprc.json
+.clasp.json*
+.clasprc.json*

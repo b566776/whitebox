@@ -960,8 +960,15 @@ function inicializarPlanilhaProfessor(ss) {
     'Chars_Adicionados', 'Chars_Deletados', 'Colagem_Massiva',
     'Cpm_Medio', 'Cpm_Pico',
     'RiscoScore', 'Whitebox_Risco', 'Conselho_Pedagogico',
-    'Pergunta_Socratica', 'Modo_IA', 'Entrega_Final'
+    'Pergunta_Socratica', 'Modo_IA', 'Entrega_Final', 'Heatmap_Scores'
   ]);
+
+  // Aba de Visualização do Heatmap
+  let heatSheet = ss.getSheetByName('Visual_Heatmap');
+  if (!heatSheet) {
+    heatSheet = ss.insertSheet('Visual_Heatmap');
+    setupVisualHeatmapTab(heatSheet);
+  }
 
   // Aba de Turmas
   let turmaSheet = ss.getSheetByName('Turmas');
@@ -976,6 +983,18 @@ function logarNaPlanilhaProfessor(params) {
 
   const ss       = SpreadsheetApp.openById(spreadsheetId);
   const logSheet = ss.getSheetByName('Logs') || ss.insertSheet('Logs');
+
+  // [AUTO-REPAIR] Garantir que a aba Visual_Heatmap existe (para planilhas legadas)
+  if (!ss.getSheetByName('Visual_Heatmap')) {
+    const heatSheet = ss.insertSheet('Visual_Heatmap');
+    setupVisualHeatmapTab(heatSheet);
+  }
+
+  // [AUTO-REPAIR] Garantir que o cabeçalho de logs tem a nova coluna de Heatmap
+  const headers = logSheet.getRange(1, 1, 1, logSheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf('Heatmap_Scores') === -1) {
+    logSheet.getRange(1, headers.length + 1).setValue('Heatmap_Scores');
+  }
 
   logSheet.appendRow([
     new Date().toISOString(),
@@ -997,7 +1016,8 @@ function logarNaPlanilhaProfessor(params) {
     analise?.pedagogicalAdvice || '',
     analise?.suggestedQuestion || '',
     analise ? 'Sim' : 'Não',
-    isFinal ? 'Sim' : 'Não'
+    isFinal ? 'Sim' : 'Não',
+    metricas.auraMapScores     || ''
   ]);
 
   // [ARCH-04] Invalidar cache do heatmap do aluno após novo log.
@@ -1027,6 +1047,56 @@ function atualizarTurma(ss, turma) {
   }
   // Turma nova: inicializar com 1
   sheet.appendRow([turma, 1, new Date().toISOString()]);
+}
+
+/**
+ * [HEATMAP-03] Configura a aba Visual_Heatmap com fórmulas e formatação condicional.
+ */
+function setupVisualHeatmapTab(sheet) {
+  sheet.clear();
+  sheet.getRange('A1').setValue('AUDITORIA VISUAL (HEATMAP)').setFontWeight('bold').setFontSize(14);
+  
+  sheet.getRange('A3').setValue('1. Selecione o Aluno (Email):');
+  sheet.getRange('A4').setValue('2. Selecione o Trabalho (DocId):');
+  
+  sheet.getRange('A6').setValue('RADAR DE ESFORÇO (MAPA DE CALOR)').setFontWeight('bold');
+  sheet.getRange('A7').setValue('Legenda: Verde (>70) | Amarelo (40-70) | Vermelho (<40)');
+
+  // Instrução de uso das fórmulas
+  sheet.getRange('C3').setValue('<- Cole o email do aluno aqui');
+  sheet.getRange('C4').setValue('<- Cole o ID do documento aqui');
+  
+  // Fórmula principal para desmembrar o heatmap (Assume coluna C para Email e D para DocId em Logs)
+  // Nota: Heatmap_Scores é a coluna 21 (U)
+  const formula = '=IFERROR(TRANSPOSE(SPLIT(VLOOKUP(B4, Logs!C:U, 19, FALSE), ",")), "Dados não encontrados")';
+  sheet.getRange('B7').setFormula(formula);
+
+  // Formatação Condicional para a coluna B (Heatmap)
+  const range = sheet.getRange('B7:B500');
+  
+  const ruleRed = SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberLessThanOrEqualTo(40)
+    .setBackground('#F8D7DA')
+    .setFontColor('#721C24')
+    .setRanges([range])
+    .build();
+
+  const ruleYellow = SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberBetween(41, 70)
+    .setBackground('#FFF3CD')
+    .setFontColor('#856404')
+    .setRanges([range])
+    .build();
+
+  const ruleGreen = SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberGreaterThan(70)
+    .setBackground('#D4EDDA')
+    .setFontColor('#155724')
+    .setRanges([range])
+    .build();
+
+  sheet.setConditionalFormatRules([ruleRed, ruleYellow, ruleGreen]);
+  sheet.setColumnWidth(2, 150); // Largura da barra de calor
 }
 
 // jsonResponse() → ver Utils.gs

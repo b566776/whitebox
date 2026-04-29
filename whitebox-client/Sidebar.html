@@ -897,33 +897,6 @@
 
         const compositeStudentId = professorEmail + "+" + gradeLevel + "+" + studentEmail + "+" + documentId;
         
-        const payload = {
-          documentId: stats.docId,
-          timestamp: Date.now(),
-          studentContext: { 
-             studentId: currentRole === 'student' ? compositeStudentId : "professor_view",
-             rawEmail: currentRole === 'student' ? studentEmail : null
-          },
-          behavioralMetrics: {
-             activeFocusTimeMinutes: activeFocusMinutes,
-             idleGapCount: behavioralMetrics.idleGapCount,
-             editRatio: editRatio,
-             structureChanges: behavioralMetrics.structureChanges,
-             charsAdded: behavioralMetrics.totalAdded,
-             charsDeleted: behavioralMetrics.totalDeleted,
-             pasteEvents: {
-               count: pasteData.count,
-               massiveInsertionsDetected: pasteData.count > 0,
-               avgCharsPerPaste: avgCpp
-             },
-             typingSpeed: {
-               avgCharsPerMinute: avgCpm,
-               peakCharsPerMinute: Math.round(typingSpeedData.peakCpm)
-             },
-             isFinalSubmission: isFinal
-          }
-        };
-
         // [METRICS-02] Atualizar UI do Aluno em Tempo Real
         if (currentRole === 'student') {
           document.getElementById('m-speed').innerText = avgCpm;
@@ -931,18 +904,49 @@
           document.getElementById('m-paste').innerText = pasteData.count;
           document.getElementById('m-structure').innerText = behavioralMetrics.structureChanges;
         }
-        
-        google.script.run.withSuccessHandler(function(res) {
-          if (res.error) {
-            showErrorBanner("Erro no Servidor: " + res.error);
-          }
-          document.getElementById('sync-dot').style.backgroundColor = "var(--success-color)";
-          document.getElementById('stu-sync-msg').innerText = "Métricas salvas e enviadas.";
-        })
-        .withFailureHandler(function() {
-           showErrorBanner("Falha crítica de comunicação com o backend.");
-        })
-        .sendToBackend(payload);
+
+        // [HEATMAP-01] Obter mapa de calor atual para logar na planilha
+        google.script.run.withSuccessHandler(function(auraMap) {
+          const payload = {
+            documentId: stats.docId,
+            timestamp: Date.now(),
+            studentContext: { 
+               studentId: currentRole === 'student' ? compositeStudentId : "professor_view",
+               rawEmail: currentRole === 'student' ? studentEmail : null
+            },
+            behavioralMetrics: {
+               activeFocusTimeMinutes: activeFocusMinutes,
+               idleGapCount: behavioralMetrics.idleGapCount,
+               editRatio: editRatio,
+               structureChanges: behavioralMetrics.structureChanges,
+               charsAdded: behavioralMetrics.totalAdded,
+               charsDeleted: behavioralMetrics.totalDeleted,
+               pasteEvents: {
+                 count: pasteData.count,
+                 massiveInsertionsDetected: pasteData.count > 0,
+                 avgCharsPerPaste: avgCpp
+               },
+               typingSpeed: {
+                 avgCharsPerMinute: avgCpm,
+                 peakCharsPerMinute: Math.round(typingSpeedData.peakCpm)
+               },
+               isFinalSubmission: isFinal,
+               auraMapScores: auraMap.map(s => s.score).join(',') // [HEATMAP-02] Scores serializados
+            }
+          };
+          
+          google.script.run.withSuccessHandler(function(res) {
+            if (res.error) {
+              showErrorBanner("Erro no Servidor: " + res.error);
+            }
+            document.getElementById('sync-dot').style.backgroundColor = "var(--success-color)";
+            document.getElementById('stu-sync-msg').innerText = "Métricas salvas e enviadas.";
+          })
+          .withFailureHandler(function() {
+             showErrorBanner("Falha crítica de comunicação com o backend.");
+          })
+          .sendToBackend(payload);
+        }).getDocumentAuraMap();
       }
       
       // --- QUIZ DO ALUNO ---
