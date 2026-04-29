@@ -7,7 +7,7 @@
 
 ### Gerado por: Mary (Business Analyst - BMAD)
 
-Bem-vindo à documentação gerada sob-demanda do estado atual do **Whitebox**. A aplicação transicionou totalmente do antigo nome "EvidencIA" para o modelo escalável Whitebox via integrações B2B.
+Bem-vindo à documentação gerada sob-demanda do estado atual do **Whitebox**. A aplicação transicionou totalmente do antigo nome "WhiteBox" para o modelo escalável Whitebox via integrações B2B.
 
 ### Generated Documentation
 

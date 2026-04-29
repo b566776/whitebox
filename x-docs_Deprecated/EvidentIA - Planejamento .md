@@ -233,13 +233,13 @@ Foco na experiência do usuário e apresentação dos diferenciais.
 
 Este planejamento garante que, ao final do 4º dia, vocês tenham uma ferramenta que não apenas aponta indícios de automação, mas fornece ao professor as evidências necessárias para uma avaliação justa e profunda.
 
-## ANEXOS  Anexo 1 \- Documentação de Proposta: POC EvidencIA
+## ANEXOS  Anexo 1 \- Documentação de Proposta: POC WhiteBox
 
 Duração de 6 Meses
 
 ### 1\. Visão Geral
 
-Esta Prova de Conceito (POC) visa validar a eficácia do Add-on EvidencIA em um  
+Esta Prova de Conceito (POC) visa validar a eficácia do Add-on WhiteBox em um  
 ambiente real de ensino por um período de 6 meses. O foco é abrir a "caixa-preta" do processo de escrita, promovendo o letramento digital e o uso ético de tecnologias (incluindo IA) por meio de evidências de esforço e autonomia.
 
 2\. Público-Alvo e Ambiente  

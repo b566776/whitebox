@@ -8,7 +8,7 @@
 
 ## O que era este módulo
 
-`apps-script/` foi a **versão 1.0** do Add-on Whitebox (EvidencIA), desenvolvida antes da
+`apps-script/` foi a **versão 1.0** do Add-on Whitebox (WhiteBox), desenvolvida antes da
 arquitetura de Brain Proxy. Ele enviava dados diretamente para `triagem.cliv.app` — um
 endpoint externo de terceiro — sem controle de soberania de dados.
 

@@ -699,6 +699,10 @@ function handleAnalisar(body, cfg) {
     return jsonResponse({ error: 'PARAMS_REQUIRED' }, 400);
   }
 
+  // [AUTH-03] Auditoria de Segurança: 
+  // O Auditor de IA é uma ferramenta de uso exclusivo do Professor.
+  // Alunos não devem ter acesso direto a esta rota via interface.
+
   // [ARCH-06] Rate Limiting: previne abuso da API Gemini (tokens)
   const usuario = alunoEmail || 'anonimo';
   if (!verificarRateLimit(professorEmail, usuario)) {

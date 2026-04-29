@@ -85,10 +85,16 @@ function getContext() {
   const userEmail = Session.getActiveUser().getEmail();
   const item3Data = getAdvancedItem3Data();
 
+  // [AUTH-01] Detecção dinâmica de papel
+  // Professor = Dono do Doc OU Dono da pasta (professorEmail do Item 3)
+  const isOwner     = doc.getOwner().getEmail() === userEmail;
+  const isProfessor = item3Data.professorEmail === userEmail;
+  const role        = (isOwner || isProfessor) ? 'teacher' : 'student';
+
   return {
     email:        userEmail,
     docId:        doc.getId(),
-    initialRole:  'student',
+    initialRole:  role,
     timestamp:    new Date().getTime(),
     item3:        item3Data
   };
@@ -159,15 +165,12 @@ function sendToBackend(payload) {
   const turma          = item3.gradeLevel || TURMA_FALLBACK;
   const alunoEmail     = payload.studentContext?.rawEmail || userEmail;
 
-  const professorDesconhecido = (
-    professorEmail === ROLE_UNKNOWN ||
-    professorEmail === userEmail
-  );
+  // [AUTH-02] Bloqueio de Segurança: Aluno não interage com IA Auditor
+  const ctx = getContext();
+  const isStudent = (ctx.initialRole === 'student');
 
-  let analise = null;
-
-  // Se há fragmento selecionado, pedir análise ao Gemini via Proxy
-  if (!professorDesconhecido && payload.contentAnalysis && payload.contentAnalysis.selectedFragment) {
+  // Se há fragmento selecionado, pedir análise ao Gemini via Proxy (SÓ PARA PROFESSOR)
+  if (!isStudent && !professorDesconhecido && payload.contentAnalysis && payload.contentAnalysis.selectedFragment) {
     const analiseResult = callProxy(ROUTE_ANALISAR, {
       professorEmail: professorEmail,
       alunoEmail:     alunoEmail,

@@ -426,14 +426,39 @@
       }
       .ai-mode-indicator.on  { background: #d1fae5; color: #065f46; }
       .ai-mode-indicator.off { background: #fef3c7; color: #78350f; }
+
+      /* Métricas Detalhadas do Aluno */
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .metric-box {
+        background: #f1f5f9;
+        padding: 10px;
+        border-radius: 6px;
+        text-align: center;
+        border: 1px solid var(--border-color);
+      }
+      .metric-value {
+        display: block;
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--primary-color);
+      }
+      .metric-label {
+        display: block;
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-top: 2px;
+      }
     </style>
   </head>
   <body>
 
     <div id="error-banner" class="error-banner">⚠️ Falha na conexão com o Whitebox. Tentando reconectar...</div>
-    
-    <!-- Toggle Role (MOCK Dev 1) -->
-    <a class="role-toggle" onclick="toggleRole()">Alternar visão (Atual: <span id="current-role-label">Sincronizando...</span>)</a>
 
     <!-- VIEW: STUDENT -->
     <div id="student-view" class="hidden">
@@ -447,20 +472,40 @@
         
         <!-- Área do Aluno -->
         <div id="student-area" style="display:none;">
-          <div class="card">
-             <div class="stat-row">
-               <span class="stat-label">Palavras Escritas</span>
-               <span class="stat-value" id="stu-words">0</span>
-             </div>
-             <div class="stat-row">
-               <span class="stat-label">Dedicação Ativa</span>
-                <span class="stat-value" id="stu-time">0.0 min</span>
-             </div>
-          </div>
-          
-          <div id="submission-status" class="submission-banner">
-            <i class="fas fa-check-circle"></i> Trabalho Entregue e Auditado
-          </div>
+           <div class="card">
+              <div class="stat-row">
+                <span class="stat-label">Palavras Escritas</span>
+                <span class="stat-value" id="stu-words">0</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">Dedicação Ativa</span>
+                 <span class="stat-value" id="stu-time">0.0 min</span>
+              </div>
+           </div>
+
+           <!-- [METRICS-01] Painel de Transparência do Aluno -->
+           <div class="metrics-grid">
+              <div class="metric-box">
+                <span class="metric-value" id="m-speed">0</span>
+                <span class="metric-label">CPM (Média)</span>
+              </div>
+              <div class="metric-box">
+                <span class="metric-value" id="m-added">0</span>
+                <span class="metric-label">Caracteres</span>
+              </div>
+              <div class="metric-box">
+                <span class="metric-value" id="m-paste">0</span>
+                <span class="metric-label">Colagens</span>
+              </div>
+              <div class="metric-box">
+                <span class="metric-value" id="m-structure">0</span>
+                <span class="metric-label">Mudanças Est.</span>
+              </div>
+           </div>
+           
+           <div id="submission-status" class="submission-banner" style="margin-top: 16px;">
+             <i class="fas fa-check-circle"></i> Trabalho Entregue e Auditado
+           </div>
           
           <button id="btn-finalize" class="btn-submit" onclick="handleFinalize()">
             <i class="fas fa-paper-plane"></i> Finalizar Trabalho
@@ -685,16 +730,7 @@
           .getContext();
       }
 
-      function toggleRole() {
-        currentRole = currentRole === 'student' ? 'teacher' : 'student';
-        updateUI();
-        if(currentRole === 'student') startStudentTracking();
-        else stopStudentTracking();
-      }
-
       function updateUI() {
-        document.getElementById('current-role-label').innerText = currentRole === 'student' ? 'Aluno' : 'Professor';
-        
         if (currentRole === 'student') {
           document.getElementById('student-view').classList.remove('hidden');
           document.getElementById('teacher-view').classList.add('hidden');
@@ -887,6 +923,14 @@
              isFinalSubmission: isFinal
           }
         };
+
+        // [METRICS-02] Atualizar UI do Aluno em Tempo Real
+        if (currentRole === 'student') {
+          document.getElementById('m-speed').innerText = avgCpm;
+          document.getElementById('m-added').innerText = behavioralMetrics.totalAdded;
+          document.getElementById('m-paste').innerText = pasteData.count;
+          document.getElementById('m-structure').innerText = behavioralMetrics.structureChanges;
+        }
         
         google.script.run.withSuccessHandler(function(res) {
           if (res.error) {

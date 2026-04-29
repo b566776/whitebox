@@ -1,7 +1,7 @@
 # Visão Geral do Projeto: Whitebox
 
 ## Resumo Executivo
-O **Whitebox** (anteriormente EvidencIA) é uma solução de auditoria pedagógica baseada em Inteligência Artificial, construída nativamente no ecossistema do Google Workspace. Ele permite que professores apliquem atividades de redação e documentação no Google Docs com um nível avançado de transparência, rastreando o comportamento de digitação dos alunos, eventos de cópia e cola, tempo de foco e emitindo um relatório automatizado ("Radar de Esforço" / "Mapa de Calor") via Gemini 1.5 Flash.
+O **Whitebox** (anteriormente WhiteBox) é uma solução de auditoria pedagógica baseada em Inteligência Artificial, construída nativamente no ecossistema do Google Workspace. Ele permite que professores apliquem atividades de redação e documentação no Google Docs com um nível avançado de transparência, rastreando o comportamento de digitação dos alunos, eventos de cópia e cola, tempo de foco e emitindo um relatório automatizado ("Radar de Esforço" / "Mapa de Calor") via Gemini 1.5 Flash.
 
 ## Estrutura do Repositório (Multi-part)
 A aplicação é dividida em dois grandes módulos interconectados via APIs seguras:

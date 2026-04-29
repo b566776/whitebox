@@ -3,7 +3,7 @@
  *  ⚠️  MÓDULO LEGADO — DEPRECATED — NÃO USAR EM PRODUÇÃO
  * ============================================================
  *
- * Este arquivo pertence à versão LEGADA do Whitebox (EvidencIA v1).
+ * Este arquivo pertence à versão LEGADA do Whitebox (WhiteBox v1).
  * Ele enviava dados para `triagem.cliv.app` (endpoint externo de terceiro)
  * e NÃO utiliza a arquitetura atual de Brain Proxy.
  *
@@ -177,7 +177,7 @@ function submitFinalQuiz(quizData, options) {
       }
       body += 'Seu professor enviou um Desafio de Autonomia para você no Whitebox.\n';
       body += 'Abra a barra lateral do Whitebox no Google Docs para ver e responder o desafio.\n\n';
-      body += 'EvidencIA — Sistema de Auditoria de Autoria Pedagógica';
+      body += 'WhiteBox — Sistema de Auditoria de Autoria Pedagógica';
 
       MailApp.sendEmail(options.studentEmail, subject, body);
       Logger.log('[Whitebox] Email de notificação enviado para ' + options.studentEmail);

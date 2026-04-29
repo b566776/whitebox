@@ -1,4 +1,4 @@
-# Fluxograma de Processo - EvidencIA
+# Fluxograma de Processo - WhiteBox
 
 Este documento detalha o fluxo de interação entre Aluno e Professor, baseado nas jornadas descritas no planejamento do MVP.
 
@@ -70,7 +70,7 @@ graph TD
 *   **Gerador de Quiz**: Ferramenta de intervenção baseada em evidências, não apenas em "score de IA".
 
 ---
-*Documento gerado como suporte visual ao Planejamento EvidencIA.*
+*Documento gerado como suporte visual ao Planejamento WhiteBox.*
 
 ## Diagrama de Sequência: Jornada Pedagógica (MVP)
 

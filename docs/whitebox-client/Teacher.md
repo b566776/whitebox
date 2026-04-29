@@ -16,7 +16,7 @@ O Add-on permite que você publique o "Doc Mestre" (Modelo Mestre) atual diretam
 ## 🧠 Autonomia Pedagógica
 Os professores podem personalizar o Auditor de IA para cada tarefa:
 - **Nível de Rigor**: Defina a estrita conformidade da IA (`Baixo`, `Médio`, `Alto`).
-- **Instruções Personalizadas**: Forneça contexto específico (ex: "Analise o uso de fontes históricas nesta redação").
+- **Instruções Personalizadas**: Forneça contexto específico (ex: "Analise o uso de fontes históricas neste texto").
 - **Perguntas Socráticas**: As perguntas geradas pela IA são projetadas para desafiar o pensamento do aluno com base em seu processo de escrita específico.
 
 ## 📊 Monitorando o Progresso do Aluno
