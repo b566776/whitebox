@@ -70,16 +70,16 @@ function getProxyConfig() {
  * @returns {object}      - Corpo da resposta JSON do Proxy
  */
 function callProxy(route, data) {
-  const cfg = getProxyConfig();
-
-  if (!cfg.proxyUrl || !cfg.sharedToken) {
-    Logger.log('[Whitebox] BRAIN_PROXY_URL ou SHARED_TOKEN não configurados.');
-    return { error: 'PROXY_NOT_CONFIGURED' };
-  }
-
-  const payload = Object.assign({ route: route, token: cfg.sharedToken }, data);
-
   try {
+    const cfg = getProxyConfig();
+
+    if (!cfg.proxyUrl || !cfg.sharedToken) {
+      Logger.log('[Whitebox] BRAIN_PROXY_URL ou SHARED_TOKEN não configurados.');
+      return { error: 'PROXY_NOT_CONFIGURED' };
+    }
+
+    const payload = Object.assign({ route: route, token: cfg.sharedToken }, data);
+
     const response = UrlFetchApp.fetch(cfg.proxyUrl, {
       method:             'post',
       contentType:        'application/json',

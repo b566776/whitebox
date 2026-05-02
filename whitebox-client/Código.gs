@@ -77,6 +77,49 @@ function getTeacherLicenseStatus() {
 }
 
 // =====================================================
+//  DISTRIBUIÇÃO DE TEMPLATES (Professor)
+// =====================================================
+
+/**
+ * Lista as turmas do Google Classroom onde o professor é docente.
+ * Chamado pela aba "Distribuir" da Sidebar.
+ */
+function listarTurmasProfessor() {
+  const userEmail = Session.getActiveUser().getEmail();
+  return callProxy(ROUTE_LISTAR_TURMAS_PROFESSOR, { professorEmail: userEmail });
+}
+
+/**
+ * Cria uma Leva: atividade no Classroom com cópia do template para cada aluno.
+ *
+ * @param {object} params - { templateDocId, turmas[], titulo, instrucoes, prazo }
+ */
+function criarLevaTemplate(params) {
+  const userEmail = Session.getActiveUser().getEmail();
+  return callProxy(ROUTE_CRIAR_LEVA_TEMPLATE, {
+    professorEmail: userEmail,
+    templateDocId:  params.templateDocId  || DocumentApp.getActiveDocument().getId(),
+    turmas:         params.turmas         || [],
+    titulo:         params.titulo         || '',
+    instrucoes:     params.instrucoes     || '',
+    prazo:          params.prazo          || ''
+  });
+}
+
+/**
+ * Retorna o ID e URL do documento ativo (para pré-preencher o campo Template na Sidebar).
+ */
+function getActiveDocInfo() {
+  const doc = DocumentApp.getActiveDocument();
+  return {
+    docId: doc.getId(),
+    nome:  doc.getName(),
+    url:   doc.getUrl()
+  };
+}
+
+
+// =====================================================
 //  CONTEXTO E STATS
 // =====================================================
 
@@ -87,7 +130,8 @@ function getContext() {
 
   // [AUTH-01] Detecção dinâmica de papel
   // Professor = Dono do Doc OU Dono da pasta (professorEmail do Item 3)
-  const isOwner     = doc.getOwner().getEmail() === userEmail;
+  const owner       = doc.getOwner();
+  const isOwner     = owner ? (owner.getEmail() === userEmail) : false;
   const isProfessor = item3Data.professorEmail === userEmail;
   const role        = (isOwner || isProfessor) ? 'teacher' : 'student';
 
@@ -164,6 +208,9 @@ function sendToBackend(payload) {
   const professorEmail = item3.professorEmail || userEmail;
   const turma          = item3.gradeLevel || TURMA_FALLBACK;
   const alunoEmail     = payload.studentContext?.rawEmail || userEmail;
+
+  const professorDesconhecido = (professorEmail === 'NAO_IDENTIFICADO');
+  let analise = null;
 
   // [AUTH-02] Bloqueio de Segurança: Aluno não interage com IA Auditor
   const ctx = getContext();

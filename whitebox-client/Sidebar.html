@@ -454,6 +454,129 @@
         text-transform: uppercase;
         margin-top: 2px;
       }
+
+      /* ====== Abas do Professor ====== */
+      .tab-bar {
+        display: flex;
+        border-bottom: 2px solid var(--border-color);
+        margin-bottom: 14px;
+        gap: 2px;
+      }
+      .tab-btn {
+        flex: 1;
+        padding: 7px 4px;
+        font-size: 11px;
+        font-weight: 600;
+        border: none;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition: all 0.2s;
+        border-radius: 4px 4px 0 0;
+      }
+      .tab-btn:hover { color: var(--primary-color); background: #f1f5f9; }
+      .tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); background: #eff6ff; }
+      .tab-panel { display: none; }
+      .tab-panel.active { display: block; }
+
+      /* ====== Distribuir: Componentes ====== */
+      .dist-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        margin: 10px 0 4px;
+        display: block;
+      }
+      .dist-input {
+        width: 100%;
+        padding: 7px 9px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 12px;
+        background: #f8fafc;
+        color: var(--text-main);
+        box-sizing: border-box;
+        transition: border-color 0.2s;
+      }
+      .dist-input:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }
+      .turma-list {
+        max-height: 150px;
+        overflow-y: auto;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: #f8fafc;
+        margin-top: 4px;
+      }
+      .turma-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        font-size: 12px;
+        border-bottom: 1px solid var(--border-color);
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .turma-item:last-child { border-bottom: none; }
+      .turma-item:hover { background: #eff6ff; }
+      .turma-item input[type=checkbox] { cursor: pointer; accent-color: var(--primary-color); }
+      .turma-count {
+        margin-left: auto;
+        font-size: 10px;
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .dist-summary {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12px;
+        color: #1e40af;
+        margin-top: 8px;
+      }
+      .dist-progress {
+        background: #f1f5f9;
+        border-radius: 6px;
+        padding: 14px;
+        text-align: center;
+        display: none;
+      }
+      .progress-bar-track {
+        height: 8px;
+        background: #e2e8f0;
+        border-radius: 4px;
+        overflow: hidden;
+        margin: 10px 0 6px;
+      }
+      .progress-bar-fill {
+        height: 100%;
+        background: var(--primary-color);
+        width: 0%;
+        border-radius: 4px;
+        transition: width 0.4s ease;
+      }
+      .dist-success {
+        background: #d1fae5;
+        border: 1px solid #6ee7b7;
+        border-radius: 8px;
+        padding: 14px;
+        text-align: center;
+        display: none;
+      }
+      .dist-success-icon { font-size: 28px; margin-bottom: 6px; }
+      .dist-result-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        padding: 4px 0;
+        border-bottom: 1px solid #a7f3d0;
+      }
+      .dist-result-row:last-child { border-bottom: none; }
     </style>
   </head>
   <body>
@@ -539,7 +662,17 @@
 
     <!-- VIEW: TEACHER -->
     <div id="teacher-view" class="hidden">
-      
+
+      <!-- Tab Bar (visível apenas para professores) -->
+      <div class="tab-bar">
+        <button class="tab-btn active" id="tab-btn-auditoria" onclick="switchTab('auditoria')">🔍 Auditoria</button>
+        <button class="tab-btn" id="tab-btn-distribuir" onclick="switchTab('distribuir')">📤 Distribuir</button>
+        <button class="tab-btn" id="tab-btn-config" onclick="switchTab('config')">⚙️ Config</button>
+      </div>
+
+      <!-- ══ TAB: AUDITORIA ══ -->
+      <div id="tab-auditoria" class="tab-panel active">
+
       <div class="card">
         <h2>👩‍🏫 Jornada do Professor</h2>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
@@ -601,40 +734,122 @@
 
       <div id="aura-tooltip" class="heatmap-tooltip"></div>
 
-      <!-- ==== PAINEL DE CONFIGURAÇÕES DO PROFESSOR ==== -->
-      <div class="settings-panel">
-        <h2 style="font-size:14px;">⚙️ Configurações</h2>
+      </div><!-- /tab-auditoria -->
 
-        <div id="license-badge" class="license-badge config">⏳ Verificando...</div>
-        <div id="ai-mode-indicator" class="ai-mode-indicator off hidden">
-          <span id="ai-mode-icon">🔴</span>
-          <span id="ai-mode-text">Modo Offline — sem análise de IA</span>
+      <!-- ══ TAB: DISTRIBUIR ══ -->
+      <div id="tab-distribuir" class="tab-panel">
+        <div class="card" style="margin-bottom:0;">
+
+          <!-- Doc Atual -->
+          <div id="dist-doc-info" style="background:#f1f5f9;border-radius:6px;padding:8px 10px;font-size:12px;margin-bottom:12px;">
+            <span style="font-weight:600;">📄 Doc:</span>
+            <span id="dist-doc-nome" style="color:var(--text-muted);">Carregando...</span>
+          </div>
+
+          <!-- Formulário de Distribuição -->
+          <div id="dist-form">
+            <label class="dist-label">Título da Atividade</label>
+            <input type="text" id="dist-titulo" class="dist-input" placeholder="Ex: Redação Dissertativa — Maio 2026">
+
+            <label class="dist-label">Prazo (opcional)</label>
+            <input type="datetime-local" id="dist-prazo" class="dist-input">
+
+            <label class="dist-label">Instruções (opcional)</label>
+            <textarea id="dist-instrucoes" class="dist-input" rows="3" placeholder="Orientações para os alunos..." style="resize:vertical;font-family:inherit;"></textarea>
+
+            <label class="dist-label">Turmas do Classroom</label>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+              <span style="font-size:11px;color:var(--text-muted);" id="dist-turmas-count">Nenhuma turma selecionada</span>
+              <button onclick="loadTurmas()" style="font-size:10px;padding:2px 8px;border:1px solid var(--border-color);border-radius:4px;background:#fff;cursor:pointer;color:var(--primary-color);">🔄 Atualizar</button>
+            </div>
+
+            <!-- Loading turmas -->
+            <div id="dist-turmas-loading" style="text-align:center;padding:12px;font-size:12px;color:var(--text-muted);display:none;">
+              <span class="spinner"></span> Carregando turmas...
+            </div>
+
+            <!-- Lista de turmas -->
+            <div class="turma-list" id="dist-turmas-list">
+              <div style="padding:12px;text-align:center;font-size:12px;color:var(--text-muted);">
+                Clique em "Atualizar" para carregar suas turmas do Classroom.
+              </div>
+            </div>
+
+            <!-- Erro de turmas -->
+            <div id="dist-turmas-error" style="display:none;" class="alert alert-error" style="margin-top:4px;"></div>
+
+            <!-- Resumo da seleção -->
+            <div class="dist-summary hidden" id="dist-selection-summary"></div>
+
+            <button id="btn-distribuir" class="btn btn-primary" onclick="iniciarDistribuicao()"
+              style="margin-top:14px;font-weight:700;letter-spacing:0.3px;" disabled>
+              📤 Distribuir Levas
+            </button>
+            <p style="font-size:10px;color:var(--text-muted);margin-top:6px;text-align:center;">
+              Cada aluno receberá uma cópia individual do documento atual.
+            </p>
+          </div>
+
+          <!-- Estado: Distribuindo -->
+          <div class="dist-progress" id="dist-progress">
+            <div class="spinner" style="width:20px;height:20px;margin:0 auto 8px;border-width:3px;"></div>
+            <p style="font-size:13px;font-weight:600;margin:0 0 4px;">Criando levas...</p>
+            <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px;" id="dist-progress-msg">Aguarde, não feche esta janela.</p>
+            <div class="progress-bar-track"><div class="progress-bar-fill" id="dist-progress-bar"></div></div>
+            <span style="font-size:10px;color:var(--text-muted);" id="dist-progress-pct">0%</span>
+          </div>
+
+          <!-- Estado: Sucesso -->
+          <div class="dist-success" id="dist-success">
+            <div class="dist-success-icon">✅</div>
+            <p style="font-weight:700;font-size:14px;color:var(--wb-success, #10b981);margin:0 0 4px;">Levas Criadas!</p>
+            <p style="font-size:12px;color:var(--wb-success, #059669);margin:0 0 12px;" id="dist-success-msg"></p>
+            <div id="dist-results-list" style="text-align:left;background:#fff;border-radius:6px;padding:8px;border:1px solid #6ee7b7;margin-bottom:12px;"></div>
+            <button class="btn btn-outline" onclick="resetDistribuir()" style="width:auto;padding:6px 16px;font-size:12px;">
+              🔁 Nova Distribuição
+            </button>
+          </div>
+
         </div>
+      </div><!-- /tab-distribuir -->
 
-        <div id="config-key-section">
-          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px 0;">
-            Cole aqui sua chave de API do Google AI Studio (Gemini):
-          </p>
-          <input
-            type="password"
-            id="teacher-api-key"
-            class="key-input"
-            placeholder="AIza..."
-            autocomplete="off"
-          />
-          <button class="btn btn-primary" id="btn-save-key" onclick="saveApiKey()">
-            💾 Salvar Chave API
-          </button>
-          <p style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">
-            Sua chave é armazenada de forma segura e é usada apenas para análise pedagógica dos seus alunos.
-            Obtenha a sua em <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a>.
-          </p>
+      <!-- ══ TAB: CONFIG ══ -->
+      <div id="tab-config" class="tab-panel">
+        <div class="settings-panel" style="border-top:none;margin-top:0;padding-top:0;">
+          <h2 style="font-size:14px;">⚙️ Configurações</h2>
+
+          <div id="license-badge" class="license-badge config">⏳ Verificando...</div>
+          <div id="ai-mode-indicator" class="ai-mode-indicator off hidden">
+            <span id="ai-mode-icon">🔴</span>
+            <span id="ai-mode-text">Modo Offline — sem análise de IA</span>
+          </div>
+
+          <div id="config-key-section">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px 0;">
+              Cole aqui sua chave de API do Google AI Studio (Gemini):
+            </p>
+            <input
+              type="password"
+              id="teacher-api-key"
+              class="key-input"
+              placeholder="AIza..."
+              autocomplete="off"
+            />
+            <button class="btn btn-primary" id="btn-save-key" onclick="saveApiKey()">
+              💾 Salvar Chave API
+            </button>
+            <p style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">
+              Sua chave é armazenada de forma segura e é usada apenas para análise pedagógica dos seus alunos.
+              Obtenha a sua em <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a>.
+            </p>
+          </div>
+
+          <div id="config-save-feedback" style="margin-top:8px; font-size:12px;"></div>
         </div>
+      </div><!-- /tab-config -->
 
-        <div id="config-save-feedback" style="margin-top:8px; font-size:12px;"></div>
-      </div>
+    </div><!-- /teacher-view -->
 
-    </div>
 
     <script>
       let currentRole = 'student';
@@ -1345,7 +1560,266 @@
           .saveTeacherApiKey(key);
       }
 
+
+      // ====================================================
+      //  SISTEMA DE ABAS DO PROFESSOR
+      // ====================================================
+
+      function switchTab(name) {
+        ['auditoria', 'distribuir', 'config'].forEach(function(t) {
+          document.getElementById('tab-' + t).classList.toggle('active', t === name);
+          document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
+        });
+        // Ao abrir Distribuir, carregar info do doc e turmas se ainda não carregadas
+        if (name === 'distribuir') {
+          loadActiveDocInfo();
+          if (!_turmasCarregadas) loadTurmas();
+        }
+      }
+
+      // ====================================================
+      //  ABA: DISTRIBUIR — lógica de distribuição de levas
+      // ====================================================
+
+      var _turmasCarregadas = false;
+      var _turmasSelecionadas = {}; // courseId → { name, totalAlunos }
+      var _currentDocId = '';
+      var _pollTimer = null;
+
+      function uuidv4() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      }
+
+      function loadActiveDocInfo() {
+        google.script.run
+          .withSuccessHandler(function(info) {
+            _currentDocId = info.docId || '';
+            var el = document.getElementById('dist-doc-nome');
+            if (el) el.textContent = info.nome || info.docId || 'Desconhecido';
+            // Pré-preencher título se vazio
+            var titleEl = document.getElementById('dist-titulo');
+            if (titleEl && !titleEl.value) {
+              titleEl.value = info.nome || '';
+            }
+          })
+          .withFailureHandler(function() {
+            var el = document.getElementById('dist-doc-nome');
+            if (el) el.textContent = 'Erro ao carregar';
+          })
+          .getActiveDocInfo();
+      }
+
+      function loadTurmas() {
+        var listEl    = document.getElementById('dist-turmas-list');
+        var loadingEl = document.getElementById('dist-turmas-loading');
+        var errorEl   = document.getElementById('dist-turmas-error');
+
+        listEl.style.display    = 'none';
+        errorEl.style.display   = 'none';
+        loadingEl.style.display = 'block';
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            loadingEl.style.display = 'none';
+            listEl.style.display    = 'block';
+
+            if (res.error) {
+              errorEl.textContent  = '❌ ' + (res.message || res.error);
+              errorEl.style.display = 'block';
+              return;
+            }
+
+            var turmas = res.turmas || [];
+            _turmasCarregadas = true;
+
+            if (turmas.length === 0) {
+              listEl.innerHTML = '<div style="padding:12px;text-align:center;font-size:12px;color:var(--text-muted);">Nenhuma turma ativa encontrada no Classroom.</div>';
+              return;
+            }
+
+            listEl.innerHTML = '';
+            turmas.forEach(function(t) {
+              var item = document.createElement('label');
+              item.className = 'turma-item';
+
+              var cb = document.createElement('input');
+              cb.type = 'checkbox';
+              cb.value = t.id;
+              cb.dataset.nome = t.name + (t.section ? ' — ' + t.section : '');
+              cb.dataset.alunos = t.totalAlunos || 0;
+              cb.addEventListener('change', function() {
+                if (cb.checked) {
+                  _turmasSelecionadas[t.id] = { nome: cb.dataset.nome, alunos: parseInt(cb.dataset.alunos) };
+                } else {
+                  delete _turmasSelecionadas[t.id];
+                }
+                updateTurmasSummary();
+              });
+
+              var nomeSpan = document.createElement('span');
+              nomeSpan.textContent = t.name + (t.section ? ' — ' + t.section : '');
+
+              var countSpan = document.createElement('span');
+              countSpan.className = 'turma-count';
+              countSpan.textContent = (t.totalAlunos || 0) + ' alunos';
+
+              item.appendChild(cb);
+              item.appendChild(nomeSpan);
+              item.appendChild(countSpan);
+              listEl.appendChild(item);
+            });
+          })
+          .withFailureHandler(function(err) {
+            loadingEl.style.display = 'none';
+            listEl.style.display    = 'block';
+            errorEl.textContent  = '❌ Falha ao carregar turmas. Verifique a conexão.';
+            errorEl.style.display = 'block';
+          })
+          .listarTurmasProfessor();
+      }
+
+      function updateTurmasSummary() {
+        var ids     = Object.keys(_turmasSelecionadas);
+        var countEl = document.getElementById('dist-turmas-count');
+        var summEl  = document.getElementById('dist-selection-summary');
+        var btnEl   = document.getElementById('btn-distribuir');
+
+        if (ids.length === 0) {
+          countEl.textContent = 'Nenhuma turma selecionada';
+          summEl.classList.add('hidden');
+          btnEl.disabled = true;
+          return;
+        }
+
+        var totalAlunos = ids.reduce(function(acc, id) {
+          return acc + (_turmasSelecionadas[id].alunos || 0);
+        }, 0);
+
+        countEl.textContent = ids.length + ' turma(s) selecionada(s)';
+        summEl.classList.remove('hidden');
+        summEl.innerHTML = '📋 <strong>' + ids.length + '</strong> turma(s) · ' +
+                           '<strong>' + totalAlunos + '</strong> aluno(s) no total';
+        btnEl.disabled = false;
+      }
+
+      function iniciarDistribuicao() {
+        var titulo     = (document.getElementById('dist-titulo').value || '').trim();
+        var instrucoes = (document.getElementById('dist-instrucoes').value || '').trim();
+        var prazoRaw   = document.getElementById('dist-prazo').value;
+        var prazo      = prazoRaw ? new Date(prazoRaw).toISOString() : '';
+        var turmaIds   = Object.keys(_turmasSelecionadas);
+
+        if (!titulo) {
+          document.getElementById('dist-titulo').focus();
+          showErrorBanner('Informe o título da atividade antes de distribuir.');
+          return;
+        }
+        if (turmaIds.length === 0) {
+          showErrorBanner('Selecione ao menos uma turma antes de distribuir.');
+          return;
+        }
+        if (!_currentDocId) {
+          showErrorBanner('Não foi possível identificar o documento atual. Reabra a barra lateral.');
+          return;
+        }
+
+        // Mostrar estado de progresso
+        document.getElementById('dist-form').style.display = 'none';
+        document.getElementById('dist-progress').style.display = 'block';
+        document.getElementById('dist-success').style.display  = 'none';
+
+        var executionId = uuidv4();
+
+        // Inicia polling verdadeiro
+        document.getElementById('dist-progress-bar').style.width = '0%';
+        document.getElementById('dist-progress-pct').textContent  = '0%';
+        document.getElementById('dist-progress-msg').textContent  = 'Iniciando...';
+        
+        if (_pollTimer) clearInterval(_pollTimer);
+        _pollTimer = setInterval(function() {
+          google.script.run
+            .withSuccessHandler(function(res) {
+              if (res.success) {
+                document.getElementById('dist-progress-bar').style.width = res.pct + '%';
+                document.getElementById('dist-progress-pct').textContent  = res.pct + '%';
+                document.getElementById('dist-progress-msg').textContent  = res.msg || 'Processando...';
+              }
+            })
+            .statusDistribuicao(executionId);
+        }, 1500);
+
+        google.script.run
+          .withSuccessHandler(function(res) {
+            clearInterval(_pollTimer);
+            document.getElementById('dist-progress-bar').style.width = '100%';
+            document.getElementById('dist-progress-pct').textContent  = '100%';
+
+            setTimeout(function() {
+              document.getElementById('dist-progress').style.display = 'none';
+
+              if (res.error) {
+                document.getElementById('dist-form').style.display = 'block';
+                showErrorBanner('Erro: ' + (res.message || res.error));
+                return;
+              }
+
+              // Montar tela de sucesso
+              var turmasProc = res.turmasProcessadas || 0;
+              var docsCount  = res.docsCriados || 0;
+              document.getElementById('dist-success-msg').textContent =
+                docsCount + ' documentos criados em ' + turmasProc + ' turma(s)';
+
+              var listEl = document.getElementById('dist-results-list');
+              listEl.innerHTML = '';
+              (res.resultadosPorTurma || []).forEach(function(t) {
+                var row = document.createElement('div');
+                row.className = 'dist-result-row';
+                row.innerHTML = (t.status === 'ok'
+                  ? '<span>✅ ' + (t.courseNome || t.courseId) + '</span><span style="color:var(--wb-success, #10b981);">' + (t.totalAlunos || 0) + ' alunos</span>'
+                  : '<span>⚠️ ' + (t.courseNome || t.courseId) + '</span><span style="color:var(--wb-danger, #ef4444);">Erro</span>');
+                listEl.appendChild(row);
+              });
+
+              document.getElementById('dist-success').style.display = 'block';
+            }, 600);
+          })
+          .withFailureHandler(function(err) {
+            clearInterval(_pollTimer);
+            document.getElementById('dist-progress').style.display = 'none';
+            document.getElementById('dist-form').style.display      = 'block';
+            showErrorBanner('Falha de comunicação ao distribuir levas.');
+          })
+          .criarLevaTemplate({
+            templateDocId: _currentDocId,
+            turmas:        turmaIds,
+            titulo:        titulo,
+            instrucoes:    instrucoes,
+            prazo:         prazo,
+            executionId:   executionId
+          });
+      }
+
+      function resetDistribuir() {
+        if (_pollTimer) clearInterval(_pollTimer);
+        _turmasSelecionadas = {};
+        document.getElementById('dist-titulo').value     = '';
+        document.getElementById('dist-prazo').value      = '';
+        document.getElementById('dist-instrucoes').value = '';
+        document.getElementById('dist-success').style.display  = 'none';
+        document.getElementById('dist-progress').style.display = 'none';
+        document.getElementById('dist-form').style.display     = 'block';
+        // Desmarcar checkboxes
+        document.querySelectorAll('#dist-turmas-list input[type=checkbox]').forEach(function(cb) {
+          cb.checked = false;
+        });
+        updateTurmasSummary();
+      }
+
       window.onload = init;
+
     </script>
   </body>
 </html>

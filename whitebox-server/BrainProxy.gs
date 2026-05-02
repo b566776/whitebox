@@ -600,9 +600,25 @@ function doPost(e) {
         return handleLogarMetricas(body, cfg);
       case ROUTE_STATUS_LICENCA:
         return handleStatusLicenca(body, cfg);
+
+      // ── Módulo de Distribuição de Templates ──────────────────────
+      case ROUTE_LISTAR_TEMPLATES:
+        return handleListarTemplates(body, cfg);
+      case ROUTE_DISTRIBUIR_TEMPLATE:
+        return handleDistribuirTemplate(body, cfg);
+      case ROUTE_LISTAR_TURMAS_PROFESSOR:
+        return handleListarTurmasProfessor(body, cfg);
+      case ROUTE_CRIAR_LEVA_TEMPLATE:
+        return handleCriarLevaTemplate(body, cfg);
+      case ROUTE_HISTORICO_TEMPLATES:
+        return handleHistoricoTemplates(body, cfg);
+      case ROUTE_STATUS_DISTRIBUICAO:
+        return handleStatusDistribuicao(body, cfg);
+
       default:
         return jsonResponse({ error: 'ROUTE_NOT_FOUND' }, 404);
     }
+
   } catch (err) {
     Logger.log('[BrainProxy] Erro crítico: ' + err);
     return jsonResponse({ error: 'INTERNAL_ERROR', message: err.toString() }, 500);
@@ -975,6 +991,18 @@ function inicializarPlanilhaProfessor(ss) {
   if (!turmaSheet) {
     turmaSheet = ss.insertSheet('Turmas');
     turmaSheet.appendRow(['Nome_Turma', 'Total_Alunos', 'Ultima_Atividade']);
+  }
+
+  // [TEMPLATE-04] Aba de Levas (distribuições de template para alunos)
+  let levasSheet = ss.getSheetByName('Levas');
+  if (!levasSheet) {
+    levasSheet = ss.insertSheet('Levas');
+    levasSheet.appendRow([
+      'ID_Leva', 'Template_ID', 'Template_Nome', 'Titulo_Atividade',
+      'Course_ID', 'Course_Nome', 'Assignment_ID', 'Total_Alunos',
+      'Docs_Criados', 'Prazo', 'Instrucoes', 'Data_Criacao'
+    ]);
+    levasSheet.getRange(1, 1, 1, 12).setFontWeight('bold');
   }
 }
 

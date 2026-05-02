@@ -55,6 +55,29 @@ const ROUTE_LOGAR_METRICAS  = 'logar_metricas';
 const ROUTE_STATUS_LICENCA  = 'status_licenca';
 
 // =====================================================
+//  ROTAS: Distribuição de Templates
+// =====================================================
+
+/** Rota para listar templates disponíveis (Admin) */
+const ROUTE_LISTAR_TEMPLATES        = 'listar_templates';
+
+/** Rota para distribuir template do Admin para professores */
+const ROUTE_DISTRIBUIR_TEMPLATE     = 'distribuir_template';
+
+/** Rota para listar turmas Classroom do professor */
+const ROUTE_LISTAR_TURMAS_PROFESSOR = 'listar_turmas_professor';
+
+/** [TEMPLATE-04] Rota para criar leva de atividade do professor para alunos */
+const ROUTE_CRIAR_LEVA_TEMPLATE     = 'criar_leva_template';
+
+/** [TEMPLATE-05] Rota para histórico de distribuições Admin */
+const ROUTE_HISTORICO_TEMPLATES     = 'historico_templates';
+
+/** [TEMPLATE-06] Rota para verificar status de uma distribuição em andamento */
+const ROUTE_STATUS_DISTRIBUICAO     = 'status_distribuicao';
+
+
+// =====================================================
 //  CACHE: Chaves do CacheService (validação de fontes)
 // =====================================================
 

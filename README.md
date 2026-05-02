@@ -41,31 +41,46 @@ Sempre instrua a sua sala no envio da atividade:
 
 ---
 
-## 🛠 Guia Técnico: Criação do "Documento Modelo"
-Para que o WhiteBox funcione sem depender da Loja Pública do Google, utilizamos a técnica de **Script Embutido** (*Container-bound script*). Aqui está o detalhamento de como preparar esse arquivo mestre:
+## 🛠 Guia Técnico: Implantação do Ecossistema
 
-### 1. Preparação Manual (Caso não use CLASP)
-1. Crie um novo **Google Docs** em branco.
-2. Vá em **Extensões > Apps Script**.
-3. No editor que abrir, crie dois arquivos:
-   - `Código.gs`: Cole o conteúdo do arquivo de lógica do servidor.
-   - `Sidebar.html`: Cole o conteúdo da interface visual.
-4. Clique em **Configurações do Projeto** (ícone de engrenagem) e marque a opção "Mostrar arquivo de manifesto 'appsscript.json' no editor".
-5. No arquivo `appsscript.json`, cole as configurações de escopo e permissões.
-6. Salve o projeto com o nome "WhiteBox Core".
+O WhiteBox agora utiliza uma arquitetura de **Brain Proxy** para garantir segurança e escalabilidade, dividindo-se em um motor de servidor e um componente de interface cliente.
 
-### 2. Preparação via Desenvolvedor (Usando CLASP)
-Se você tem os arquivos localmente e quer injetá-los em um novo documento:
-1. Abra o novo Google Doc e vá em **Extensões > Apps Script**.
-2. Clique no ícone de **Engrenagem (Configurações do Projeto)** e copie o seu **ID do Script**.
-3. No seu computador, abra o arquivo `.clasp.json` e substitua o campo `"scriptId"` pelo novo ID copiado.
-4. Execute `clasp push`. Os códigos serão enviados para o projeto vinculado a esse novo documento.
+### 1. Servidor (whitebox-server)
+O servidor centraliza a lógica de IA (Gemini), o armazenamento de logs e o gerenciamento de licenças.
+Vá até a pasta Classroom e crie a pasta WhiteBox Admin. Crie um novo Script Google Apps. Vá até Configurações e copie o 'Código do script' e cole no clasp.json do whitebox-server. Execute o comnado  clasp push -f para transferir o codigo fonte para o script google . 
 
-### 3. A "Mágica" da Replicação
-Quando o Professor anexa esse documento específico no **Google Classroom** e seleciona **"Fazer uma cópia para cada aluno"**:
-* O Google cria uma cópia física do arquivo para cada estudante.
-* **O código Apps Script vai junto na cópia.** 
-* Cada aluno passa a ter sua própria instância do Add-on, que se comunica com o Backend (planilha "hitebox - Painel do Professor)
+3.  **Deploy**: No editor do Apps Script, realize uma "Nova Implantação" como **Web App**.
+    *   **Executar como**: Eu (seu e-mail de administrador).
+    *   **Quem tem acesso**: Qualquer pessoa (a segurança é garantida via `SHARED_TOKEN`).
+4.  **Coleta de Dados**: Após o deploy, copie a **URL do Web App** gerada. Esta será a "ponte" de comunicação para o cliente.
+
+### 2. Cliente (whitebox-client)
+O cliente é o Add-on (painel lateral) que roda diretamente no Google Docs do professor e do aluno.
+1.  Navegue até a pasta `whitebox-client/`.
+2.  Sincronize o código:
+    ```bash
+    clasp push
+    ```
+3.  **Configuração de Variáveis**: Para que o cliente acesse o servidor, você deve configurar as **Propriedades do Script** (Configurações do Projeto > Propriedades do Script):
+    *   `BRAIN_PROXY_URL`: Cole a URL do Web App obtida no deploy do servidor.
+    *   `SHARED_TOKEN`: O token de segurança (deve ser idêntico ao configurado no servidor).
+
+### 3. A "Mágica" da Replicação (Criação do Doc Modelo)
+Para distribuir a ferramenta via **Google Classroom**:
+1.  Abra o Google Doc que servirá de "Texto Semente" (Template).
+2.  Certifique-se de que o script do cliente está vinculado a este documento.
+3.  Ao criar a atividade no Classroom, anexe este Doc e selecione **"Fazer uma cópia para cada aluno"**.
+    *   O Google copiará o arquivo e o script embutido, permitindo que cada aluno tenha sua própria instância do WhiteBox conectada ao seu servidor central.
+
+### 4. Gestão Automática de Dados (Planilhas do Professor)
+O Whitebox automatiza o provisionamento de infraestrutura para cada professor:
+1.  **Criação Sob Demanda**: A planilha individual de logs de cada professor é criada automaticamente no primeiro uso (seja ao salvar uma API Key ou ao receber o primeiro log de um aluno).
+2.  **Estrutura Automatizada**: O servidor configura três abas essenciais:
+    *   **Logs**: Recebe telemetria bruta (tempo de foco, colagens, scores de risco).
+    *   **Visual_Heatmap**: Interface com fórmulas e formatação condicional para auditoria visual de autoria.
+    *   **Turmas**: Consolida métricas por classe.
+3.  **Auto-Reparo**: O sistema detecta planilhas antigas e adiciona abas ou colunas faltantes automaticamente durante a operação, garantindo que o professor sempre tenha as ferramentas de análise mais recentes.
+
 
 ---
 

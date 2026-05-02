@@ -20,8 +20,9 @@
  *     atualiza a versão no Config.
  *
  * POLÍTICA DE VERSÕES:
- *   v1 → v2: Adição do campo 'DataCadastro' na aba Assinaturas
- *   (defina migrações futuras como funções _migrarV2ParaV3(), etc.)
+ *   v1 - Schema base (Assinaturas, Config, Tarefas_Globais, Ranking_Instituicao)
+ *   v2 - Adicionado DataCadastro na aba Assinaturas
+ *   v3 - Adicionado Historico_Templates na Planilha Global (módulo Template Distribution)
  */
 
 // SCHEMA_VERSION_ATUAL → ver Constants.gs
@@ -51,6 +52,11 @@ const SCHEMA_GLOBAL = {
   ],
   'Ranking_Instituicao': [
     'Instituicao', 'Total_Professores', 'Total_Alunos', 'Media_Autonomia_IA', 'Ultima_Atualizacao'
+  ],
+  // [TEMPLATE-01] v3: Aba adicionada pelo módulo TemplateService
+  'Historico_Templates': [
+    'ID_Distribuicao', 'Admin_Email', 'Template_ID', 'Template_Nome',
+    'Destinatarios', 'Docs_Criados', 'Falhas', 'Mensagem', 'Data_Criacao'
   ]
 };
 
@@ -271,11 +277,11 @@ function migrarSchemaSeNecessario(adminSpreadsheetId) {
     gravarVersaoSchema(ss, 2);
   }
 
-  // ---- Adicione futuras migrações aqui ----
-  // if (versaoAtual < 3) {
-  //   migracoes.push(..._migrarV2ParaV3(ss));
-  //   gravarVersaoSchema(ss, 3);
-  // }
+  // ---- Migração v2 → v3: Criar aba Historico_Templates ----
+  if (versaoAtual < 3) {
+    migracoes.push(..._migrarV2ParaV3(ss));
+    gravarVersaoSchema(ss, 3);
+  }
 
   const versaoFinal = lerVersaoSchema(ss);
   Logger.log('[SchemaManager] Migração concluída. Versão final: v' + versaoFinal);
@@ -316,6 +322,36 @@ function _migrarV1ParaV2(ss) {
 
   log.push('v1→v2: Coluna DataCadastro adicionada à aba Assinaturas (' + numRows + ' linhas preenchidas).');
   Logger.log('[SchemaManager] ' + log[log.length - 1]);
+  return log;
+}
+
+/**
+ * Migração v2 → v3: Cria a aba 'Historico_Templates' na Planilha Global
+ * para planilhas criadas antes do módulo TemplateService (TEMPLATE-01).
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
+ * @returns {string[]} Log das ações executadas
+ */
+function _migrarV2ParaV3(ss) {
+  const log = [];
+
+  // Verificar se aba já existe (idempotente)
+  if (ss.getSheetByName('Historico_Templates')) {
+    log.push('v2→v3: Aba Historico_Templates já existente — nada a fazer.');
+    Logger.log('[SchemaManager] ' + log[0]);
+    return log;
+  }
+
+  const sheet = ss.insertSheet('Historico_Templates');
+  const headers = [
+    'ID_Distribuicao', 'Admin_Email', 'Template_ID', 'Template_Nome',
+    'Destinatarios', 'Docs_Criados', 'Falhas', 'Mensagem', 'Data_Criacao'
+  ];
+  sheet.appendRow(headers);
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+
+  log.push('v2→v3: Aba Historico_Templates criada com ' + headers.length + ' colunas.');
+  Logger.log('[SchemaManager] ' + log[0]);
   return log;
 }
 
