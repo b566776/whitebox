@@ -43,7 +43,64 @@ Sempre instrua a sua sala no envio da atividade:
 
 ## 🛠 Guia Técnico: Implantação do Ecossistema
 
-O WhiteBox agora utiliza uma arquitetura de **Brain Proxy** para garantir segurança e escalabilidade, dividindo-se em um motor de servidor e um componente de interface cliente.
+O WhiteBox utiliza uma arquitetura de **Biblioteca Central** e **Brain Proxy** para garantir segurança e escalabilidade. Abaixo, o diagrama que ilustra a interação entre os componentes:
+
+```mermaid
+graph TD
+    subgraph "Nuvem Google (Runtime)"
+        subgraph "Ambiente Cliente (Google Doc do Aluno/Prof)"
+            Client[whitebox-client <br/><i>Wrapper Imortal</i>]
+            Doc[(Google Doc <br/>Metadados)]
+        end
+
+        subgraph "Ambiente Biblioteca (Shared Engine)"
+            Lib[whitebox-lib <br/><i>Motor Central</i>]
+        end
+
+        subgraph "Ambiente Servidor (Protegido)"
+            Server[whitebox-server <br/><i>Brain Proxy</i>]
+            AdminDB[(Planilha Global <br/>Admin)]
+            ProfDB[(Planilha Logs <br/>Professor)]
+        end
+    end
+
+    %% Conexões de Código
+    Client -- "1. Chama via Identificador: WhiteboxLib" --> Lib
+    
+    %% Fluxo de Configuração
+    Doc -- "2. Fornece Auto-Config <br/>(WHITEBOX_CONFIG)" --> Lib
+    Lib -- "3. Requisita IA / Logs <br/>(POST + Token)" --> Server
+
+    %% Persistência e Integração
+    Server -- "Grava Auditoria" --> ProfDB
+    Server -- "Gerencia Licenças" --> AdminDB
+    Server -- "Injeta Metadados <br/>na Distribuição" --> Doc
+
+    %% Detalhes de Configuração
+    style Client fill:#f9f,stroke:#333,stroke-width:2px
+    style Lib fill:#bbf,stroke:#333,stroke-width:4px
+    style Server fill:#dfd,stroke:#333,stroke-width:2px
+
+    classDef config font-style:italic,fill:#eee,stroke:#999
+    
+    C_Config["<b>Config Cliente:</b><br/>- Script ID da Lib<br/>- Identificador: 'WhiteboxLib'"]:::config
+    L_Config["<b>Config Lib:</b><br/>- Lê DeveloperMetadata<br/>- Fallback: Script Properties"]:::config
+    S_Config["<b>Config Servidor:</b><br/>- BRAIN_PROXY_URL<br/>- SHARED_TOKEN<br/>- GEMINI_GLOBAL_KEY"]:::config
+
+    Client -.-> C_Config
+    Lib -.-> L_Config
+    Server -.-> S_Config
+```
+
+### 🗝️ Guia de Configurações Reais
+
+| Componente | Script ID / URL | Finalidade |
+| :--- | :--- | :--- |
+| **Cliente** | `1AcsKf8oIp2aS2VWPSm86wq_HSUo07KEAZFP2ST3vdilgkvfz9Jc9ZKK4` | Wrapper leve vinculado aos docs. |
+| **Biblioteca** | `1iclQyZIbPsAL90mIX-aA3uZVfJ2TzQjbA5NsJYygme5jNezqnClnzmWJ` | Motor central (ID usado no vínculo do cliente). |
+| **Servidor** | `1vGcyooljMaUVRPoN1gkkDfKNUb-oi65p0x1PODqnN006249US_P6iilp` | Gateway de IA e Gestão de Logs. |
+
+---
 
 ### 1. Servidor (whitebox-server)
 O servidor centraliza a lógica de IA (Gemini), o armazenamento de logs e o gerenciamento de licenças.
