@@ -34,7 +34,8 @@ function getConfig() {
   return {
     sharedToken:        props.getProperty(PROP_SHARED_TOKEN),
     adminSpreadsheetId: props.getProperty(PROP_ADMIN_SPREADSHEET_ID),
-    geminiGlobalKey:    props.getProperty(PROP_GEMINI_GLOBAL_KEY) || null
+    geminiGlobalKey:    props.getProperty(PROP_GEMINI_GLOBAL_KEY) || null,
+    proxyUrl:           props.getProperty(PROP_BRAIN_PROXY_URL) || ScriptApp.getService().getUrl()
   };
 }
 

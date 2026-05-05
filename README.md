@@ -54,16 +54,25 @@ Vá até a pasta Classroom e crie a pasta WhiteBox Admin. Crie um novo Script Go
     *   **Quem tem acesso**: Qualquer pessoa (a segurança é garantida via `SHARED_TOKEN`).
 4.  **Coleta de Dados**: Após o deploy, copie a **URL do Web App** gerada. Esta será a "ponte" de comunicação para o cliente.
 
-### 2. Cliente (whitebox-client)
-O cliente é o Add-on (painel lateral) que roda diretamente no Google Docs do professor e do aluno.
-1.  Navegue até a pasta `whitebox-client/`.
-2.  Sincronize o código:
+### 2. Cliente (whitebox-client) - O Wrapper "Imortal"
+O cliente agora atua como um despachante leve (Wrapper) que consome a lógica central de uma **Biblioteca**. Isso permite atualizar o código de milhares de documentos distribuídos instantaneamente, sem que o professor precise trocar o documento modelo.
+
+1.  **Vincular Biblioteca**: No editor do Apps Script do cliente, adicione a `WhiteboxLib`.
+    *   **Script ID**: O ID do script é a parte longa da URL de compartilhamento da biblioteca: `https://script.google.com/macros/library/d/[SCRIPT_ID]/[VERSAO]`.
+    *   **Identificador**: Deve ser obrigatoriamente `WhiteboxLib`.
+2.  **Sincronizar o Wrapper**:
     ```bash
+    cd whitebox-client
     clasp push
     ```
-3.  **Configuração de Variáveis**: Para que o cliente acesse o servidor, você deve configurar as **Propriedades do Script** (Configurações do Projeto > Propriedades do Script):
-    *   `BRAIN_PROXY_URL`: Cole a URL do Web App obtida no deploy do servidor.
-    *   `SHARED_TOKEN`: O token de segurança (deve ser idêntico ao configurado no servidor).
+3.  **Auto-Configuração**: O cliente tenta se configurar sozinho via `DeveloperMetadata` injetados pelo servidor. Caso falhe, ele busca nas `Propriedades do Script`:
+    *   `BRAIN_PROXY_URL`: URL do Web App do servidor.
+    *   `SHARED_TOKEN`: Token de segurança idêntico ao do servidor.
+
+### 3. Biblioteca (whitebox-lib) - O Motor Central
+Contém toda a lógica de negócio, UI e utilitários.
+1.  **Deploy**: Realize o push do código e crie uma "Nova Implantação" do tipo **Biblioteca**.
+2.  **Versão**: Sempre que fizer mudanças críticas na lógica, crie uma nova versão da biblioteca no console e atualize o cliente (ou mantenha na versão 'Head' para desenvolvimento).
 
 ### 3. A "Mágica" da Replicação (Criação do Doc Modelo)
 Para distribuir a ferramenta via **Google Classroom**:

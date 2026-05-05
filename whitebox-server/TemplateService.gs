@@ -164,10 +164,22 @@ function handleDistribuirTemplate(body, cfg) {
       const nomeCopia      = templateNome + ' — ' + email;
       const copia          = templateFile.makeCopy(nomeCopia, pastaProfessor);
 
-      // 2. Compartilhar com o professor como editor
+      // 2. Injetar DeveloperMetadata de Auto-Configuração [ARCH-LIB]
+      try {
+        const configObj = {
+          proxyUrl:    cfg.proxyUrl,
+          sharedToken: cfg.sharedToken
+        };
+        const doc = DocumentApp.openById(copia.getId());
+        doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj));
+      } catch (metaErr) {
+        Logger.log('[TemplateService] Erro ao injetar metadados: ' + metaErr);
+      }
+
+      // 3. Compartilhar com o professor como editor
       copia.addEditor(email);
 
-      // 3. Notificar por e-mail (opcional)
+      // 4. Notificar por e-mail (opcional)
       if (notificarEmail !== false) {
         _enviarEmailTemplate(email, templateNome, copia.getUrl(), mensagem);
       }

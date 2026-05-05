@@ -11,6 +11,8 @@ entities.json
 # apps-script/ é LEGADO e ARQUIVADO — ver apps-script/ARCHIVED.md
 # Nunca adicionar .clasp.json nesse diretório para evitar deploy acidental.
 
-# Credenciais locais do clasp (nunca commitar)
-.clasp.json*
+# Credenciais locais do clasp (NUNCA COMMITAR)
 .clasprc.json*
+
+# Mapeamento de Scripts (Permitido para facilitar o deploy)
+# .clasp.json

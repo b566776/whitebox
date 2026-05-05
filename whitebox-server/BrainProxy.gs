@@ -301,10 +301,25 @@ function distribuirMestreParaProfessor(email, token) {
     const targetFolder = getOrCreateTargetFolder();
     const copy = originalFile.makeCopy(newName, targetFolder);
     
-    // 2. Dar permissão de editor ao professor
+    // 2. Injetar DeveloperMetadata de Auto-Configuração [ARCH-LIB]
+    try {
+      const cfg = getConfig();
+      const configObj = {
+        proxyUrl:    cfg.proxyUrl,
+        sharedToken: cfg.sharedToken
+      };
+      
+      const doc = DocumentApp.openById(copy.getId());
+      doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj));
+      Logger.log('[BrainProxy] Metadados injetados com sucesso no novo Mestre.');
+    } catch (metaErr) {
+      Logger.log('[BrainProxy] Erro (não-crítico) ao injetar metadados: ' + metaErr);
+    }
+
+    // 3. Dar permissão de editor ao professor
     copy.addEditor(email);
     
-    // 3. Notificar via e-mail
+    // 4. Notificar via e-mail
     const subject = '📦 Seu Sistema Whitebox está pronto!';
     const body = `Olá!\n\nSeu Documento Mestre do Whitebox foi gerado e compartilhado com você.\n\n` +
                  `Link do Documento: ${copy.getUrl()}\n\n` +

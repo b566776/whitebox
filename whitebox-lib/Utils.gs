@@ -18,35 +18,58 @@
 // =====================================================
 
 /**
- * [CR-01 FIX] Lê as credenciais do Brain Proxy das Script Properties.
- * NUNCA use constantes hardcoded. Configure via:
- *   Apps Script → Configurações → Propriedades do Script
- *
- *   BRAIN_PROXY_URL  — URL do Web App do BrainProxy após deploy
- *   SHARED_TOKEN     — O mesmo token gerado no provisionamento do BrainProxy
+ * [REFINED] Busca as credenciais do Brain Proxy com fallback hierárquico:
+ * 1. DeveloperMetadata do Documento (Configurado via Mestre/Leva)
+ * 2. DocumentProperties do Documento (Configuração local do Doc)
+ * 3. ScriptProperties da Biblioteca (Global do Professor)
  *
  * @returns {{ proxyUrl: string, sharedToken: string }}
- * @throws {Error} Se as propriedades não estiverem configuradas
  */
 function getProxyConfig() {
-  const props       = PropertiesService.getScriptProperties();
-  const proxyUrl    = props.getProperty('BRAIN_PROXY_URL');
-  const sharedToken = props.getProperty('SHARED_TOKEN');
+  const doc = DocumentApp.getActiveDocument();
+  let proxyUrl = '';
+  let sharedToken = '';
+
+  // 1. Tentar DeveloperMetadata (Melhor para persistência em cópias via API)
+  try {
+    const meta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
+    if (meta.length > 0) {
+      const config = JSON.parse(meta[0].getValue());
+      proxyUrl = config.proxyUrl || '';
+      sharedToken = config.sharedToken || '';
+    }
+  } catch (e) {
+    // Apenas loga erro real de parsing, não a ausência de metadados
+    if (e.toString().includes('SyntaxError')) {
+      Logger.log('[Whitebox-Lib] Erro de sintaxe no DeveloperMetadata: ' + e);
+    }
+  }
+
+  // 2. Tentar DocumentProperties (Configuração manual no documento)
+  if (!proxyUrl) {
+    const docProps = PropertiesService.getDocumentProperties();
+    proxyUrl = docProps.getProperty('BRAIN_PROXY_URL');
+    sharedToken = docProps.getProperty('SHARED_TOKEN');
+  }
+
+  // 3. Fallback: ScriptProperties (Global para este projeto de Biblioteca)
+  if (!proxyUrl) {
+    const scriptProps = PropertiesService.getScriptProperties();
+    proxyUrl = scriptProps.getProperty('BRAIN_PROXY_URL');
+    sharedToken = scriptProps.getProperty('SHARED_TOKEN');
+  }
 
   if (!proxyUrl || proxyUrl.startsWith('COLE') || proxyUrl.trim() === '') {
     throw new Error(
-      '[Whitebox] BRAIN_PROXY_URL não configurada nas Script Properties. ' +
-      'Acesse: Apps Script → Configurações → Propriedades do Script.'
-    );
-  }
-  if (!sharedToken || sharedToken.startsWith('COLE') || sharedToken.trim() === '') {
-    throw new Error(
-      '[Whitebox] SHARED_TOKEN não configurado nas Script Properties. ' +
-      'Use o token gerado na tela de auto-provisionamento do BrainProxy.'
+      '[Whitebox] BRAIN_PROXY_URL não localizada. ' +
+      'Configure nas Propriedades da Biblioteca ou do Documento.'
     );
   }
 
-  return { proxyUrl, sharedToken };
+  return { 
+    proxyUrl: proxyUrl, 
+    sharedToken: sharedToken || '' 
+  };
 }
 
 // =====================================================
@@ -85,7 +108,7 @@ function callProxy(route, data) {
       contentType:        'application/json',
       payload:            JSON.stringify(payload),
       muteHttpExceptions: true,
-      deadline:           25  // Proxy pode criar planilha (~8s) + Gemini (~5s)
+      deadline:           30  // Proxy pode criar planilha (~8s) + Gemini (~5s) + Classroom levas
     });
 
     const rawText = response.getContentText();

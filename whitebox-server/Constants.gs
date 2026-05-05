@@ -94,6 +94,9 @@ const PROP_SHARED_TOKEN         = 'SHARED_TOKEN';
 /** Chave API Gemini global (para professores que não têm chave própria) */
 const PROP_GEMINI_GLOBAL_KEY    = 'GEMINI_GLOBAL_KEY';
 
+/** URL pública deste Web App (Brain Proxy), usada para auto-configurar novos documentos */
+const PROP_BRAIN_PROXY_URL      = 'BRAIN_PROXY_URL';
+
 // =====================================================
 //  SCRIPT PROPERTIES: Prefixos de deadline
 // =====================================================

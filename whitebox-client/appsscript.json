@@ -7,6 +7,14 @@
         "serviceId": "drive",
         "version": "v3"
       }
+    ],
+    "libraries": [
+      {
+        "userSymbol": "WhiteboxLib",
+        "libraryId": "1iclQyZIbPsAL90mIX-aA3uZVfJ2TzQjbA5NsJYygme5jNezqnClnzmWJ",
+        "version": "1",
+        "developmentMode": true
+      }
     ]
   },
   "exceptionLogging": "STACKDRIVER",
