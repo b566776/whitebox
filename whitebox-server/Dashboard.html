@@ -221,6 +221,20 @@
   </header>
 
   <div class="card">
+    <h2>⚙️ Configurações Globais</h2>
+    <p style="color: var(--text-dim); margin-bottom: 1rem; font-size: 0.9rem;">
+      Configure o ID do Documento Master que servirá de semente para todos os professores.
+    </p>
+    <div style="display: flex; gap: 1rem; align-items: flex-end;">
+      <div style="flex-grow: 1;">
+        <label>Google Doc ID (Semente)</label>
+        <input type="text" id="seedIdInput" placeholder="Ex: 1abc123... (ID do Google Doc)">
+      </div>
+      <button onclick="saveSeed()">💾 Salvar</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Integração Google Classroom</h2>
     <p style="color: var(--text-dim); margin-bottom: 1rem; font-size: 0.9rem;">
       Selecione uma turma e envie o "Modelo Mestre" como uma atividade. O Google criará cópias individuais automaticamente.
@@ -324,11 +338,18 @@
   }
 
   function refreshData() {
+    // [UI-05] Tentar recuperar token do localStorage antes de pedir ao usuário
+    if (!adminToken) {
+      adminToken = localStorage.getItem('wbx_admin_token');
+    }
+
     showLoader(true);
     google.script.run
       .withSuccessHandler(data => {
         showLoader(false);
         adminToken = data.sharedToken; 
+        // Salvar para o próximo refresh
+        localStorage.setItem('wbx_admin_token', adminToken);
         renderData(data);
         loadClassrooms();
         loadHeatmap();
@@ -336,8 +357,11 @@
       .withFailureHandler(err => {
         showLoader(false);
         if (err.message && err.message.includes('UNAUTHORIZED')) {
-          adminToken = prompt('Por favor, insira o SHARED_TOKEN:');
-          if (adminToken) refreshData();
+          const newToken = prompt('Por favor, insira o SHARED_TOKEN:');
+          if (newToken) {
+            adminToken = newToken;
+            refreshData();
+          }
         } else {
           showToast('Erro: ' + err, true);
         }

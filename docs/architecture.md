@@ -37,8 +37,16 @@ graph TD
     - `ClassroomService.gs`: Integração com Google Classroom.
     - `SchemaManager.gs`: Integridade do banco de dados baseado em planilhas.
     - `AdminSetup.gs`: Provisionamento automatizado de recursos.
+    - `TemplateService.gs`: Orquestração de cópias (Admin -> Prof) e integração Classroom STUDENT_COPY.
 
-## 4. Mecanismos de Segurança
+## 4. Fluxo de Distribuição Pedagógica
+O sistema utiliza um modelo de dois níveis para distribuição de recursos:
+1.  **Nível Administrativo**: O Administrador distribui "Doc Templates" para as pastas dos professores. Este fluxo gera cópias físicas no Drive do professor e registra o envio no `Historico_Templates`.
+2.  **Nível Docente**: O professor, a partir de um template recebido, utiliza a aba **Distribuir** na Sidebar para criar tarefas no Classroom. 
+    - O sistema utiliza o modo `STUDENT_COPY` nativo da API, o que garante que cada aluno receba sua própria cópia editável.
+    - O progresso de criação em múltiplas turmas é monitorado via **Polling** (cliente consulta o servidor a cada 1.5s usando um `executionId` armazenado no `CacheService`).
+
+## 5. Mecanismos de Segurança
 
 ### 4.1. O Protocolo SHARED_TOKEN
 Toda comunicação do cliente para o servidor requer um `SHARED_TOKEN` passado no corpo do JSON.

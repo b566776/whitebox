@@ -44,7 +44,10 @@ O Whitebox inclui um framework de testes customizado e leve em `TestRunner.gs`.
 - **Cobertura**: Inclui validação de e-mail, parsing de JSON, lógica de limite de taxa (rate limit) e integridade de esquema.
 
 ### 3.2. Testes de Fumaça Manuais
-1.  **Auto-Provisionamento**: Visite a URL do Web App do servidor pela primeira vez; ele deve criar a Planilha Admin Global e mostrar o token.
+1.  **Auto-Provisionamento**: Visite a URL do Web App do servidor pela primeira vez (*); ele deve criar a Planilha Admin Global e mostrar o token.
+
+(*) Se for solicitado um token vá nas Configurações do Script server; No menu lateral esquerdo, clique no ícone de engrenagem (Configurações do Projeto). Desça até a seção Propriedades do Script. Localize a propriedade chamada SHARED_TOKEN. O valor ao lado dela é o token que você deve inserir na tela.
+
 2.  **Sincronização de Telemetria**: Abra um Doc com Whitebox ativado, digite algum texto e verifique se uma nova linha aparece na planilha de log do professor.
 3.  **Análise de IA**: Use o botão de análise da barra lateral e verifique a resposta socrática.
 

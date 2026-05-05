@@ -37,7 +37,8 @@ function runAllTests() {
     test_construirPromptSocratico_idiomaPtBR,
     test_getOrCreateTargetFolder_naoLancaErro,
     test_calcularHeatmapAluno_emailVazio,
-    test_fecharFormulariosVencidos_semTriggerUid
+    test_fecharFormulariosVencidos_semTriggerUid,
+    test_getConfig_retorno
   ];
 
   Logger.log('[TestRunner] ========================================');
@@ -139,6 +140,11 @@ function test_jsonResponse_status200() {
 // =====================================================
 
 function test_getProxyConfig_semProps() {
+  // [FIX] Esta função é do whitebox-client. Se estivermos rodando no server, ignorar.
+  if (typeof getProxyConfig !== 'function') {
+    return { skip: true, reason: 'getProxyConfig() é uma função exclusiva do whitebox-client.' };
+  }
+
   // Verificar que sem props configuradas lança erro descritivo
   // (funciona apenas se BRAIN_PROXY_URL e SHARED_TOKEN não estiverem definidas)
   const props     = PropertiesService.getScriptProperties();
@@ -210,4 +216,15 @@ function test_fecharFormulariosVencidos_semTriggerUid() {
     lancouErro = true;
   }
   assert(!lancouErro, 'fecharFormulariosVencidos sem triggerUid NÃO deve lançar exceção — deve retornar silenciosamente');
+}
+
+// =====================================================
+//  TESTES: getConfig (Utils.gs - Server)
+// =====================================================
+
+function test_getConfig_retorno() {
+  const config = getConfig();
+  assert(typeof config === 'object', 'getConfig deve retornar um objeto');
+  // Se estiver configurado (em ambiente de prod/dev real), os campos devem existir
+  // Não fazemos assert de valores específicos para não quebrar em ambientes limpos
 }

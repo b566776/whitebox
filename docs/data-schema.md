@@ -26,6 +26,19 @@ Gerencia todo o ecossistema, licenciamento e registro global de tarefas.
 | **Course_ID** | ID do curso no Classroom. |
 | **Data_Criacao** | Timestamp. |
 
+### 1.3. Aba: `Historico_Templates`
+| Coluna | Descrição |
+| :--- | :--- |
+| **ID_Distribuicao** | Código único da remessa Admin (ex: DIST-XXXX). |
+| **Admin_Email** | Quem realizou a distribuição. |
+| **Template_ID** | ID do Doc original. |
+| **Template_Nome** | Nome do documento na data do envio. |
+| **Destinatarios** | Lista de e-mails (professores) separados por vírgula. |
+| **Docs_Criados** | Qtd de cópias geradas com sucesso. |
+| **Falhas** | Qtd de falhas no processamento. |
+| **Mensagem** | Texto enviado na notificação. |
+| **Data_Criacao** | Timestamp ISO 8601. |
+
 ---
 
 ## 2. Planilha Individual do Professor
@@ -51,6 +64,21 @@ Armazena dados sensíveis dos alunos e configurações locais.
 | **Assignment_ID** | Link para atividade específica. |
 | **Instrucoes_IA** | Instruções de prompt personalizadas (ex: "Foco em fatos históricos"). |
 | **Nivel_Rigor_IA** | `Baixo`, `Médio` ou `Alto`. |
+
+### 2.3. Aba: `Levas` (Distribuição Classroom)
+| Coluna | Descrição |
+| :--- | :--- |
+| **ID_Leva** | Identificador da remessa (ex: LEVA-XXXX). |
+| **Template_ID** | Doc usado como base. |
+| **Template_Nome** | Nome do modelo mestre. |
+| **Titulo_Atividade** | Nome da tarefa no Classroom. |
+| **Course_ID** | ID da turma destino. |
+| **Course_Nome** | Nome legível da turma. |
+| **Assignment_ID** | ID da tarefa criada. |
+| **Total_Alunos** | Qtd de alunos na turma. |
+| **Prazo** | Data de entrega (ISO). |
+| **Instrucoes** | Corpo do texto da tarefa. |
+| **Data_Criacao** | Timestamp. |
 
 ---
 

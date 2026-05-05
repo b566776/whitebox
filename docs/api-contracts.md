@@ -82,6 +82,67 @@ Verifica se o professor está ativo e se o modo IA está disponível.
 }
 ```
 
+### 2.4. `listar_templates` (Admin)
+Lista templates de Docs na pasta central do Admin.
+
+**Payload**:
+```json
+{ "token": "SHARED_TOKEN", "route": "listar_templates" }
+```
+
+### 2.5. `distribuir_template` (Admin)
+Copia template para Drive do professor e compartilha.
+
+**Payload**:
+```json
+{ 
+  "token": "SHARED_TOKEN", 
+  "route": "distribuir_template", 
+  "templateId": "ID_DOC", 
+  "destinatarios": ["prof1@edu.com"], 
+  "notificarEmail": true 
+}
+```
+
+### 2.6. `listar_turmas_professor` (Professor)
+Lista turmas do Classroom onde o usuário é docente.
+
+**Payload**:
+```json
+{ "token": "SHARED_TOKEN", "route": "listar_turmas_professor", "professorEmail": "prof@edu.com" }
+```
+
+### 2.7. `criar_leva_template` (Professor)
+Cria atividade no Classroom com `STUDENT_COPY` do template.
+
+**Payload**:
+```json
+{ 
+  "token": "SHARED_TOKEN", 
+  "route": "criar_leva_template", 
+  "templateDocId": "ID_DOC", 
+  "turmas": ["ID_TURMA"], 
+  "titulo": "Atividade 01", 
+  "executionId": "uuid-v4" 
+}
+```
+
+### 2.8. `status_distribuicao` (Polling)
+Consulta progresso de uma criação de leva em andamento.
+
+**Payload**:
+```json
+{ "token": "SHARED_TOKEN", "route": "status_distribuicao", "executionId": "uuid-v4" }
+```
+
+### 2.9. `historico_templates` (Admin)
+Retorna log de todas as distribuições Admin -> Professores.
+
+**Payload**:
+```json
+{ "token": "SHARED_TOKEN", "route": "historico_templates" }
+```
+
 ---
 
 ## 3. Utilitário do Cliente (`callProxy`)

@@ -130,7 +130,7 @@ function getContext() {
 
   // [AUTH-01] Detecção dinâmica de papel
   // Professor = Dono do Doc OU Dono da pasta (professorEmail do Item 3)
-  const owner       = doc.getOwner();
+  const owner       = DriveApp.getFileById(doc.getId()).getOwner();
   const isOwner     = owner ? (owner.getEmail() === userEmail) : false;
   const isProfessor = item3Data.professorEmail === userEmail;
   const role        = (isOwner || isProfessor) ? 'teacher' : 'student';
