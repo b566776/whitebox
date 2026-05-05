@@ -3,10 +3,10 @@
 O Whitebox é um assistente pedagógico que ajuda você a refletir sobre seu processo de escrita e garante a integridade acadêmica.
 
 ## 📝 Como Funciona
-Quando você trabalha em um Google Doc ativado pelo Whitebox, o sistema rastreia o "processo" da sua escrita:
+O Whitebox opera através de uma **Biblioteca Central** que garante que todos os alunos tenham acesso à mesma tecnologia de transparência. Quando você trabalha em um Google Doc ativado:
 - **Tempo de Edição Ativa**: O sistema reconhece o tempo que você gasta trabalhando ativamente no documento.
 - **Ritmo de Escrita**: Ele rastreia sua velocidade de digitação (CPM) para ajudar a identificar fluxos de escrita naturais.
-- **Consciência de Colagem**: Pesquisas legítimas são aceitáveis, mas colagens massivas de texto gerado por IA são sinalizadas para discussão pedagógica.
+- **Consciência de Colagem**: Pesquisas legítimas são aceitáveis, mas colagens massivas são sinalizadas para discussão pedagógica.
 
 ## 🤖 Interagindo com o Auditor de IA
 A barra lateral do Whitebox fornece orientação socrática:

@@ -3,12 +3,11 @@
 Este guia detalha como os professores interagem com o Add-on Whitebox para gerenciar tarefas e monitorar o progresso dos alunos.
 
 ## 📋 Configuração Inicial
-Antes de começar, certifique-se de que o Add-on está corretamente vinculado ao **Brain Proxy** da sua instituição.
-1.  **Abrir Barra Lateral**: Menu `Whitebox` > `Abrir Painel Whitebox`.
-2.  **Autenticação**: Se solicitado, insira o `SHARED_TOKEN` fornecido pelo seu administrador.
-    > [!NOTE]
-    > O token é o mesmo utilizado para configurar o servidor e garante que seus logs sejam enviados para o banco de dados correto da instituição.
-3.  **Chave de API**: Na aba "Configurações", você pode registrar sua própria chave de API Gemini. Esta chave é armazenada com segurança em seu "Cofre" (Drive Vault) pessoal via servidor.
+O Whitebox agora utiliza uma arquitetura de **Biblioteca Central**. Isso significa que você não precisa mais se preocupar em atualizar o código manualmente; as melhorias chegam automaticamente ao seu documento.
+
+1.  **Auto-Configuração**: Na maioria dos casos, o Add-on se auto-configurará usando metadados invisíveis injetados pelo servidor durante a criação do documento.
+2.  **Abrir Barra Lateral**: Vá ao menu `Whitebox` > `Abrir Painel Whitebox`.
+3.  **Acesso Manual (se necessário)**: Se o sistema não se auto-configurar, insira o `SHARED_TOKEN` fornecido pelo seu administrador na tela de boas-vindas.
 
 ## 🚀 Integração com o Classroom
 O Add-on permite que você publique o "Doc Mestre" (Modelo Mestre) atual diretamente em um curso do Classroom.

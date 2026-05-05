@@ -3,29 +3,26 @@
 Este documento é destinado a administradores de TI e desenvolvedores que gerenciam a implantação do Add-on Whitebox Client.
 
 ## ⚙️ Propriedades de Configuração
-O comportamento do Add-on é governado pelas `ScriptProperties` e `DocumentProperties`:
+O comportamento do ecossistema é governado por uma hierarquia de configurações:
 
-### Script Properties (Globais)
+### 1. Auto-Configuração (DeveloperMetadata) [NOVO]
+O servidor agora injeta automaticamente a configuração no documento durante a distribuição. O Add-on tenta ler estes dados primeiro:
+- `WHITEBOX_CONFIG`: JSON contendo `proxyUrl` e `sharedToken`.
+
+### 2. Script Properties (Globais do Cliente)
+Usadas como fallback se os metadados estiverem ausentes:
 - `BRAIN_PROXY_URL`: A URL do Web App `whitebox-server` implantado.
-- `SHARED_TOKEN`: O segredo de autenticação compartilhado entre o Cliente e o Proxy.
-  > [!TIP]
-  > Se você perdeu o token, encontre-o em: **Configurações do Projeto (Gear) > Propriedades do Script** no projeto do servidor.
+- `SHARED_TOKEN`: O segredo de autenticação compartilhado.
 
-### Configuração Master (Semente)
-Para que a distribuição de tarefas funcione, você deve configurar o **ID do Documento Master**:
-1. No Dashboard Admin, vá em **Configurações Globais**.
-2. Cole o ID do Google Doc que servirá de modelo base (Semente).
-3. Clique em **Salvar**.
-
-### Document Properties (Por Documento)
-- `assignmentId`: O ID da Tarefa do Classroom vinculada a este documento.
-- `courseId`: O ID do Curso do Classroom.
-- `lastSync`: Timestamp do último envio de telemetria para o servidor.
+### 3. Vínculo de Biblioteca (whitebox-lib)
+O cliente (`whitebox-client`) deve estar vinculado à biblioteca central:
+- **Script ID**: O identificador único da `WhiteboxLib` (extraído da URL de implantação).
+- **Identificador**: Deve ser obrigatoriamente **`WhiteboxLib`**.
 
 ## 🚀 Checklist de Implantação
-1.  **Publicação**: Certifique-se de que o Add-on foi publicado como um script "vinculado ao documento" dentro do modelo **Doc Mestre**.
-2.  **Escopos**: O script requer `https://www.googleapis.com/auth/documents` e `https://www.googleapis.com/auth/script.external_request`.
-3.  **Link do Proxy**: Verifique se a `BRAIN_PROXY_URL` nas Script Properties aponta corretamente para a implantação ativa do `whitebox-server`.
+1.  **Deploy da Lib**: Realize o push da `whitebox-lib` e crie uma versão de implantação.
+2.  **Vínculo do Cliente**: No `whitebox-client`, adicione a biblioteca usando o Script ID e o identificador correto.
+3.  **Configuração do Servidor**: Garanta que a `BRAIN_PROXY_URL` está configurada nas Script Properties do servidor para permitir a injeção correta de metadados.
 
 ## 🔍 Solução de Problemas
 - **Erros de Rede**: Use o console do desenvolvedor do navegador para verificar chamadas `UrlFetch` que falharam para o proxy.

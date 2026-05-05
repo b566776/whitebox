@@ -8,29 +8,46 @@ O Whitebox é arquitetado como um ecossistema desacoplado que consiste em um Add
 ```mermaid
 graph TD
     subgraph "Google Cloud / Apps Script Runtime"
-        A[Whitebox Client Add-on] -->|doPost + SHARED_TOKEN| B[Whitebox Server Proxy]
-        B -->|REST| C[Gemini AI API]
-        B -->|Internal API| D[Google Classroom API]
-        B -->|SpreadsheetApp| E[Global Admin Sheet]
-        B -->|SpreadsheetApp| F[Professor Sheets]
-        A -->|DocumentApp| G[Student Document]
+        subgraph "Ambiente Cliente"
+            A[whitebox-client <br/>Wrapper Imortal]
+        end
+
+        subgraph "Ambiente Biblioteca"
+            L[whitebox-lib <br/>Motor Central]
+        end
+
+        subgraph "Ambiente Servidor"
+            B[whitebox-server <br/>Brain Proxy]
+            E[Global Admin Sheet]
+            F[Professor Sheets]
+        end
+
+        A -- "Dynamic Dispatcher" --> L
+        L -- "UrlFetch + Token" --> B
+        B -- "IA" --> C[Gemini AI API]
+        B -- "Classroom" --> D[Google Classroom API]
+        B -- "DB" --> E
+        B -- "DB" --> F
     end
 ```
 
 ## 3. Detalhamento dos Componentes
 
-### 3.1. Whitebox Client (Add-on)
-- **Papel**: Sensor de telemetria e interface do aluno.
+### 3.1. Whitebox Client (Wrapper Imortal)
+- **Papel**: Ponto de entrada leve e persistente vinculado aos documentos.
 - **Arquivos Chave**:
-    - `Código.gs`: Inicialização da UI e gatilhos de telemetria.
-    - `Constants.gs`: Configuração do lado do cliente.
-    - `Utils.gs`: Wrapper de comunicação (`callProxy`).
-- **Loop de Telemetria**:
-    1. Rastreia tempo de foco ativo via eventos `focus` e `blur` na barra lateral.
-    2. Monitora eventos `onEdit` para calcular CPM e deltas de contagem de palavras.
-    3. Detecta eventos de colagem (paste) massiva usando limiares de contagem de caracteres.
+    - `Código.gs`: Implementa o **Dynamic Dispatcher** que encaminha chamadas para a `WhiteboxLib`.
+    - `appsscript.json`: Gerencia a dependência da biblioteca.
+- **Vantagem**: Uma vez distribuído, o código do cliente nunca precisa ser alterado.
 
-### 3.2. Whitebox Server (Proxy)
+### 3.2. Whitebox Lib (Motor Central)
+- **Papel**: Contém toda a lógica de negócio, UI da Sidebar e utilitários de comunicação.
+- **Arquivos Chave**:
+    - `Logic.gs`: Lógica de auditoria e manipulação de UI.
+    - `Sidebar.html`: Interface visual do Add-on.
+    - `Utils.gs`: Gerenciamento de auto-configuração via metadados.
+
+### 3.3. Whitebox Server (Proxy)
 - **Papel**: Gateway seguro, gerenciador de licenças e hub de integração.
 - **Arquivos Chave**:
     - `BrainProxy.gs`: Roteador principal (`doPost`) e lógica de IA.

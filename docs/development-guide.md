@@ -11,9 +11,9 @@ clasp login
 ```
 
 ### 1.2. Estrutura do Projeto
-- `/whitebox-client`: Código-fonte para o Add-on.
-- `/whitebox-server`: Código-fonte para o Web App Proxy.
-- `/docs2`: Documentação técnica.
+- `/whitebox-lib`: Motor central (Biblioteca). **Lógica principal aqui.**
+- `/whitebox-client`: Wrapper imortal para os documentos.
+- `/whitebox-server`: Web App Proxy e Gateway de IA.
 
 ---
 
@@ -22,17 +22,19 @@ clasp login
 ### 2.1. Server Proxy
 1.  Navegue até `whitebox-server/`.
 2.  `clasp push` para sincronizar o código.
-3.  Implantar como **Web App**:
-    - **Executar como**: Eu (Admin).
-    - **Acesso**: Qualquer pessoa (Autenticado via `SHARED_TOKEN`).
-4.  Copie a URL do Web App para configuração do cliente.
+3.  Implantar como **Web App**.
 
-### 2.2. Client Add-on
-1.  Navegue até `whitebox-client/`.
+### 2.2. Whitebox Lib (Central)
+1.  Navegue até `whitebox-lib/`.
 2.  `clasp push`.
-3.  Configurar **Propriedades do Script**:
-    - `BRAIN_PROXY_URL`: URL da implantação do servidor.
-    - `SHARED_TOKEN`: Token gerado durante o provisionamento do servidor.
+3.  No console do Apps Script, clique em **Implantar > Nova Implantação > Biblioteca**.
+4.  Anote o **Script ID** para o cliente.
+
+### 2.3. Client Wrapper
+1.  Navegue até `whitebox-client/`.
+2.  No `appsscript.json`, verifique se o ID da biblioteca está correto.
+3.  `clasp push`.
+4.  **Auto-Config**: O cliente agora busca `WHITEBOX_CONFIG` no documento antes de recorrer às Script Properties.
 
 ---
 

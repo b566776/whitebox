@@ -173,3 +173,14 @@ function callProxy(route, payload) {
   return JSON.parse(response.getContentText());
 }
 ```
+
+```javascript
+/**
+ * Realiza chamada POST segura para o Brain Proxy via Biblioteca.
+ * [ARCH-LIB] No modelo novo, o Wrapper chama 'WhiteboxLib.callProxy'
+ */
+function callLibrary(functionName, args) {
+  // O Dynamic Dispatcher do whitebox-client encaminha para:
+  return WhiteboxLib[functionName].apply(null, args);
+}
+```

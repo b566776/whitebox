@@ -32,4 +32,4 @@ Recursos para manutenção e conformidade.
 - [Relatório de Varredura](../docs/project-scan-report.json): Auditoria técnica automatizada.
 
 ---
-*Última Atualização: 03/05/2026*
+*Última Atualização: 05/05/2026*

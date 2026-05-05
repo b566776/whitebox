@@ -3,15 +3,14 @@
 O Whitebox Client é um Add-on do Google Docs (vinculado ao documento) projetado para coletar telemetria comportamental e fornecer uma ponte para o Auditor de IA Socrática. Ele opera dentro do documento do aluno, monitorando o processo de escrita em tempo real.
 
 ## 🚀 Funções Principais
-- **Telemetria Comportamental**: Rastreia tempo de foco ativo, caracteres digitados e eventos de colagem (paste).
-- **Ponte Socrática**: Comunica-se com o Brain Proxy para solicitar feedback pedagógico orientado por IA.
-- **Aplicação de Segurança**: Implementa autenticação `SHARED_TOKEN` e detecta potenciais tentativas de bypass por IA.
+- **Wrapper Imortal**: Atua como um ponto de entrada persistente nos documentos que consome a lógica central de uma **Biblioteca**.
+- **Dynamic Dispatcher**: Encaminha chamadas de UI e telemetria para a `WhiteboxLib` sem expor a lógica de negócio localmente.
+- **Auto-Configuração**: Descobre a URL do servidor e o Token via `DeveloperMetadata` injetado pelo servidor.
 
 ## 🛠️ Componentes Principais
-- `Código.gs`: Orquestra eventos de UI, gatilhos de telemetria e mapeamento do Classroom.
-- `Constants.gs`: Configuração centralizada do lado do cliente (rotas, chaves de propriedade).
-- `Utils.gs`: Utilitários de baixo nível para comunicação com o proxy e marca d'água anti-LLM.
-- `Sidebar.html`: A interface interativa para aluno/professor.
+- `Código.gs`: Implementa o roteamento dinâmico para a biblioteca central.
+- `appsscript.json`: Define a dependência da `WhiteboxLib` e as permissões necessárias.
+- `WhiteboxLib` (Externo): Contém todo o motor de telemetria, UI (Sidebar) e utilitários.
 
 ## 🔒 Arquitetura de Segurança
 O cliente depende de duas camadas de armazenamento persistente:

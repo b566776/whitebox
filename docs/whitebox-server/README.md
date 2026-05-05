@@ -6,6 +6,7 @@ O Whitebox Server é um Web App autônomo do Google Apps Script que serve como o
 O servidor atua como uma camada intermediária entre o **Whitebox Client** e os serviços externos (IA Gemini, Google Classroom).
 - **Proxy Seguro**: Protege as chaves de API e os prompts sensíveis de serem expostos no lado do cliente.
 - **Persistência de Dados**: Gerencia a partição dos logs dos alunos em planilhas específicas dos professores.
+- **Injeção de Metadados [ARCH-LIB]**: Durante a distribuição de templates e criação de tarefas, o servidor injeta o `DeveloperMetadata` (**`WHITEBOX_CONFIG`**) nos documentos para permitir que o cliente se auto-configure instantaneamente.
 - **Hub de Integração**: Orquestra a gestão de cursos do Classroom e a distribuição automatizada de recursos.
 
 ## 📡 Rotas Principais de API (`doPost`)
