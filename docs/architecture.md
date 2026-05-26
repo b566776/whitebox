@@ -65,24 +65,30 @@ O sistema utiliza um modelo de dois níveis para distribuição de recursos:
 
 ## 5. Mecanismos de Segurança
 
-### 4.1. O Protocolo SHARED_TOKEN
+### 5.1. O Protocolo SHARED_TOKEN
 Toda comunicação do cliente para o servidor requer um `SHARED_TOKEN` passado no corpo do JSON.
 - **Geração**: Gerado automaticamente durante a primeira execução do servidor (`auto-provisioning`).
 - **Armazenamento**: Armazenado em `ScriptProperties` no servidor e `DocumentProperties` no cliente.
 
-### 4.2. Marca d'Água Anti-LLM (Tags Invisíveis)
+### 5.2. Marca d'Água Anti-LLM (Tags Invisíveis)
 Para evitar que os alunos copiem perguntas de quiz diretamente para LLMs como o ChatGPT, o Whitebox implementa uma camada de ofuscação:
 - **Caracteres de Largura Zero**: Injeta caracteres ocultos (ex: `\u200B`) entre as letras.
 - **Blocos de Tags Unicode**: Usa o bloco `Tag` (`\uE0000-\uE007F`) para incorporar metadados ocultos que apenas LLMs podem "ler".
 - **Comportamento**: Enquanto os humanos veem o texto normal, as LLMs interpretam os códigos ocultos, o que pode desencadear respostas de "não posso responder a isso" ou identificar a origem como um prompt autorizado.
 
-### 4.3. Chaves de API Hierárquicas
+### 5.3. Chaves de API Hierárquicas
 - **Nível 1 (Professor)**: Professores podem fornecer sua própria chave de API Gemini via um "Cofre" (arquivo de texto no Drive).
 - **Nível 2 (Institucional)**: Se um professor não tiver uma chave, o sistema pode recorrer a uma chave institucional global se autorizado.
 - **Fallback (Offline)**: Se nenhuma chave estiver disponível, os recursos de IA são desativados, mas o registro de telemetria continua.
 
-## 5. Fluxo de Dados: Persistência de Telemetria
-1. O cliente coleta métricas a cada 30 segundos (ou ao fechar o documento).
+### 5.4. Detecção Dinâmica de Papéis (Student vs. Teacher)
+Para evitar o vazamento da interface do professor (e do Auditor de IA) para os alunos, o sistema de role-detection implementa dupla validação:
+- **Desafio**: Como o Google Classroom duplica o template e torna o aluno proprietário da cópia gerada e da pasta da turma em seu próprio Drive, checagens ingênuas de posse de arquivo (`isOwner` ou `isProfessor`) avaliam como verdadeiro para o aluno.
+- **Mecanismo**: A função `getContext` valida se o usuário possui propriedade do arquivo, mas também realiza uma consulta síncrona ao Brain Proxy (`/status_licenca`). O papel de `'teacher'` só é concedido se o usuário estiver ativamente cadastrado na tabela de `Assinaturas` de professores (ou se a URL do proxy ainda não estiver configurada no documento, permitindo o provisionamento inicial).
+- **Segurança**: Caso o e-mail não esteja cadastrado na planilha global, o usuário é rebaixado a `'student'`, bloqueando a renderização da aba do professor e a rota de IA no backend.
+
+## 6. Fluxo de Dados: Persistência de Telemetria
+1. O cliente coleta métricas a cada 30 segundos (or ao fechar o documento).
 2. O cliente chama `/logar_metricas` no Servidor.
 3. O servidor identifica o ID da planilha dedicada do professor na tabela `Assinaturas`.
 4. O servidor anexa a entrada de log à aba `Logs` da planilha do professor.

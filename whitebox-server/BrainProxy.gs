@@ -256,6 +256,18 @@ function getAdminUIData(token) {
   };
 }
 
+/**
+ * Função chamada pelo Dashboard (google.script.run) para regenerar a Planilha Global.
+ * Valida o token admin antes de executar a operação destrutiva.
+ *
+ * @param {string} token - SHARED_TOKEN do admin (validação)
+ * @returns {{ success: boolean, newId: string, newUrl: string, backupId: string }}
+ */
+function resetPlanilhaGlobalAdmin(token) {
+  validateAdminAccess(token);
+  return resetPlanilhaGlobal();
+}
+
 function salvarSeedId(id, token) {
   validateAdminAccess(token);
   const cfg = getConfig();
@@ -630,6 +642,14 @@ function doPost(e) {
       case ROUTE_STATUS_DISTRIBUICAO:
         return handleStatusDistribuicao(body, cfg);
 
+      // ── Health Check / Setup Validation ─────────────────────────
+      case 'ping':
+        return jsonResponse({ ok: true, message: 'Whitebox Server OK' });
+
+      // ── Operações Administrativas ─────────────────────────────────
+      case 'reset_planilha':
+        return handleResetPlanilha(body, cfg);
+
       default:
         return jsonResponse({ error: 'ROUTE_NOT_FOUND' }, 404);
     }
@@ -669,6 +689,37 @@ function handleStatusLicenca(body, cfg) {
     modoIA: temChave,
     tipoChave: usaGlobalBoolean ? 'global' : (chaveIndividual ? 'individual' : 'nenhuma')
   });
+}
+
+// =====================================================
+//  HANDLER: Reset da Planilha Global (Operação Destrutiva)
+// =====================================================
+
+/**
+ * ⚠️ Requer confirmação explícita via campo 'confirmacao' = 'CONFIRMAR_RESET'
+ * para evitar execução acidental pelo Dashboard.
+ */
+function handleResetPlanilha(body, cfg) {
+  if (body.confirmacao !== 'CONFIRMAR_RESET') {
+    return jsonResponse({
+      error:   'CONFIRMACAO_NECESSARIA',
+      message: 'Envie confirmacao: "CONFIRMAR_RESET" para executar esta operação.'
+    }, 400);
+  }
+
+  try {
+    const result = resetPlanilhaGlobal();
+    return jsonResponse({
+      success:  true,
+      message:  'Planilha Global regenerada com sucesso.',
+      newId:    result.newId,
+      newUrl:   result.newUrl,
+      backupId: result.backupId
+    });
+  } catch (err) {
+    Logger.log('[BrainProxy] Erro no reset da planilha: ' + err);
+    return jsonResponse({ error: 'RESET_FAILED', message: err.toString() }, 500);
+  }
 }
 
 // =====================================================

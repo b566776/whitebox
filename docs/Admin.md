@@ -32,9 +32,14 @@ O cliente (`whitebox-client`) deve estar vinculado à biblioteca central:
 
 ## 📄 Distribuição de Templates para Professores
 Administradores podem provisionar documentos modelo para os professores:
-1.  **Pasta Central**: Coloque os arquivos Google Docs na pasta `whitebox/templates` no Drive do Admin.
-2.  **Distribuição**: Utilize a rota `distribuir_template` (via Dashboard Admin) para enviar cópias para as pastas `whitebox/Distribucoes/[Email]` de cada professor.
-3.  **Auditoria**: Todas as distribuições são registradas na aba `Historico_Templates` da Planilha Global para fins de governança.
+1.  **Pasta Central**: Coloque os arquivos Google Docs na pasta `GDrive Meus Documentos/Projetos/whitebox/templates` no Drive do Admin.
+**Abrir o Dashboard Admin**: abra o app script `GDrive Meus Documentos/Projetos/whitebox/whitebox-server`, vá em 'Gerenciar Implatações' e copie a URL 'App da Web'.  
+2. 🔗 Gerar Link de Inscrição Segura para que os professores preencham formulario de inscrição e sejam adicionados como usuários do sistema. **Abra a URL no navegador** para acessar o dashboard. Gere o link de 'onboarding de professores' e inscreva os professores no sistema.
+
+
+
+3.  **Distribuição**: **Depois de inscritos** volte ate  o Dashboard Admin e em 'Professores & Licenças B2B'  distribua o template para cada professor. para enviar cópias para as pastas `whitebox/Distribucoes/[Email]` de cada professor.
+4.  **Auditoria**: Todas as distribuições são registradas na aba `Assinaturas` da Planilha Global para fins de governança.
 
 ---
 *Documentação gerada via metodologia BMAD.*

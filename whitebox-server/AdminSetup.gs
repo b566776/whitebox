@@ -47,6 +47,52 @@ function setupPlanilhaGlobal() {
 }
 
 /**
+ * ⚠️ OPERAÇÃO DESTRUTIVA — Regenera a Planilha Global do Admin.
+ *
+ * Fluxo de segurança:
+ *  1. Faz backup do ID antigo em ADMIN_SPREADSHEET_ID_BACKUP
+ *  2. Remove ADMIN_SPREADSHEET_ID das Script Properties
+ *  3. Chama setupPlanilhaGlobal() para criar uma nova planilha
+ *  4. Registra o novo ID e retorna as informações
+ *
+ * ⚠️ TODOS OS DADOS DA PLANILHA ANTIGA (professores, logs, rankings)
+ *    serão perdidos. A planilha antiga NÃO é excluída do Drive —
+ *    apenas desvinculada do sistema.
+ *
+ * @returns {{ success: boolean, newId: string, newUrl: string, backupId: string }}
+ */
+function resetPlanilhaGlobal() {
+  const props = PropertiesService.getScriptProperties();
+
+  // 1. Salvar backup do ID antigo
+  const oldId = props.getProperty(PROP_ADMIN_SPREADSHEET_ID) || '';
+  if (oldId) {
+    props.setProperty('ADMIN_SPREADSHEET_ID_BACKUP', oldId);
+    Logger.log('[AdminSetup] Backup do ID antigo salvo: ' + oldId);
+  }
+
+  // 2. Remover o ID atual para forçar nova criação
+  props.deleteProperty(PROP_ADMIN_SPREADSHEET_ID);
+  Logger.log('[AdminSetup] ADMIN_SPREADSHEET_ID removido. Iniciando re-provisionamento...');
+
+  // 3. Criar nova planilha
+  const result = setupPlanilhaGlobal();
+
+  // 4. Registrar novo ID e executar migração de schema
+  props.setProperty(PROP_ADMIN_SPREADSHEET_ID, result.id);
+  migrarSchemaSeNecessario(result.id);
+
+  Logger.log('[AdminSetup] Nova planilha criada: ' + result.id);
+
+  return {
+    success:  true,
+    newId:    result.id,
+    newUrl:   result.url,
+    backupId: oldId
+  };
+}
+
+/**
  * Cria a planilha individual de um professor onde ele terá autonomia de IA e logs locais.
  */
 function criarPlanilhaProfessor(email, instituicao) {

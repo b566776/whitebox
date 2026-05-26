@@ -167,8 +167,9 @@ function handleDistribuirTemplate(body, cfg) {
       // 2. Injetar DeveloperMetadata de Auto-Configuração [ARCH-LIB]
       try {
         const configObj = {
-          proxyUrl:    cfg.proxyUrl,
-          sharedToken: cfg.sharedToken
+          proxyUrl:       cfg.proxyUrl,
+          sharedToken:    cfg.sharedToken,
+          professorEmail: email // [AUTH-01 FIX] Designa explicitamente o professor
         };
         const doc = DocumentApp.openById(copia.getId());
         doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj));

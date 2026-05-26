@@ -7,6 +7,7 @@ Documentação voltada para os usuários finais e administradores do sistema.
 - [Manual do Professor](Teacher.md): Como gerenciar turmas, distribuir atividades e auditar.
 - [Manual do Administrador](Admin.md): Configuração do ecossistema, licenciamento e gestão global.
 - [Guia do Aluno](Student.md): Visão do aluno sobre a telemetria e o painel de transparência.
+- [⚙️ Configuração de Conexão](setup-conexao.md): Resolver erro de BRAIN_PROXY_URL e configurar o servidor.
 
 ## 🏗️ Arquitetura & Segurança
 Detalhes técnicos sobre o funcionamento interno e proteções do sistema.

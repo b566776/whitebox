@@ -16,6 +16,9 @@ function onOpen(e) {
   } 
 }
 
+// Setup manual removido: a conexão é configurada automaticamente
+// quando o Administrador distribui o template via Dashboard.
+
 function onInstall(e) { onOpen(e); }
 
 function showSidebar() { 

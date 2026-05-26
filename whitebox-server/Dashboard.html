@@ -204,6 +204,72 @@
     }
 
     @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    /* ── Zona de Perigo ────────────────────────────────────────────── */
+    .danger-card {
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      background: rgba(239, 68, 68, 0.05);
+    }
+    .danger-card h2 { color: #f87171; }
+    .btn-danger {
+      background: transparent;
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.5);
+    }
+    .btn-danger:hover { background: rgba(239, 68, 68, 0.15); transform: translateY(-1px); }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal-box {
+      background: #1e293b;
+      border: 1px solid rgba(239,68,68,0.5);
+      border-radius: 1rem;
+      padding: 2rem;
+      max-width: 440px;
+      width: 90%;
+      box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+    }
+    .modal-box h3 { color: #f87171; margin-bottom: 0.75rem; font-family: 'Outfit', sans-serif; }
+    .modal-box p  { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 1rem; line-height: 1.6; }
+    .modal-confirm-input {
+      width: 100%;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(239,68,68,0.4);
+      color: white;
+      padding: 0.75rem;
+      border-radius: 0.5rem;
+      font-family: monospace;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      letter-spacing: 0.05em;
+    }
+    .modal-confirm-input:focus { outline: none; border-color: #f87171; }
+    .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
+    .modal-actions .btn-cancel {
+      background: transparent;
+      color: var(--text-dim);
+      border: 1px solid var(--glass-border);
+    }
+    .modal-actions .btn-cancel:hover { background: rgba(255,255,255,0.05); transform: none; }
+    .reset-result {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: rgba(16,185,129,0.1);
+      border: 1px dashed var(--success);
+      border-radius: 0.5rem;
+      display: none;
+      font-size: 0.85rem;
+      word-break: break-all;
+      line-height: 1.8;
+    }
   </style>
 </head>
 <body>
@@ -318,6 +384,61 @@
           <!-- Rows will be injected here -->
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- ══ ZONA DE PERIGO ══ -->
+  <div class="card danger-card">
+    <h2>🚨 Zona de Perigo</h2>
+    <p style="color: var(--text-dim); margin-bottom: 1.25rem; font-size: 0.9rem;">
+      Operações irreversíveis. Prossiga somente se souber exatamente o que está fazendo.
+    </p>
+
+    <div style="display:flex; align-items:center; justify-content:space-between; padding: 1rem;
+                background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.2);
+                border-radius: 0.5rem;">
+      <div>
+        <p style="font-weight:600; margin-bottom:0.25rem;">Regenerar Planilha Global</p>
+        <p style="font-size:0.8rem; color:var(--text-dim); margin:0;">
+          Cria uma nova planilha vazia. Todos os professores e logs serão perdidos.
+          A planilha antiga permanece no Drive (apenas desvinculada).
+        </p>
+      </div>
+      <button class="btn-danger" onclick="abrirModalReset()" style="white-space:nowrap; margin-left:1rem;">
+        ⚠️ Regenerar
+      </button>
+    </div>
+
+    <div id="reset-result" class="reset-result"></div>
+  </div>
+
+</div><!-- /container -->
+
+<!-- ══ MODAL DE CONFIRMAÇÃO ══ -->
+<div class="modal-overlay" id="modal-reset">
+  <div class="modal-box">
+    <h3>🚨 Confirmar Regeneração</h3>
+    <p>
+      Esta ação irá <strong style="color:#f87171;">apagar todos os dados da Planilha Global</strong>
+      (professores, licenças, logs e rankings) e criar uma nova vazia.<br><br>
+      A planilha antiga <strong>não será excluída</strong> do Google Drive, apenas desvinculada.
+      Seu ID será salvo em <code>ADMIN_SPREADSHEET_ID_BACKUP</code>.<br><br>
+      Para confirmar, digite <code style="color:#f87171; background:rgba(239,68,68,0.1); padding:2px 6px; border-radius:4px;">CONFIRMAR</code> abaixo:
+    </p>
+    <input
+      type="text"
+      id="reset-confirm-input"
+      class="modal-confirm-input"
+      placeholder="Digite CONFIRMAR"
+      autocomplete="off"
+      oninput="validarInputReset(this)"
+    />
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="fecharModalReset()">Cancelar</button>
+      <button id="btn-confirmar-reset" class="btn-danger" onclick="executarReset()" disabled
+              style="border-color:rgba(239,68,68,0.5);">
+        Regenerar Planilha
+      </button>
     </div>
   </div>
 </div>
@@ -520,6 +641,65 @@
         showToast('Erro ao criar Leva: ' + err, true);
       })
       .gerarLevaOnboarding(adminToken, nome, dataLimite);
+  }
+
+  // ── Zona de Perigo: Reset da Planilha Global ──────────────────────
+
+  function abrirModalReset() {
+    document.getElementById('modal-reset').classList.add('active');
+    document.getElementById('reset-confirm-input').value = '';
+    document.getElementById('btn-confirmar-reset').disabled = true;
+    setTimeout(() => document.getElementById('reset-confirm-input').focus(), 100);
+  }
+
+  function fecharModalReset() {
+    document.getElementById('modal-reset').classList.remove('active');
+    document.getElementById('reset-confirm-input').value = '';
+    document.getElementById('btn-confirmar-reset').disabled = true;
+  }
+
+  function validarInputReset(input) {
+    document.getElementById('btn-confirmar-reset').disabled = (input.value !== 'CONFIRMAR');
+  }
+
+  // Fechar modal ao clicar fora da caixa
+  document.getElementById('modal-reset').addEventListener('click', function(e) {
+    if (e.target === this) fecharModalReset();
+  });
+
+  function executarReset() {
+    fecharModalReset();
+    showLoader(true);
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        showLoader(false);
+        const resultEl = document.getElementById('reset-result');
+
+        if (res.success) {
+          resultEl.innerHTML =
+            '✅ <strong>Planilha regenerada com sucesso!</strong><br><br>' +
+            '📄 <strong>Nova Planilha:</strong> <a href="' + res.newUrl + '" target="_blank" ' +
+            'style="color:var(--success);">' + res.newUrl + '</a><br>' +
+            '🆔 <strong>Novo ID:</strong> ' + res.newId + '<br>' +
+            (res.backupId ? '🗂️ <strong>ID Antigo (backup):</strong> ' + res.backupId : '');
+          resultEl.style.display = 'block';
+          showToast('Planilha regenerada! Todos os dados foram reiniciados.');
+          // Recarregar a tabela de professores (agora vazia)
+          setTimeout(refreshData, 2000);
+        } else {
+          resultEl.innerHTML = '❌ Falha: ' + (res.message || JSON.stringify(res));
+          resultEl.style.background = 'rgba(239,68,68,0.1)';
+          resultEl.style.borderColor = '#ef4444';
+          resultEl.style.display = 'block';
+          showToast('Erro na regeneração: ' + (res.message || res.error), true);
+        }
+      })
+      .withFailureHandler(function(err) {
+        showLoader(false);
+        showToast('Falha crítica: ' + err, true);
+      })
+      .resetPlanilhaGlobalAdmin(adminToken);
   }
 
   // Initial load

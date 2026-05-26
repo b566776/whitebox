@@ -5,6 +5,7 @@ Este documento detalha as camadas de segurança e os patches de robustez impleme
 ## 🛡️ Hardening de API & Autenticação
 - **`validateAdminAccess`**: Todas as funções administrativas (licenciamento, seeding, distribuição) são protegidas por uma verificação obrigatória de `SHARED_TOKEN`. Tentativas não autorizadas disparam um erro 401.
 - **Handshake do Cliente**: O Painel Admin captura o token na primeira sessão bem-sucedida e impõe seu uso para todas as operações subsequentes que alteram o estado do sistema.
+- **Validação de Papel (Role Detection)**: O papel de professor (`'teacher'`) exige dupla validação. O e-mail do usuário ativo é verificado síncronamente contra a lista de `Assinaturas` do servidor, mitigando a vulnerabilidade onde alunos eram promovidos a professor por serem donos da cópia do documento gerada pelo Google Classroom.
 
 ## 🧵 Proteção de Concorrência & Condição de Corrida
 - **`LockService`**: Implementação de travas (locks) em nível de script nas rotas `doGet` (provisionamento) e `onProfessorFormSubmit` (onboarding). Isso evita a corrupção de dados ou a criação de recursos duplicados durante requisições simultâneas.

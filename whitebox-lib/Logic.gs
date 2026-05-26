@@ -125,11 +125,36 @@ function getContext() {
   const item3Data = getAdvancedItem3Data();
 
   // [AUTH-01] Detecção dinâmica de papel
-  // Professor = Dono do Doc OU Dono da pasta (professorEmail do Item 3)
+  // Professor = Dono do Doc OU Dono da pasta (professorEmail do Item 3) OU Metadado (professorEmail do WHITEBOX_CONFIG)
   const owner       = DriveApp.getFileById(doc.getId()).getOwner();
   const isOwner     = owner ? (owner.getEmail() === userEmail) : false;
   const isProfessor = item3Data.professorEmail === userEmail;
-  const role        = (isOwner || isProfessor) ? 'teacher' : 'student';
+
+  // Busca professor designado explicitamente no metadado do documento (injetado via Distribuir Template)
+  let designatedProfessor = null;
+  try {
+    const meta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
+    if (meta.length > 0) {
+      const configObj = JSON.parse(meta[0].getValue());
+      designatedProfessor = configObj.professorEmail || null;
+    }
+  } catch(e) {}
+  const isDesignated = (designatedProfessor === userEmail);
+
+  // Validação complementar: verifica se o e-mail está cadastrado como professor no banco de dados.
+  // Caso o proxy não esteja configurado ainda (primeira instalação), permitimos o fallback de isOwner/isProfessor.
+  let isRegisteredProfessor = false;
+  try {
+    const license = getTeacherLicenseStatus();
+    if (license && (license.status === 'ATIVO' || license.status === 'INATIVO' || license.status === 'PROXY_NAO_CONFIGURADO')) {
+      isRegisteredProfessor = true;
+    }
+  } catch (e) {
+    Logger.log('[Whitebox] Erro ao validar licença do professor no getContext: ' + e);
+  }
+
+  // O papel só será 'teacher' se o usuário passar na detecção de posse/designação E estiver registrado no sistema
+  const role = (isOwner || isProfessor || isDesignated) && isRegisteredProfessor ? 'teacher' : 'student';
 
   return {
     email:        userEmail,

@@ -1,0 +1,137 @@
+{
+  "course": {
+    "name": "Capacitação Whitebox: Transparência no Processo de Escrita",
+    "section": "Formação de Professores",
+    "descriptionHeading": "Curso prático para professores aprenderem a usar o Whitebox como assistente de integridade e acompanhamento do processo de escrita.",
+    "description": "Aprenda a configurar documentos modelos, interpretar métricas de CPM/colagem e utilizar a IA do Gemini para devolutivas socráticas."
+  },
+  "topics": [
+    "Módulo 1: Visão Geral",
+    "Módulo 2: Uso Pedagógico"
+  ],
+  "materials": [
+    {
+      "topic": "Módulo 1: Visão Geral",
+      "title": "Por que precisamos repensar a avaliação da escrita?",
+      "description": "Olá, professores!\n\nVocês já receberam um texto impecável, com vocabulário avançado e estrutura perfeita, mas com a sensação de que 'não foi o aluno que escreveu'?\n\nCom a popularização do ChatGPT, Gemini, Claude e outras IAs generativas, esse desafio se tornou parte do nosso dia a dia. Não se trata mais de apenas detectar plágio tradicional — hoje, qualquer redação pode ser gerada em segundos.\n\nO problema não é a tecnologia de IA, mas sim o fato de avaliarmos apenas o produto final. Para garantir uma avaliação justa e desenvolver habilidades reais de escrita, precisamos voltar nosso olhar para o processo de construção do texto.\n\nAbaixo você encontrará recursos extras sobre essa discussão.",
+      "links": [
+        {
+          "title": "Reportagem JN: Regras para uso de IA por alunos",
+          "url": "https://g1.globo.com/jornal-nacional/video/universidades-estabelecem-regras-para-uso-de-ia-por-alunos-14546463.ghtml"
+        },
+        {
+          "title": "Termos de Uso e Privacidade do Aluno",
+          "url": "https://exemplo-whitebox.org/termos-privacidade"
+        }
+      ]
+    },
+    {
+      "topic": "Módulo 1: Visão Geral",
+      "title": "O que é o Whitebox? Transparência e Parceria",
+      "description": "O Whitebox é um assistente pedagógico integrado diretamente ao Google Docs na forma de um painel lateral. Ele analisa exclusivamente três indicadores de escrita dentro do documento:\n\n1. ⏱️ Tempo de Foco Ativo: tempo que o aluno passou digitando/editando.\n2. ⌨️ Ritmo de Escrita (CPM): Caracteres por Minuto (100-300 é o normal).\n3. 📋 Eventos de Colagem: inserções de blocos de texto externos.\n\nPrivacidade e LGPD: O Whitebox não monitora telas, não grava áudio, não rastreia outras abas e necessita que o aluno abra o painel voluntariamente. Funciona apenas no computador.",
+      "links": [
+        {
+          "title": "Google Doc de Demonstração (Ativado)",
+          "url": "https://docs.google.com/document/d/12XWtB6UawhTpWmm3dReb2gSJu7ErVcpV3p67d2vrgeI/edit"
+        },
+        {
+          "title": "Planilha de Heatmap (Modelo)",
+          "url": "https://exemplo-whitebox.org/heatmap-modelo"
+        }
+      ]
+    },
+    {
+      "topic": "Módulo 1: Visão Geral",
+      "title": "Como o Whitebox funciona na prática? A jornada do documento",
+      "description": "Fluxo de trabalho de 5 etapas do Whitebox:\n\n1. Preparação: O administrador de tecnologia gera o Documento Modelo.\n2. Distribuição: O professor cria a Atividade no Classroom (marcando obrigatoriamente a opção 'Fazer uma cópia para cada aluno').\n3. Escrita: O aluno abre o documento copiado, ativa o painel (Extensões > Whitebox > Abrir Painel) e escreve o texto.\n4. Análise: O professor abre o documento entregue e vê as métricas de escrita no painel lateral.\n5. Orientação: O professor realiza uma devolutiva com o aluno baseando-se em evidências claras.",
+      "links": [
+        {
+          "title": "Guia Completo de Implementação para Professores",
+          "url": "https://exemplo-whitebox.org/guia-completo-professor"
+        },
+        {
+          "title": "Guia de Orientação para Alunos",
+          "url": "https://exemplo-whitebox.org/guia-orientacao-aluno"
+        }
+      ]
+    },
+    {
+      "topic": "Módulo 2: Uso Pedagógico",
+      "title": "Primeiros passos: obtendo e validando seu Documento Modelo",
+      "description": "Aprenda a testar se seu modelo está ativado e a resolver problemas de autorização de conta Google (como o erro de multi-login/múltiplas contas logadas no mesmo navegador).\n\nDica: Use um perfil limpo no navegador ou aba anônima para evitar que o Google confunda sua conta pessoal com a institucional.",
+      "links": [
+        {
+          "title": "Documento Modelo Oficial da Escola",
+          "url": "https://docs.google.com/document/d/12XWtB6UawhTpWmm3dReb2gSJu7ErVcpV3p67d2vrgeI/edit"
+        },
+        {
+          "title": "Vídeo: Configurando o Whitebox pela primeira vez",
+          "url": "https://youtube.com/watch?v=primeira-configuracao"
+        }
+      ]
+    },
+    {
+      "topic": "Módulo 2: Uso Pedagógico",
+      "title": "Como distribuir atividades Whitebox no Google Classroom",
+      "description": "Passo a passo detalhado para criar a atividade no Classroom.\n\nATENÇÃO: Lembre-se sempre de marcar 'Fazer uma cópia para cada aluno' ao anexar o Documento Modelo. Sem isso, a telemetria individual não será gerada.",
+      "links": [
+        {
+          "title": "Central de Ajuda Google: Como anexar arquivos no Classroom",
+          "url": "https://support.google.com/edu/classroom/answer/6020285"
+        },
+        {
+          "title": "Vídeo: Criando atividades com cópia individual no Classroom",
+          "url": "https://youtube.com/watch?v=distribuicao-classroom"
+        }
+      ]
+    },
+    {
+      "topic": "Módulo 2: Uso Pedagógico",
+      "title": "Diagnóstico pedagógico: entendendo a telemetria de escrita",
+      "description": "Aprenda a analisar as métricas de CPM, foco ativo e colagem:\n\n- CPM entre 100-300: Escrita natural.\n- CPM > 500 ou Colagens Altas: Possível colagem externa ou geração por IA.\n- CPM < 80: Dificuldade de fluxo ou bloqueio criativo.\n- CPM Zero: Falta de abertura do painel.\n\nUse os dados para apoiar e orientar o aluno, e não como punição direta.",
+      "links": [
+        {
+          "title": "Acesse a Planilha de Heatmap (exemplo real)",
+          "url": "https://exemplo-whitebox.org/heatmap-real"
+        },
+        {
+          "title": "Manual Completo das Métricas do Whitebox",
+          "url": "https://exemplo-whitebox.org/manual-metricas"
+        }
+      ]
+    },
+    {
+      "topic": "Módulo 2: Uso Pedagógico",
+      "title": "Feedback enriquecido com Inteligência Artificial",
+      "description": "Saiba como usar o botão 'Analisar' se a sua escola tiver uma chave do Gemini configurada. A IA gerará um parecer pedagógico textual e sugestões de perguntas socráticas para abordar os alunos de forma empática e construtiva, promovendo a reflexão sobre o processo de escrita.",
+      "links": []
+    },
+    {
+      "topic": "Módulo 2: Uso Pedagógico",
+      "title": "Instruções para a turma sobre o uso do Whitebox",
+      "description": "Copie o modelo de texto abaixo e cole nas instruções de suas atividades no Google Classroom para orientar os alunos:\n\n\"Olá, turma! Esta atividade utiliza o Whitebox para valorizar seu processo de escrita. Abra o documento no computador, clique em Extensões > Whitebox > Abrir Painel e mantenha o painel aberto enquanto digita. O Whitebox não filma sua tela e não acessa outros sites, apenas acompanha seu tempo de foco e ritmo de digitação. Atividades sem registro de escrita precisarão ser justificadas.\n\nComo entregar a sua tarefa concluída:\n- Método 1 (Direto pelo Google Docs): No canto superior direito da tela do seu Google Docs, clique no botão 'Entregar' (ao lado de 'Compartilhar').\n- Método 2 (Pelo Google Classroom): Acesse a página da atividade no Classroom, localize a caixa 'Seu trabalho' no canto direito e clique no botão 'Entregar' para confirmar o envio.\"",
+      "links": [
+        {
+          "title": "Guia do Aluno em PDF",
+          "url": "https://exemplo-whitebox.org/guia-aluno-pdf"
+        },
+        {
+          "title": "Termos de Uso do Aluno",
+          "url": "https://exemplo-whitebox.org/termos-uso-aluno"
+        }
+      ]
+    },
+    {
+      "topic": "Módulo 2: Uso Pedagógico",
+      "title": "Atividade Prática: Simulação dos Perfis de Escrita (15 min)",
+      "workType": "ASSIGNMENT",
+      "description": "Esta é uma atividade prática e síncrona de 15 minutos projetada para capacitar professores no reconhecimento prático dos três perfis principais de escrita que o Whitebox rastreia.\n\nEnunciado do exercício: Escrever um resumo curto (1 parágrafo) do último filme que assistiu.\n\nGrupo 1 (Escrita Orgânica): Digita tudo direto e manualmente. (Verde no Heatmap)\nGrupo 2 (Escrita Híbrida): Digita parte do texto e usa IA (Gemini/ChatGPT) para completar trechos. (Amarelo no Heatmap)\nGrupo 3 (Cópia e Cola Direta): Escreve o texto todo na IA e cola de uma só vez no Docs. (Vermelho no Heatmap)\n\n📥 COMO ENTREGAR:\nO Google Classroom já criou automaticamente uma cópia individual do documento de escrita para você (disponível no painel lateral direito em 'Seu trabalho').\n1. Clique no documento anexado para abri-lo.\n2. Lembre-se de abrir o painel lateral em Extensões > Whitebox > Abrir Painel.\n3. Realize a escrita conforme o seu grupo de simulação.\n4. Ao terminar, clique em 'Entregar' (ou no botão 'Entregar' no canto superior direito do Docs, ou diretamente na página desta atividade no Classroom).",
+      "links": [
+        {
+          "title": "Vídeo Tutorial: Analisando Perfis em Tempo Real",
+          "url": "https://youtube.com/watch?v=analise-perfis"
+        }
+      ]
+    }
+  ]
+}

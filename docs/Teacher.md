@@ -3,11 +3,15 @@
 Este guia detalha como os professores interagem com o Add-on Whitebox para gerenciar tarefas e monitorar o progresso dos alunos.
 
 ## 📋 Configuração Inicial
-O Whitebox agora utiliza uma arquitetura de **Biblioteca Central**. Isso significa que você não precisa mais se preocupar em atualizar o código manualmente; as melhorias chegam automaticamente ao seu documento.
 
 1.  **Auto-Configuração**: Na maioria dos casos, o Add-on se auto-configurará usando metadados invisíveis injetados pelo servidor durante a criação do documento.
 2.  **Abrir Barra Lateral**: Vá ao menu `Whitebox` > `Abrir Painel Whitebox`.
-3.  **Acesso Manual (se necessário)**: Se o sistema não se auto-configurar, insira o `SHARED_TOKEN` fornecido pelo seu administrador na tela de boas-vindas.
+3.  **Configuração Manual (primeiro uso)**: Se aparecer o erro `BRAIN_PROXY_URL não configurada`, use o assistente:
+    - No menu `Whitebox` > **`⚙️ Configurar Conexão`**
+    - Siga as instruções em 2 passos: URL do servidor e SHARED_TOKEN
+    - O sistema valida a conexão automaticamente antes de salvar
+
+> 📖 Guia completo: [Configuração de Conexão](setup-conexao.md)
 
 ## 🚀 Integração com o Classroom
 O Add-on permite que você publique o "Doc Mestre" (Modelo Mestre) atual diretamente em um curso do Classroom.
