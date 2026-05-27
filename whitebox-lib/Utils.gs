@@ -96,12 +96,23 @@ function callProxy(route, data) {
   try {
     const cfg = getProxyConfig();
 
-    if (!cfg.proxyUrl || !cfg.sharedToken) {
-      Logger.log('[Whitebox] BRAIN_PROXY_URL ou SHARED_TOKEN não configurados.');
+    if (!cfg.proxyUrl) {
+      Logger.log('[Whitebox] BRAIN_PROXY_URL não configurada.');
       return { error: 'PROXY_NOT_CONFIGURED' };
     }
 
-    const payload = Object.assign({ route: route, token: cfg.sharedToken }, data);
+    const payload = Object.assign({ route: route }, data);
+    
+    // Se tivermos SHARED_TOKEN (legacy ou admin), enviamos.
+    // Caso contrário, enviamos o oauthToken (Cliente via OAuth).
+    if (cfg.sharedToken) {
+      payload.token = cfg.sharedToken;
+    } else {
+      payload.oauthToken = ScriptApp.getOAuthToken();
+      if (!payload.professorEmail) {
+        payload.professorEmail = Session.getActiveUser().getEmail();
+      }
+    }
 
     const response = UrlFetchApp.fetch(cfg.proxyUrl, {
       method:             'post',

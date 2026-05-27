@@ -172,7 +172,7 @@ function handleDistribuirTemplate(body, cfg) {
           professorEmail: email // [AUTH-01 FIX] Designa explicitamente o professor
         };
         const doc = DocumentApp.openById(copia.getId());
-        doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj));
+        doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj), DocumentApp.Visibility.DOCUMENT);
       } catch (metaErr) {
         Logger.log('[TemplateService] Erro ao injetar metadados: ' + metaErr);
       }

@@ -236,14 +236,24 @@ function extrairJSON(texto) {
     try { return JSON.parse(mdMatch[1].trim()); } catch (e) {}
   }
 
-  // 3. Fallback: primeira ocorrência de { ... }
-  const braceMatch = texto.match(/\{[\s\S]*\}/);
-  if (braceMatch) {
-    try { return JSON.parse(braceMatch[0]); } catch (e) {}
-  }
+  // 3. Fallback: procurar pelo primeiro '{' e último '}' (evita regex gulosa quebrando JSONs múltiplos)
+  try {
+    const startIdx = texto.indexOf('{');
+    const endIdx = texto.lastIndexOf('}');
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+      return JSON.parse(texto.substring(startIdx, endIdx + 1));
+    }
+  } catch (e) {}
 
-  Logger.log('[Utils] extrairJSON: falhou nas 3 estratégias. Texto: ' + texto.substring(0, 200));
-  throw new Error('Não foi possível extrair um JSON válido da resposta da IA.');
+  Logger.log('[Utils] extrairJSON: falhou nas estratégias. Texto: ' + texto.substring(0, 200));
+  
+  // Retorno Gracioso para não estourar a API do Cliente
+  return {
+    error: 'GEMINI_PARSE_FALLBACK',
+    riskEvidence: 'A IA respondeu, mas não foi possível estruturar os dados. Resposta bruta: ' + texto.substring(0, 150) + '...',
+    pedagogicalAdvice: 'Tente analisar um trecho menor ou tente novamente em alguns instantes.',
+    scoreIntegridade: null
+  };
 }
 
 // =====================================================

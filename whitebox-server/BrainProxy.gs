@@ -31,39 +31,10 @@ function doGet(e) {
   const adminId = props.getProperty('ADMIN_SPREADSHEET_ID');
   
   if (!adminId) {
-    const lock = LockService.getScriptLock();
-    try {
-      // Tentar obter o lock por até 30 segundos
-      lock.waitLock(30000);
-      
-      // Checar novamente se foi provisionado por outro processo simultâneo
-      const reCheckAdminId = props.getProperty('ADMIN_SPREADSHEET_ID');
-      if (reCheckAdminId) return serveDashboard();
-
-      const result = setupPlanilhaGlobal(); 
-      props.setProperty('ADMIN_SPREADSHEET_ID', result.id);
-      
-      // [ARCH-05] Registrar VersaoSchema imediatamente após o provisionamento
-      migrarSchemaSeNecessario(result.id);
-      
-      let generatedToken = props.getProperty('SHARED_TOKEN');
-      if (!generatedToken) {
-        generatedToken = 'WBX-' + Utilities.getUuid();
-        props.setProperty('SHARED_TOKEN', generatedToken);
-      }
-      
-      const msg = '✅ SUCESSO: Whitebox Auto-Provisionado!\n\n' +
-                  'O Banco de Dados Admin foi criado no seu Google Drive.\n' +
-                  'URL: ' + result.url + '\n\n' +
-                  '🔐 SHARED_TOKEN = ' + generatedToken + '\n\n' +
-                  '⚠️ COPIE ESTE TOKEN! Ele é exigido no "Documento Modelo" (Cliente).\n\n' +
-                  '🔄 RECARREGUE PARA ACESSAR O DASHBOARD.';
-      return ContentService.createTextOutput(msg);
-    } catch (err) {
-      return ContentService.createTextOutput('❌ Falha no Provisionamento (Lock/Exec): ' + err.toString());
-    } finally {
-      lock.releaseLock();
-    }
+    const msg = '❌ Acesso Negado: Whitebox não provisionado.\n\n' +
+                'Para administradores: execute a função AdminSetup.setupPlanilhaGlobal() ' +
+                'manualmente no Editor do Apps Script para gerar a chave e configurar o sistema.';
+    return ContentService.createTextOutput(msg);
   }
   
   // [ARCH-05] Verificar schema em cada acesso — detecta divergências
@@ -317,12 +288,12 @@ function distribuirMestreParaProfessor(email, token) {
     try {
       const cfg = getConfig();
       const configObj = {
-        proxyUrl:    cfg.proxyUrl,
-        sharedToken: cfg.sharedToken
+        proxyUrl: cfg.proxyUrl
+        // O sharedToken foi removido por segurança. O cliente usará OAuth Token.
       };
       
       const doc = DocumentApp.openById(copy.getId());
-      doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj));
+      doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj), DocumentApp.Visibility.DOCUMENT);
       Logger.log('[BrainProxy] Metadados injetados com sucesso no novo Mestre.');
     } catch (metaErr) {
       Logger.log('[BrainProxy] Erro (não-crítico) ao injetar metadados: ' + metaErr);
@@ -386,18 +357,28 @@ function getHeatmapData(token, scope, identifier) {
 function calcularHeatmapAluno(emailAluno) {
   if (!emailAluno) return { labels: [], valores: [], alertas: [] };
 
-  // ===== L1: Cache CacheService (1 hora) =====
+  // ===== L1: Cache CacheService (1 hora) com suporte a Chunking [Patch 3] =====
   const cache    = CacheService.getScriptCache();
   const cacheKey = 'HEATMAP_ALUNO_' + emailAluno.toLowerCase().replace(/[^a-z0-9]/g, '_');
 
   const cached = cache.get(cacheKey);
   if (cached) {
     try {
-      const parsed = JSON.parse(cached);
+      let payloadToParse = cached;
+      if (cached.startsWith('CHUNKED:')) {
+        const numChunks = parseInt(cached.split(':')[1], 10);
+        payloadToParse = '';
+        for (let i = 0; i < numChunks; i++) {
+          const chunkStr = cache.get(cacheKey + '_chunk_' + i);
+          if (!chunkStr) throw new Error('Chunk ' + i + ' ausente');
+          payloadToParse += chunkStr;
+        }
+      }
+      const parsed = JSON.parse(payloadToParse);
       Logger.log('[BrainProxy] calcularHeatmapAluno: cache HIT para ' + emailAluno);
       return Object.assign(parsed, { _fromCache: true });
     } catch (e) {
-      Logger.log('[BrainProxy] calcularHeatmapAluno: cache inválido, recalculando...');
+      Logger.log('[BrainProxy] calcularHeatmapAluno: cache inválido (' + e.message + '), recalculando...');
     }
   }
 
@@ -417,17 +398,7 @@ function calcularHeatmapAluno(emailAluno) {
     return { labels: [], valores: [], alertas: [] };
   }
 
-  // Índices estáveis da aba Logs (definidos em inicializarPlanilhaProfessor)
-  // Timestamp | Turma | DocId | Email_Aluno | Palavras | Tempo_Ativo_Min | Colar_Eventos
-  // Taxa_Edicao | Alteracoes_Estrutura | Chars_Adicionados | Chars_Deletados | Colagem_Massiva
-  // Cpm_Medio | Cpm_Pico | RiscoScore | Whitebox_Risco | Conselho_Pedagogico
-  // Pergunta_Socratica | Modo_IA | Entrega_Final
-  const LOG_EMAIL_COL  = 3;   // Email_Aluno
-  const LOG_DOC_COL    = 2;   // DocId
-  const LOG_TURMA_COL  = 1;   // Turma
-  const LOG_RISCO_COL  = 14;  // RiscoScore
-  const LOG_ESFORCO_COL = 5;  // Tempo_Ativo_Min
-  const LOG_FINAL_COL  = 19;  // Entrega_Final
+  // Patch 8: Remover constantes fixas; buscaremos os índices dinamicamente dentro do loop
   const RISCO_ALERT_THRESHOLD = 60; // Risco > 60 é alerta
 
   const aggregated = {}; // docId → { riscoTotal, esforcoTotal, count, alertas, turma }
@@ -444,6 +415,18 @@ function calcularHeatmapAluno(emailAluno) {
 
       const logs = logSheet.getDataRange().getValues();
       planilhasVarriadas++;
+      
+      if (logs.length < 2) continue;
+      
+      const logH = logs[0];
+      const LOG_EMAIL_COL   = logH.indexOf('Email_Aluno');
+      const LOG_DOC_COL     = logH.indexOf('DocId');
+      const LOG_TURMA_COL   = logH.indexOf('Turma');
+      const LOG_RISCO_COL   = logH.indexOf('RiscoScore');
+      const LOG_ESFORCO_COL = logH.indexOf('Tempo_Ativo_Min');
+      const LOG_FINAL_COL   = logH.indexOf('Entrega_Final');
+      
+      if (LOG_EMAIL_COL === -1 || LOG_DOC_COL === -1) continue; // Headers inválidos
 
       for (let i = 1; i < logs.length; i++) {
         if (logs[i][LOG_EMAIL_COL] !== emailAluno) continue;
@@ -494,16 +477,23 @@ function calcularHeatmapAluno(emailAluno) {
     _fromCache:    false
   };
 
-  // ===== Persistir no cache (excluindo _fromCache do payload armazenado) =====
+  // ===== Persistir no cache com suporte a Chunking (limite nativo ~100KB) [Patch 3] =====
   try {
     const payload = Object.assign({}, resultado, { _fromCache: false });
-    // CacheService limita valores a 100KB; verificar tamanho antes
     const serialized = JSON.stringify(payload);
+    
+    // Evita erro se for maior que ~90KB dividindo em chunks
     if (serialized.length < 90000) {
       cache.put(cacheKey, serialized, 3600); // TTL: 1 hora (3600s)
       Logger.log('[BrainProxy] calcularHeatmapAluno: resultado em cache por 1h.');
     } else {
-      Logger.log('[BrainProxy] calcularHeatmapAluno: resultado > 90KB, cache ignorado.');
+      const numChunks = Math.ceil(serialized.length / 90000);
+      for (let i = 0; i < numChunks; i++) {
+        const chunkStr = serialized.substring(i * 90000, (i + 1) * 90000);
+        cache.put(cacheKey + '_chunk_' + i, chunkStr, 3600);
+      }
+      cache.put(cacheKey, 'CHUNKED:' + numChunks, 3600);
+      Logger.log('[BrainProxy] calcularHeatmapAluno: resultado em cache usando ' + numChunks + ' chunks.');
     }
   } catch (e) {
     Logger.log('[BrainProxy] calcularHeatmapAluno: falha ao persistir no cache: ' + e);
@@ -561,8 +551,8 @@ function calcularHeatmapTurma(courseId) {
 
   const stats = {};
   for (let i = 1; i < data.length; i++) {
-    // Filtrar pelo courseId: comparamos com a coluna Turma
-    if (data[i][courseCol] != courseId) continue;
+    // Patch 7: Filtrar pelo courseId forçando String comparison (evitar bugs de type coercion)
+    if (String(data[i][courseCol]) !== String(courseId)) continue;
 
     const aid = data[i][assignmentCol] || 'SEM_DOC';
     if (!stats[aid]) stats[aid] = { esforco: 0, integridade: 0, count: 0 };
@@ -602,6 +592,11 @@ function buscarSpreadsheetProfessor(email) {
 
 function doPost(e) {
   try {
+    // [Patch 6] Crash Payload JSON - validar e.postData
+    if (!e || !e.postData || !e.postData.contents) {
+      return jsonResponse({ error: 'BAD_REQUEST', message: 'Payload vazio ou não suportado.' }, 400);
+    }
+    
     let body;
     try {
       body = JSON.parse(e.postData.contents);
@@ -610,9 +605,39 @@ function doPost(e) {
     }
     const cfg  = getConfig();
 
-    // 1. Validação do Token Compartilhado
-    if (!cfg.sharedToken || body.token !== cfg.sharedToken) {
-      return jsonResponse({ error: 'UNAUTHORIZED', message: 'Token inválido.' }, 401);
+    // 1. Validação de Autenticação [Patch 2]
+    let isAuthenticated = false;
+
+    // A. Validação Admin (Legacy) via SHARED_TOKEN
+    if (cfg.sharedToken && body.token === cfg.sharedToken) {
+      isAuthenticated = true;
+    } 
+    // B. Validação Cliente via OAuth Token
+    else if (body.oauthToken && body.professorEmail) {
+      const cache = CacheService.getScriptCache();
+      const cacheKey = "OAUTH_" + body.oauthToken;
+      const cachedEmail = cache.get(cacheKey);
+      
+      if (cachedEmail === body.professorEmail) {
+        isAuthenticated = true;
+      } else {
+        try {
+          const response = UrlFetchApp.fetch("https://oauth2.googleapis.com/tokeninfo?access_token=" + body.oauthToken, { muteHttpExceptions: true });
+          if (response.getResponseCode() === 200) {
+            const info = JSON.parse(response.getContentText());
+            if (info.email === body.professorEmail) {
+              isAuthenticated = true;
+              cache.put(cacheKey, info.email, 1800); // Cache por 30 mins
+            }
+          }
+        } catch (authErr) {
+          Logger.log("Erro na validação OAuth: " + authErr);
+        }
+      }
+    }
+
+    if (!isAuthenticated) {
+      return jsonResponse({ error: 'UNAUTHORIZED', message: 'Token inválido ou não autorizado.' }, 401);
     }
 
     const route = body.route || '';
@@ -748,8 +773,18 @@ function handleRegistrarChave(body, cfg) {
   // Buscar linha existente
   for (let i = 1; i < data.length; i++) {
     if (data[i][emailCol] === professorEmail) {
-      // Atualizar chave
-      sheet.getRange(i + 1, chaveCol + 1).setValue(apiKey || '');
+      // Atualizar chave [Patch 11]
+      if (apiKey) {
+        if (apiKey.startsWith('AIza')) {
+          PropertiesService.getScriptProperties().setProperty('APIKEY_' + professorEmail, apiKey);
+          sheet.getRange(i + 1, chaveCol + 1).setValue('SECURE_STORAGE');
+        } else {
+          sheet.getRange(i + 1, chaveCol + 1).setValue(apiKey); // Cofre Drive
+        }
+      } else {
+        PropertiesService.getScriptProperties().deleteProperty('APIKEY_' + professorEmail);
+        sheet.getRange(i + 1, chaveCol + 1).setValue('');
+      }
       // Garantir que a planilha do professor existe
       const spreadsheetId = garantirPlanilhaProfessor(professorEmail, sheet, i, spreadsheetCol);
       return jsonResponse({ success: true, action: 'atualizado', spreadsheetId });
@@ -762,7 +797,18 @@ function handleRegistrarChave(body, cfg) {
   newRow[headers.indexOf('Instituicao')] = 'Não informada';
   newRow[headers.indexOf('Status')] = 'Ativo';
   newRow[headers.indexOf('UsaChaveGlobal')] = 'Não';
-  newRow[chaveCol] = apiKey || '';
+  
+  if (apiKey) {
+    if (apiKey.startsWith('AIza')) {
+      PropertiesService.getScriptProperties().setProperty('APIKEY_' + professorEmail, apiKey);
+      newRow[chaveCol] = 'SECURE_STORAGE';
+    } else {
+      newRow[chaveCol] = apiKey;
+    }
+  } else {
+    newRow[chaveCol] = '';
+  }
+  
   sheet.appendRow(newRow);
 
   // Criar planilha do professor e salvar o ID
@@ -811,8 +857,8 @@ function handleAnalisar(body, cfg) {
     });
   }
 
-  // Análise com Gemini
-  const analise = analisarComGemini(fragmento, metricas, apiKey);
+  // Análise com Gemini (Patch 10: Incluir conselho pedagógico)
+  const analise = analisarComGemini(fragmento, metricas, apiKey, registro.conselhoPedagogico);
   return jsonResponse({ modoIA: true, ...analise });
 }
 
@@ -854,12 +900,18 @@ function resolverChaveApi(registro, geminiGlobalKey) {
     return geminiGlobalKey;
   }
 
-  // 2. Chave Individual (Pode ser API Key direta ou ID/Link do Cofre no Drive)
+  // 2. Chave Individual (Pode ser API Key direta, SECURE_STORAGE ou ID/Link do Cofre no Drive)
   let chaveRaw = registro.chaveIndividual;
   if (chaveRaw && chaveRaw.trim().length > 0) {
     chaveRaw = chaveRaw.trim();
     
-    // Se for uma chave direta do Gemini (padrão AIza...)
+    // [Patch 11] Se for uma chave salva no PropertiesService
+    if (chaveRaw === 'SECURE_STORAGE') {
+      const storedKey = PropertiesService.getScriptProperties().getProperty('APIKEY_' + registro.email);
+      if (storedKey) return storedKey;
+    }
+    
+    // Se for uma chave direta do Gemini (padrão AIza...) (Legacy compatibilidade)
     if (chaveRaw.startsWith('AIza')) {
       return chaveRaw;
     }
@@ -872,7 +924,25 @@ function resolverChaveApi(registro, geminiGlobalKey) {
       if (matchUrl) fileId = matchUrl[1];
       
       const file = DriveApp.getFileById(fileId);
-      const chaveExtraida = file.getBlob().getDataAsString().trim();
+      const mimeType = file.getMimeType();
+      let chaveExtraida = '';
+
+      if (mimeType === MimeType.PLAIN_TEXT || mimeType === 'text/plain') {
+        if (file.getSize() > 1024 * 50) { // Max 50KB
+          Logger.log('[Cofre Drive] Arquivo texto muito grande (>50KB), abortando.');
+          return null;
+        }
+        chaveExtraida = file.getBlob().getDataAsString().trim();
+      } else if (mimeType === MimeType.GOOGLE_DOCS) {
+        chaveExtraida = DocumentApp.openById(fileId).getBody().getText().trim();
+        if (chaveExtraida.length > 50000) {
+           Logger.log('[Cofre Drive] Documento Docs muito longo (>50K chars), abortando.');
+           return null;
+        }
+      } else {
+        Logger.log('[Cofre Drive] MimeType de cofre não suportado: ' + mimeType);
+        return null;
+      }
       
       if (chaveExtraida.startsWith('AIza')) {
         Logger.log('[Cofre Drive] Chave API lida do cofre do professor com sucesso.');
@@ -895,8 +965,8 @@ function resolverChaveApi(registro, geminiGlobalKey) {
 //  LÓGICA: Análise Socrática com Gemini Pro
 // =====================================================
 
-function analisarComGemini(fragmento, metricas, apiKey) {
-  const prompt = construirPromptSocratico(fragmento, metricas);
+function analisarComGemini(fragmento, metricas, apiKey, conselhoPedagogico) {
+  const prompt = construirPromptSocratico(fragmento, metricas, conselhoPedagogico);
 
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey;
 
@@ -964,17 +1034,19 @@ function analisarComGemini(fragmento, metricas, apiKey) {
 //  PROMPT SOCRÁTICO PEDAGÓGICO (Lógica Proprietária)
 // =====================================================
 
-function construirPromptSocratico(fragmento, metricas) {
+function construirPromptSocratico(fragmento, metricas, conselhoPedagogico) {
   const editRatio  = metricas?.editRatio ?? 'desconhecido';
   const pasteCount = metricas?.pasteEvents?.count ?? 0;
   const activeMins = metricas?.activeFocusTimeMinutes ?? 0;
   const peakCpm    = metricas?.typingSpeed?.peakCharsPerMinute ?? 0;
 
+  const diretriz = conselhoPedagogico ? `\nDIRETRIZ PEDAGÓGICA DO PROFESSOR (priorize isto no conselho e pergunta):\n"${conselhoPedagogico}"\n` : '';
+
   return `
 Você é um auditor pedagógico socrático do sistema Whitebox. 
 Analise o trecho de texto abaixo junto com as métricas comportamentais do aluno.
 Identifique padrões que possam indicar falta de autoria própria (uso não declarado de IA, plágio ou cola).
-
+${diretriz}
 TRECHO DO ALUNO:
 """
 ${fragmento}
@@ -993,6 +1065,7 @@ RESPONDA SOMENTE em JSON válido com a seguinte estrutura, sem qualquer texto ad
   "toneChangeDetected": true | false,
   "riskScore": 0 a 100,
   "riskEvidence": "Descrição objetiva dos indícios encontrados ou null se não houver",
+  "justification": "Explicação detalhada dos motivos que levaram a este score",
   "pedagogicalAdvice": "Orientação socrática para o professor: o que perguntar ao aluno ou como intervir pedagogicamente",
   "suggestedQuestion": "Uma pergunta socrática específica que o professor pode fazer ao aluno sobre este trecho"
 }
