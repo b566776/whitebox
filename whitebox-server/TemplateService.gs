@@ -348,6 +348,35 @@ function handleCriarLevaTemplate(body, cfg) {
   }
   const templateNome = templateFile.getName();
 
+  // ── Injetar configuração no template ANTES de criar as cópias ──────────
+  // O Google Classroom preserva DeveloperMetadata ao fazer STUDENT_COPY,
+  // garantindo que cada aluno receba a URL e o token automaticamente.
+  try {
+    const templateDoc = DocumentApp.openById(templateDocId);
+    // Remover metadados antigos para evitar duplicados
+    const oldMeta = templateDoc.getDeveloperMetadata()
+                               .filter(m => m.getKey() === 'WHITEBOX_CONFIG');
+    oldMeta.forEach(m => m.remove());
+
+    const configObj = {
+      proxyUrl:       cfg.proxyUrl,
+      sharedToken:    cfg.sharedToken,
+      professorEmail: professorEmail
+    };
+    templateDoc.addDeveloperMetadata(
+      'WHITEBOX_CONFIG',
+      JSON.stringify(configObj),
+      DocumentApp.DeveloperMetadataVisibility.DOCUMENT
+    );
+    Logger.log('[TemplateService] WHITEBOX_CONFIG injetado no template: ' + templateDocId);
+  } catch (metaErr) {
+    Logger.log('[TemplateService] Aviso: falha ao injetar metadados no template: ' + metaErr);
+    // Não interromper — o Classroom cria a atividade mesmo sem metadados
+  }
+  // ───────────────────────────────────────────────────────────────────────
+
+
+
   const resultadosPorTurma = [];
   let   totalDocsCriados   = 0;
 

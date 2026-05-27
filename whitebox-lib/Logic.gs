@@ -21,7 +21,96 @@ function start(e) {
   DocumentApp.getUi()
     .createMenu('Whitebox')
     .addItem('Abrir Painel Whitebox', 'showSidebar')
+    .addItem('⚙️ Configurar Conexão', 'setupWhitebox')
     .addToUi();
+}
+
+/**
+ * Assistente de configuração de conexão para o professor/administrador.
+ * Pergunta pela URL do Brain Proxy e o SHARED_TOKEN e salva nas Script/Document Properties.
+ */
+function setupWhitebox() {
+  const ui = DocumentApp.getUi();
+  
+  // 1. Pedir a URL do servidor
+  const responseUrl = ui.prompt(
+    'Configuração do Whitebox',
+    'Por favor, insira a URL do servidor (Brain Proxy):\nExemplo: https://script.google.com/macros/s/.../exec',
+    ui.ButtonSet.OK_CANCEL
+  );
+  
+  if (responseUrl.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+  
+  const url = responseUrl.getResponseText().trim();
+  if (!url) {
+    ui.alert('Erro: A URL do servidor não pode ser vazia.');
+    return;
+  }
+  
+  // 2. Pedir o token
+  const responseToken = ui.prompt(
+    'Configuração do Whitebox',
+    'Insira o SHARED_TOKEN gerado pelo servidor:\nExemplo: WBX-xxxx...',
+    ui.ButtonSet.OK_CANCEL
+  );
+  
+  if (responseToken.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+  
+  const token = responseToken.getResponseText().trim();
+  
+  // 3. Ping de validação
+  ui.alert('Aguarde', 'Validando conexão com o servidor...', ui.ButtonSet.OK);
+  
+  try {
+    const payload = {
+      route: 'ping',
+      token: token
+    };
+    
+    const response = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    
+    if (response.getResponseCode() !== 200) {
+      ui.alert('Erro de Conexão', 'O servidor retornou código HTTP ' + response.getResponseCode() + '. Verifique a URL.', ui.ButtonSet.OK);
+      return;
+    }
+    
+    const resText = response.getContentText();
+    let resBody;
+    try {
+      resBody = JSON.parse(resText);
+    } catch(e) {
+      ui.alert('Erro de Resposta', 'O servidor não retornou um JSON válido. Verifique a URL.', ui.ButtonSet.OK);
+      return;
+    }
+    
+    if (resBody.error || !resBody.ok) {
+      ui.alert('Erro de Autenticação', 'O token fornecido é inválido ou recusado pelo servidor.', ui.ButtonSet.OK);
+      return;
+    }
+    
+    // 4. Salvar nas ScriptProperties do Add-on e também no documento atual para garantir
+    const scriptProps = PropertiesService.getScriptProperties();
+    scriptProps.setProperty('BRAIN_PROXY_URL', url);
+    scriptProps.setProperty('SHARED_TOKEN', token);
+    
+    // Salvar nas DocumentProperties do documento ativo também
+    const docProps = PropertiesService.getDocumentProperties();
+    docProps.setProperty('BRAIN_PROXY_URL', url);
+    docProps.setProperty('SHARED_TOKEN', token);
+    
+    ui.alert('Sucesso', '✅ Whitebox Configurado com sucesso!\n\nFeche e reabra o painel lateral para aplicar as alterações.', ui.ButtonSet.OK);
+  } catch(err) {
+    ui.alert('Erro Crítico', 'Falha ao conectar com o servidor: ' + err.toString(), ui.ButtonSet.OK);
+  }
 }
 
 function showSidebar() {

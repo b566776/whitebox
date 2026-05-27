@@ -18,6 +18,35 @@ function onOpen(e) {
 
 // Setup manual removido: a conexão é configurada automaticamente
 // quando o Administrador distribui o template via Dashboard.
+// Para configurar manualmente, execute a função configurarConexaoAgora() no editor.
+
+/**
+ * CONFIGURAÇÃO MANUAL DE EMERGÊNCIA
+ * Execute esta função UMA VEZ diretamente no Apps Script Editor
+ * (Extensões > Apps Script > selecione "configurarConexaoAgora" e clique Executar).
+ * Depois, feche e reabra o documento.
+ */
+function configurarConexaoAgora() {
+  var PROXY_URL    = 'https://script.google.com/macros/s/AKfycbwAzIlfKhJ2zoX7NV1jCzuGU8gb7PeNtXHE3evj1-X5ebcI2oiMbKUhrqrSWhL73uqg/exec';
+  var PROXY_TOKEN  = 'WBX-9ba03247-ea66-4e38-90ee-00f96f775948';
+
+  // Salvar nas Script Properties (global do add-on)
+  PropertiesService.getScriptProperties().setProperties({
+    'BRAIN_PROXY_URL': PROXY_URL,
+    'SHARED_TOKEN':    PROXY_TOKEN
+  });
+
+  // Salvar nas Document Properties (deste documento)
+  PropertiesService.getDocumentProperties().setProperties({
+    'BRAIN_PROXY_URL': PROXY_URL,
+    'SHARED_TOKEN':    PROXY_TOKEN
+  });
+
+  Logger.log('✅ Whitebox configurado com sucesso! Feche e reabra o documento.');
+  DocumentApp.getUi().alert('✅ Whitebox configurado! Feche e reabra o documento para aplicar.');
+}
+
+
 
 function onInstall(e) { onOpen(e); }
 
@@ -74,6 +103,18 @@ function getStudentQuiz() { return callLibrary('getStudentQuiz', []); }
 function submitStudentQuizAnswers(a) { return callLibrary('submitStudentQuizAnswers', [a]); }
 function markAsSubmitted() { return callLibrary('markAsSubmitted', []); }
 function statusDistribuicao(id) { return callLibrary('statusDistribuicao', [id]); }
+
+/**
+ * Configura a conexão com o Brain Proxy.
+ * Exposta para que o menu (onOpen) possa chamá-la diretamente.
+ */
+function setupWhitebox() {
+  try {
+    WhiteboxLib.setupWhitebox();
+  } catch(err) {
+    DocumentApp.getUi().alert('Erro ao abrir assistente de configuração: ' + err);
+  }
+}
 
 // =====================================================
 //  FALLBACKS (Resiliência Offline)

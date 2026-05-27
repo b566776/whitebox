@@ -583,6 +583,12 @@
 
     <div id="error-banner" class="error-banner">⚠️ Falha na conexão com o Whitebox. Tentando reconectar...</div>
 
+    <!-- Seletor de Abas (Manual/Fallback) -->
+    <div id="view-selector-container" style="background:#fff; border: 1px solid var(--border-color); border-radius: var(--radius); padding: 8px; margin-bottom: 12px; display: flex; gap: 8px;">
+      <button class="btn btn-outline" id="btn-switch-student" onclick="manualSwitchRole('student')" style="flex: 1; padding: 6px; font-weight: 600; margin: 0; font-size: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s;">🧑‍🎓 Aluno</button>
+      <button class="btn btn-outline" id="btn-switch-teacher" onclick="manualSwitchRole('teacher')" style="flex: 1; padding: 6px; font-weight: 600; margin: 0; font-size: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s;">👩‍🏫 Professor</button>
+    </div>
+
     <!-- VIEW: STUDENT -->
     <div id="student-view" class="hidden">
       <div class="card">
@@ -890,12 +896,10 @@
       function init() {
         // Fallback: garante UI mínima funcional se o backend demorar muito
         startupFallback = setTimeout(function() {
-          if (document.getElementById('student-view').classList.contains('hidden')) {
+          if (document.getElementById('student-view').classList.contains('hidden') &&
+              document.getElementById('teacher-view').classList.contains('hidden')) {
             console.warn('[Whitebox] getContext() demorou demais. Aplicando fallback de aluno.');
-            currentRole = 'student';
-            updateUI();
-            document.getElementById('student-area').style.display = 'block';
-            startStudentTracking();
+            manualSwitchRole('student');
           }
         }, 8000);
 
@@ -908,17 +912,8 @@
             documentId = ctx.docId || '';
             gradeLevel = (ctx.item3 && ctx.item3.gradeLevel) ? ctx.item3.gradeLevel : 'UNKNOWN';
             professorEmail = (ctx.item3 && ctx.item3.professorEmail) ? ctx.item3.professorEmail : 'UNKNOWN_PROF';
-            updateUI();
-
-            if (currentRole === 'professor' || currentRole === 'teacher') {
-              document.getElementById('teacher-view').classList.remove('hidden');
-              refreshHeatmap();
-              checkLicenseStatus(); // Verifica status de licença ao entrar como professor
-            } else {
-              document.getElementById('student-area').style.display = 'block';
-              // Iniciar rastreamento imediatamente; será cancelado se estiver entregue
-              startStudentTracking();
-            }
+            
+            manualSwitchRole(currentRole === 'professor' ? 'teacher' : currentRole);
 
             // Verificar status de entrega (pode cancelar o tracking se já entregue)
             google.script.run
@@ -929,7 +924,6 @@
               })
               .withFailureHandler(function(err) {
                 console.warn('[Whitebox] getSubmissionStatus() falhou:', err);
-                // Tracking já foi iniciado acima, não faz nada
               })
               .getSubmissionStatus();
           })
@@ -937,13 +931,36 @@
             clearTimeout(startupFallback);
             console.error('[Whitebox] getContext() falhou:', err);
             showErrorBanner('Erro ao carregar contexto. Usando modo offline.');
-            // Inicia com defaults de aluno mesmo assim
-            currentRole = 'student';
-            updateUI();
-            document.getElementById('student-area').style.display = 'block';
-            startStudentTracking();
+            manualSwitchRole('student');
           })
           .getContext();
+      }
+
+      function manualSwitchRole(role) {
+        currentRole = role;
+        
+        // Atualiza a aparência ativa nos botões do seletor
+        const btnStu = document.getElementById('btn-switch-student');
+        const btnTch = document.getElementById('btn-switch-teacher');
+        if (role === 'student') {
+          btnStu.classList.remove('btn-outline');
+          btnStu.classList.add('btn-primary');
+          btnTch.classList.remove('btn-primary');
+          btnTch.classList.add('btn-outline');
+          
+          document.getElementById('student-area').style.display = 'block';
+          startStudentTracking();
+        } else {
+          btnTch.classList.remove('btn-outline');
+          btnTch.classList.add('btn-primary');
+          btnStu.classList.remove('btn-primary');
+          btnStu.classList.add('btn-outline');
+          
+          stopStudentTracking();
+          checkLicenseStatus();
+        }
+        
+        updateUI();
       }
 
       function updateUI() {
@@ -1628,7 +1645,18 @@
             listEl.style.display    = 'block';
 
             if (res.error) {
-              errorEl.textContent  = '❌ ' + (res.message || res.error);
+              var isProxyError = res.error === 'PROXY_CONNECTION_FAILED' ||
+                                 (res.message && res.message.indexOf('BRAIN_PROXY_URL') !== -1);
+              if (isProxyError) {
+                errorEl.innerHTML =
+                  '<strong>⚙️ Servidor não configurado.</strong><br>' +
+                  'Acesse <b>Whitebox &gt; ⚙️ Configurar Conexão</b> no menu superior para conectar ao servidor.<br><br>' +
+                  '<button onclick="google.script.run.setupWhitebox()" ' +
+                  'style="padding:6px 12px;background:#4f46e5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">' +
+                  '⚙️ Configurar agora</button>';
+              } else {
+                errorEl.textContent = '❌ ' + (res.message || res.error);
+              }
               errorEl.style.display = 'block';
               return;
             }
