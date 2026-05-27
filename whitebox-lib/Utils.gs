@@ -33,10 +33,21 @@ function getProxyConfig() {
   // 1. Tentar DeveloperMetadata (Melhor para persistência em cópias via API)
   try {
     const meta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
-    if (meta.length > 0) {
-      const config = JSON.parse(meta[0].getValue());
-      proxyUrl = config.proxyUrl || '';
-      sharedToken = config.sharedToken || '';
+    for (let i = 0; i < meta.length; i++) {
+      try {
+        const config = JSON.parse(meta[i].getValue());
+        if (config && config.proxyUrl) {
+          proxyUrl = config.proxyUrl;
+          sharedToken = config.sharedToken || '';
+          // Se encontrar um com o email do usuário atual, prioriza e termina
+          const userEmail = Session.getActiveUser().getEmail() || '';
+          if (config.professorEmail && config.professorEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
+            break;
+          }
+        }
+      } catch (parseErr) {
+        Logger.log('[Whitebox-Lib] Erro ao parsear metadado index ' + i + ': ' + parseErr);
+      }
     }
   } catch (e) {
     // Apenas loga erro real de parsing, não a ausência de metadados

@@ -26,10 +26,11 @@ function testarInjecaoMetadados() {
     // 4. Injetar novos metadados (Simulando o fluxo de distribuirMestreParaProfessor)
     const configObj = {
       proxyUrl:    cfg.proxyUrl,
-      sharedToken: cfg.sharedToken
+      sharedToken: cfg.sharedToken,
+      professorEmail: professorEmail
     };
     
-    doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj));
+    doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj), DocumentApp.DeveloperMetadataVisibility.DOCUMENT);
     Logger.log('✅ Novos metadados injetados: ' + JSON.stringify(configObj));
 
     // 5. Verificação de Leitura

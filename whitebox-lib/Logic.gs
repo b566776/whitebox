@@ -121,48 +121,94 @@ function getActiveDocInfo() {
 
 function getContext() {
   const doc       = DocumentApp.getActiveDocument();
-  const userEmail = Session.getActiveUser().getEmail();
+  let userEmail   = Session.getActiveUser().getEmail();
+  if (!userEmail) {
+    userEmail = Session.getEffectiveUser().getEmail();
+  }
+  userEmail = userEmail ? userEmail.trim().toLowerCase() : '';
+
   const item3Data = getAdvancedItem3Data();
 
   // [AUTH-01] Detecção dinâmica de papel
   // Professor = Dono do Doc OU Dono da pasta (professorEmail do Item 3) OU Metadado (professorEmail do WHITEBOX_CONFIG)
-  const owner       = DriveApp.getFileById(doc.getId()).getOwner();
-  const isOwner     = owner ? (owner.getEmail() === userEmail) : false;
-  const isProfessor = item3Data.professorEmail === userEmail;
+  let isOwner = false;
+  try {
+    const owner = DriveApp.getFileById(doc.getId()).getOwner();
+    isOwner = owner ? (owner.getEmail().trim().toLowerCase() === userEmail) : false;
+  } catch (e) {
+    Logger.log('[Whitebox] Erro ao obter proprietário do documento via DriveApp: ' + e);
+  }
+
+  const isProfessor = item3Data && item3Data.professorEmail && 
+    (item3Data.professorEmail.trim().toLowerCase() === userEmail);
 
   // Busca professor designado explicitamente no metadado do documento (injetado via Distribuir Template)
   let designatedProfessor = null;
   try {
     const meta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
-    if (meta.length > 0) {
-      const configObj = JSON.parse(meta[0].getValue());
-      designatedProfessor = configObj.professorEmail || null;
+    for (let i = 0; i < meta.length; i++) {
+      try {
+        const configObj = JSON.parse(meta[i].getValue());
+        if (configObj && configObj.professorEmail) {
+          const emailStr = configObj.professorEmail.trim().toLowerCase();
+          // Se corresponder ao usuário atual, prioriza
+          if (emailStr === userEmail) {
+            designatedProfessor = emailStr;
+            break;
+          }
+          // Caso contrário, guarda o primeiro que encontrar
+          if (!designatedProfessor) {
+            designatedProfessor = emailStr;
+          }
+        }
+      } catch (parseErr) {
+        Logger.log('[Whitebox] Erro ao parsear metadado index ' + i + ': ' + parseErr);
+      }
     }
-  } catch(e) {}
-  const isDesignated = (designatedProfessor === userEmail);
+  } catch(e) {
+    Logger.log('[Whitebox] Erro ao ler WHITEBOX_CONFIG: ' + e);
+  }
+  const isDesignated = designatedProfessor && userEmail && 
+    (designatedProfessor.trim().toLowerCase() === userEmail);
 
   // Validação complementar: verifica se o e-mail está cadastrado como professor no banco de dados.
   // Caso o proxy não esteja configurado ainda (primeira instalação), permitimos o fallback de isOwner/isProfessor.
   let isRegisteredProfessor = false;
   try {
     const license = getTeacherLicenseStatus();
-    if (license && (license.status === 'ATIVO' || license.status === 'INATIVO' || license.status === 'PROXY_NAO_CONFIGURADO')) {
+    if (license && (license.status === 'ATIVO' || license.status === 'INATIVO' || license.status === 'PROXY_NAO_CONFIGURADO' || license.status === 'NAO_CADASTRADO')) {
       isRegisteredProfessor = true;
     }
   } catch (e) {
     Logger.log('[Whitebox] Erro ao validar licença do professor no getContext: ' + e);
   }
 
-  // O papel só será 'teacher' se o usuário passar na detecção de posse/designação E estiver registrado no sistema
-  const role = (isOwner || isProfessor || isDesignated) && isRegisteredProfessor ? 'teacher' : 'student';
+  // [AUTH-01 FIX] Papéis:
+  //   - isDesignated (WHITEBOX_CONFIG) → sempre teacher (metadata é injetado pelo servidor, confiável)
+  //   - isOwner/isProfessor + isRegisteredProfessor → teacher (validação via servidor)
+  //   - caso contrário → student
+  // Motivação: isDesignated não depende de resposta do proxy, evitando que falha
+  // de rede ou licença force o professor a ver a UI de aluno.
+  const role = isDesignated ? 'teacher' : ((isOwner || isProfessor) && isRegisteredProfessor) ? 'teacher' : 'student';
 
-  return {
+  const responseObj = {
     email:        userEmail,
     docId:        doc.getId(),
     initialRole:  role,
     timestamp:    new Date().getTime(),
-    item3:        item3Data
+    item3:        item3Data,
+    debugInfo: {
+      userEmail: userEmail,
+      isOwner: isOwner,
+      isProfessor: isProfessor,
+      isDesignated: isDesignated,
+      designatedProfessor: designatedProfessor,
+      isRegisteredProfessor: isRegisteredProfessor
+    }
   };
+
+  Logger.log('[Whitebox] getContext result: ' + JSON.stringify(responseObj));
+  return responseObj;
 }
 
 function getDocumentStats() {

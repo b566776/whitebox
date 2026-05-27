@@ -288,19 +288,29 @@ function distribuirMestreParaProfessor(email, token) {
     try {
       const cfg = getConfig();
       const configObj = {
-        proxyUrl: cfg.proxyUrl
+        proxyUrl: cfg.proxyUrl,
+        professorEmail: email
         // O sharedToken foi removido por segurança. O cliente usará OAuth Token.
       };
       
       const doc = DocumentApp.openById(copy.getId());
-      doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj), DocumentApp.Visibility.DOCUMENT);
+      // Limpar metadados antigos para evitar duplicados
+      const oldMeta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
+      oldMeta.forEach(m => m.remove());
+
+      doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj), DocumentApp.DeveloperMetadataVisibility.DOCUMENT);
       Logger.log('[BrainProxy] Metadados injetados com sucesso no novo Mestre.');
     } catch (metaErr) {
       Logger.log('[BrainProxy] Erro (não-crítico) ao injetar metadados: ' + metaErr);
     }
 
-    // 3. Dar permissão de editor ao professor
-    copy.addEditor(email);
+    // 3. Tentar dar permissão de dono ao professor (para ir pro Meu Drive dele)
+    try {
+      copy.setOwner(email);
+    } catch (e) {
+      // Fallback caso a transferência de propriedade entre domínios seja bloqueada pelo Workspace
+      copy.addEditor(email);
+    }
     
     // 4. Notificar via e-mail
     const subject = '📦 Seu Sistema Whitebox está pronto!';

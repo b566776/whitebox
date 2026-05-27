@@ -902,6 +902,7 @@
         google.script.run
           .withSuccessHandler(function(ctx) {
             clearTimeout(startupFallback);
+            console.log('[Whitebox] getContext result:', ctx);
             currentRole = ctx.initialRole || 'student';
             studentEmail = ctx.email || '';
             documentId = ctx.docId || '';

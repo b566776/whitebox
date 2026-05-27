@@ -166,19 +166,28 @@ function handleDistribuirTemplate(body, cfg) {
 
       // 2. Injetar DeveloperMetadata de Auto-Configuração [ARCH-LIB]
       try {
+        const doc = DocumentApp.openById(copia.getId());
+        // Limpar metadados antigos com a mesma chave para evitar duplicados
+        const oldMeta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
+        oldMeta.forEach(m => m.remove());
+
         const configObj = {
           proxyUrl:       cfg.proxyUrl,
           sharedToken:    cfg.sharedToken,
           professorEmail: email // [AUTH-01 FIX] Designa explicitamente o professor
         };
-        const doc = DocumentApp.openById(copia.getId());
-        doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj), DocumentApp.Visibility.DOCUMENT);
+        doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj), DocumentApp.DeveloperMetadataVisibility.DOCUMENT);
       } catch (metaErr) {
         Logger.log('[TemplateService] Erro ao injetar metadados: ' + metaErr);
       }
 
-      // 3. Compartilhar com o professor como editor
-      copia.addEditor(email);
+      // 3. Compartilhar com o professor como dono (para ficar no Meu Drive dele)
+      try {
+        copia.setOwner(email);
+      } catch (e) {
+        // Fallback caso a transferência de propriedade entre domínios seja bloqueada
+        copia.addEditor(email);
+      }
 
       // 4. Notificar por e-mail (opcional)
       if (notificarEmail !== false) {
