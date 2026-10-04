@@ -375,18 +375,27 @@ function sendToBackend(payload) {
     }
   }
 
-  // Logar métricas (somente se professor identificado)
-  if (!professorDesconhecido) {
-    callProxy(ROUTE_LOGAR_METRICAS, {
+  // Logar métricas (somente se professor identificado). O resultado volta para a Sidebar
+  // em metricsError: sem ele, ela avisaria "métricas salvas" mesmo com o log recusado.
+  let falhaLog = null; // { error, message }
+  if (professorDesconhecido) {
+    falhaLog = { error: 'PROFESSOR_NAO_IDENTIFICADO', message: 'Não foi possível identificar o professor deste documento.' };
+  } else {
+    const logResult = callProxy(ROUTE_LOGAR_METRICAS, {
       professorEmail: professorEmail,
       turma:          turma,
       docId:          payload.documentId,
       alunoEmail:     alunoEmail,
       metricas:       payload.behavioralMetrics || {},
       analise:        analise,
-      isFinal:        payload.isFinal || false
+      // A Sidebar marca a entrega final dentro de behavioralMetrics (sendBackgroundData)
+      isFinal:        !!(payload.isFinal || payload.behavioralMetrics?.isFinalSubmission)
     });
+    if (logResult.error) falhaLog = logResult;
   }
+  const metricsError = falhaLog
+    ? { code: falhaLog.error, message: falhaLog.message || falhaLog.error }
+    : null;
 
   // Montar resposta para a Sidebar
   if (analise && !analise.error) {
@@ -401,6 +410,7 @@ function sendToBackend(payload) {
       riskEvidence:       analise.riskEvidence,
       pedagogicalAdvice:  analise.pedagogicalAdvice,
       suggestedQuestion:  analise.suggestedQuestion,
+      metricsError:       metricsError,
       quizData:           quizData,
       quizStatus:         analise.toneChangeDetected ? QUIZ_DISPONIVEL : QUIZ_NONE,
       sourceAnalysis:     []
@@ -418,6 +428,7 @@ function sendToBackend(payload) {
     aiError:            falhaIA
       ? { code: falhaIA.error || 'OFFLINE', message: falhaIA.message || falhaIA.error }
       : null,
+    metricsError:       metricsError,
     quizData:           [],
     quizStatus:         QUIZ_NONE,
     sourceAnalysis:     []
@@ -523,25 +534,24 @@ function submitStudentQuizAnswers(answers) {
 //  STATUS DE ENTREGA
 // =====================================================
 
+/**
+ * A entrega é a marcação manual feita pelo aluno (markAsSubmitted).
+ *
+ * Não há detecção por acesso somente-leitura (entrega pelo Classroom): quem só pode ver ou
+ * comentar não recebe o menu do Whitebox — o onOpen não roda em modo leitura — e por isso
+ * nunca chega a abrir o painel que chama esta função.
+ */
 function getSubmissionStatus() {
-  const doc      = DocumentApp.getActiveDocument();
   const props    = PropertiesService.getDocumentProperties();
   const isFlagged   = props.getProperty(DOC_PROP_SUBMITTED) === 'true';
-  const accessLevel = doc.getUserAccessLevel();
-  const isViewerOnly = (
-    accessLevel === DocumentApp.Permission.VIEW ||
-    accessLevel === DocumentApp.Permission.COMMENT
-  );
   const ctx         = getAdvancedItem3Data();
   const userEmail   = (Session.getActiveUser().getEmail() || '').trim().toLowerCase();
   // Mesmo critério de sendToBackend: professor designado; dono da pasta só sem designação
   const professor   = getDesignatedProfessor(userEmail) || ctx.professorEmail || '';
   const isProfessor = (userEmail === professor.trim().toLowerCase());
-  const finalStatus = isProfessor ? false : (isFlagged || isViewerOnly);
-
   return {
-    isSubmitted: finalStatus,
-    method:      isFlagged ? 'manual' : (isViewerOnly ? 'automatic_classroom' : 'none'),
+    isSubmitted: isProfessor ? false : isFlagged,
+    method:      isFlagged ? 'manual' : 'none',
     isProfessor: isProfessor
   };
 }

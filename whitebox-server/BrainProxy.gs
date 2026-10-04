@@ -860,7 +860,10 @@ function handleLogarMetricas(body, cfg) {
 
   const registro = buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId);
   if (!registro || !registro.spreadsheetId) {
-    return jsonResponse({ error: 'PLANILHA_PROFESSOR_NAO_ENCONTRADA' }, 404);
+    return jsonResponse({
+      error:   'PLANILHA_PROFESSOR_NAO_ENCONTRADA',
+      message: 'O professor deste documento não está cadastrado no Whitebox ou ainda não tem planilha de registros.'
+    }, 404);
   }
 
   logarNaPlanilhaProfessor({

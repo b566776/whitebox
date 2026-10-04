@@ -85,6 +85,8 @@ Persiste a telemetria comportamental do aluno.
 { "success": true }
 ```
 
+Se o professor informado não estiver cadastrado ou não tiver planilha, a resposta é `404 PLANILHA_PROFESSOR_NAO_ENCONTRADA`, com `message` legível. A biblioteca repassa qualquer recusa deste log à barra lateral no campo `metricsError: { code, message }` de `sendToBackend` (`null` quando o log foi aceito). A barra lateral só mostra "Métricas salvas e enviadas" com `metricsError` nulo; caso contrário, o indicador fica vermelho com o motivo.
+
 ### 2.3. `status_licenca`
 Verifica se o e-mail do chamador está cadastrado como professor e se o modo IA está disponível. O cliente usa a resposta para decidir a interface: `ATIVO`/`INATIVO` confirmam o cadastro; `NAO_CADASTRADO` não.
 

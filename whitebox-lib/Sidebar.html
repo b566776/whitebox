@@ -922,7 +922,7 @@
             google.script.run
               .withSuccessHandler(function(status) {
                 if (status && status.isSubmitted) {
-                  setFinalizedState(status.method);
+                  setFinalizedState();
                 }
               })
               .withFailureHandler(function(err) {
@@ -1134,7 +1134,7 @@
         document.getElementById('btn-finalize').innerText = "Processando...";
         
         google.script.run.withSuccessHandler(function() {
-          setFinalizedState('manual');
+          setFinalizedState();
           // Envio final forçado
           google.script.run.withSuccessHandler(function(stats) {
             sendBackgroundData(stats, true); // Flag isFinal = true
@@ -1142,17 +1142,13 @@
         }).markAsSubmitted();
       }
       
-      function setFinalizedState(method) {
+      function setFinalizedState() {
         if(trackingTimeout) clearTimeout(trackingTimeout);
         if(startupFallback) clearTimeout(startupFallback); // [P-3] Cancela fallback global
         isTracking = false; // [P-1] Reseta flag de tracking
         document.getElementById('btn-finalize').style.display = 'none';
         document.getElementById('finalize-hint').style.display = 'none';
         document.getElementById('submission-status').style.display = 'block';
-        
-        if (method === 'automatic_classroom') {
-            document.getElementById('submission-status').innerHTML = '<i class="fas fa-check-circle"></i> Entregue via Classroom (Modo Leitura)';
-        }
       }
 
       function sendBackgroundData(stats, isFinal = false) {
@@ -1207,17 +1203,28 @@
           };
           
           google.script.run.withSuccessHandler(function(res) {
-            if (res.error) {
-              showErrorBanner("Erro no Servidor: " + res.error);
+            // O servidor pode ter recusado o log (metricsError) ou a chamada à biblioteca pode
+            // ter falhado (error): nos dois casos as métricas NÃO foram salvas.
+            const erro = (res && res.metricsError) ||
+                         (res && res.error ? { message: res.message || res.error } : null);
+            if (erro) {
+              showSyncFailure(erro.message);
+              return;
             }
             document.getElementById('sync-dot').style.backgroundColor = "var(--success-color)";
             document.getElementById('stu-sync-msg').innerText = "Métricas salvas e enviadas.";
           })
-          .withFailureHandler(function() {
-             showErrorBanner("Falha crítica de comunicação com o backend.");
+          .withFailureHandler(function(err) {
+             showSyncFailure((err && err.message) || "Falha de comunicação com o servidor.");
           })
           .sendToBackend(payload);
         }).getDocumentAuraMap();
+      }
+
+      function showSyncFailure(motivo) {
+        document.getElementById('sync-dot').style.backgroundColor = "var(--error-color)";
+        document.getElementById('stu-sync-msg').innerText = "Métricas NÃO enviadas. Avise seu professor. Motivo: " + motivo;
+        showErrorBanner("Métricas não enviadas: " + motivo);
       }
       
       // --- QUIZ DO ALUNO ---
