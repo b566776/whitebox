@@ -56,10 +56,10 @@ const COL_INSTITUICAO         = 'Instituicao';
 /** Coluna de status de licença */
 const COL_STATUS              = 'Status';
 
-/** Indica se o professor usa chave Gemini global */
+/** Indica se o professor usa a IA global da instituição */
 const COL_USA_CHAVE_GLOBAL    = 'UsaChaveGlobal';
 
-/** Chave API Gemini individual do professor (criptografada via cofre) */
+/** Chave API individual do professor (Gemini ou Claude; guardada via cofre) */
 const COL_CHAVE_INDIVIDUAL    = 'ChaveIndividual';
 
 /** ID da planilha de logs individual do professor */
@@ -82,6 +82,17 @@ const CONFIG_KEY_SEED_DOC_ID  = 'seed_document_id';
 const CONFIG_KEY_SEED_FORM_ID = 'seed_form_id';
 
 // =====================================================
+//  DOCUMENTO: Auto-configuração gravada no Doc
+// =====================================================
+
+/**
+ * Prefixo do nome do NamedRange que carrega a configuração no documento.
+ * Formato: DOC_CONFIG_RANGE_PREFIX + JSON ({ professorEmail }).
+ * DEVE ser idêntico ao de whitebox-lib/Constants.gs.
+ */
+const DOC_CONFIG_RANGE_PREFIX = 'WHITEBOX_CONFIG:';
+
+// =====================================================
 //  SCRIPT PROPERTIES: Chaves do Servidor
 // =====================================================
 
@@ -91,11 +102,20 @@ const PROP_ADMIN_SPREADSHEET_ID = 'ADMIN_SPREADSHEET_ID';
 /** Token compartilhado para autenticar chamadas do Add-on ao Proxy */
 const PROP_SHARED_TOKEN         = 'SHARED_TOKEN';
 
-/** Chave API Gemini global (para professores que não têm chave própria) */
-const PROP_GEMINI_GLOBAL_KEY    = 'GEMINI_GLOBAL_KEY';
+/** Provedor de IA global: 'gemini' (padrão) | 'claude' | 'ollama' — ver IAProviders.gs */
+const PROP_IA_PROVIDER          = 'IA_PROVIDER';
 
-/** URL pública deste Web App (Brain Proxy), usada para auto-configurar novos documentos */
-const PROP_BRAIN_PROXY_URL      = 'BRAIN_PROXY_URL';
+/** Modelo do provedor global (opcional; obrigatório para 'ollama') */
+const PROP_IA_MODEL             = 'IA_MODEL';
+
+/** URL pública do servidor Ollama (só para IA_PROVIDER = 'ollama') */
+const PROP_IA_BASE_URL          = 'IA_BASE_URL';
+
+/** Chave API do provedor global (para professores que não têm chave própria) */
+const PROP_IA_GLOBAL_KEY        = 'IA_GLOBAL_KEY';
+
+/** [LEGADO] Chave Gemini global; ainda aceita quando IA_PROVIDER = 'gemini' */
+const PROP_GEMINI_GLOBAL_KEY    = 'GEMINI_GLOBAL_KEY';
 
 // =====================================================
 //  SCRIPT PROPERTIES: Prefixos de deadline

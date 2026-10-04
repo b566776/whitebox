@@ -11,8 +11,8 @@ Gerencia todo o ecossistema, licenciamento e registro global de tarefas.
 | **Email** | Identificador único (PK) para o professor. |
 | **Instituicao** | Nome da escola ou organização. |
 | **Status** | `Ativo` ou `Inativo`. |
-| **UsaChaveGlobal** | `Sim` se autorizado a usar a chave Gemini global do servidor. |
-| **ChaveIndividual** | Link/ID do "Cofre" no Google Drive. |
+| **UsaChaveGlobal** | `Sim` se autorizado a usar a IA global do servidor (provedor definido em `IA_PROVIDER`). |
+| **ChaveIndividual** | `SECURE_STORAGE` (chave Gemini/Claude guardada nas Script Properties) ou Link/ID do "Cofre" no Google Drive. |
 | **SpreadsheetId** | ID da planilha de log dedicada para este professor. |
 | **DataCadastro** | Timestamp ISO 8601 do registro. |
 

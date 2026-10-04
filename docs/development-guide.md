@@ -32,9 +32,30 @@ clasp login
 
 ### 2.3. Client Wrapper
 1.  Navegue até `whitebox-client/`.
-2.  No `appsscript.json`, verifique se o ID da biblioteca está correto.
+2.  No `appsscript.json`, verifique se o ID da biblioteca está correto e se `version` aponta para a versão que você acabou de criar (ver 2.4).
 3.  `clasp push`.
-4.  **Auto-Config**: O cliente agora busca `WHITEBOX_CONFIG` no documento antes de recorrer às Script Properties.
+4.  **Auto-Config**: o professor designado vem do NamedRange `WHITEBOX_CONFIG` gravado pelo servidor no documento; a URL do proxy é a constante `BRAIN_PROXY_URL` em `whitebox-lib/Constants.gs` (se criar uma nova implantação do Web App, atualize-a e publique uma nova versão da biblioteca).
+
+### 2.4. Versão da Biblioteca (o que chega aos usuários)
+O manifesto do cliente fixa a versão da biblioteca, e ele é copiado junto com cada documento.
+- `developmentMode: true` entrega o código mais recente (HEAD) **somente** a quem tem acesso de edição à biblioteca. Professores e alunos recebem a versão do campo `version`.
+- Para publicar uma mudança: `clasp push` na lib → criar uma versão (`clasp version "descrição"` ou **Implantar > Gerenciar implantações**) → atualizar `version` no manifesto do cliente → `clasp push` no cliente → redistribuir o documento modelo.
+- Documentos já distribuídos **não** mudam de versão. Mantenha o servidor compatível com as versões da biblioteca ainda em uso.
+- Recomendado para o documento modelo: `developmentMode: false`, para que você teste exatamente o que os alunos vão executar.
+
+### 2.5. Manifestos e Escopos
+| Projeto | Regra |
+| :--- | :--- |
+| **Cliente** | O `oauthScopes` daqui é o que o usuário autoriza e o que entra no OAuth token enviado ao servidor. Com escopos explícitos, os da biblioteca **não** são somados automaticamente. |
+| **Biblioteca** | Mantenha a lista **idêntica** à do cliente. Ao usar um serviço novo no código da lib, adicione o escopo nos dois manifestos. |
+| **Servidor** | Lista própria; roda como o Admin. Inclui `documents` para `DocumentApp.openById`. |
+
+- Os escopos `classroom.*` estão no cliente porque o servidor chama a Classroom API **como o professor**, usando o token que o add-on envia. O serviço avançado `Classroom` fica habilitado no cliente para que a API esteja ativa no projeto Cloud que emite esse token.
+- O manifesto é o mesmo para todos: o aluno também vê as permissões do Classroom na tela de autorização.
+- `MailApp` exige `script.send_mail` (não `gmail.send`).
+- O serviço avançado `Drive` usa a mesma versão (v3) no cliente e na biblioteca.
+- Os três manifestos usam `America/Sao_Paulo`.
+- Mudou escopos? Os usuários precisam autorizar de novo ao abrir o documento.
 
 ---
 

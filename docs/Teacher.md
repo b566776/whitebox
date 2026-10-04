@@ -4,14 +4,12 @@ Este guia detalha como os professores interagem com o Add-on Whitebox para geren
 
 ## 📋 Configuração Inicial
 
-1.  **Auto-Configuração**: Na maioria dos casos, o Add-on se auto-configurará usando metadados invisíveis injetados pelo servidor durante a criação do documento.
+0.  **Pré-requisito — Cadastro**: Seu e-mail precisa estar cadastrado pelo administrador (formulário de onboarding). Sem cadastro, o painel abre no modo aluno e o servidor recusa as funções de professor (análise de IA, chave de API, distribuição). Com a licença inativa, o painel de professor abre, mas essas funções ficam bloqueadas.
+1.  **Auto-Configuração**: Ao distribuir um documento, o servidor grava nele quem é o professor responsável; é assim que o painel reconhece você nas cópias dos alunos. Na primeira abertura, o Google pede autorização, incluindo acesso às suas turmas do Classroom (usado pela aba **Distribuir**).
 2.  **Abrir Barra Lateral**: Vá ao menu `Whitebox` > `Abrir Painel Whitebox`.
-3.  **Configuração Manual (primeiro uso)**: Se aparecer o erro `BRAIN_PROXY_URL não configurada`, use o assistente:
-    - No menu `Whitebox` > **`⚙️ Configurar Conexão`**
-    - Siga as instruções em 2 passos: URL do servidor e SHARED_TOKEN
-    - O sistema valida a conexão automaticamente antes de salvar
+3.  **Conexão com o servidor**: não há nada a configurar. O endereço do servidor já vem na ferramenta e a autenticação usa a sua conta Google.
 
-> 📖 Guia completo: [Configuração de Conexão](setup-conexao.md)
+> 📖 Problemas de conexão: [Conexão com o Servidor](setup-conexao.md)
 
 ## 🚀 Integração com o Classroom
 O Add-on permite que você publique o "Doc Mestre" (Modelo Mestre) atual diretamente em um curso do Classroom.

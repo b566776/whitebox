@@ -1,21 +1,42 @@
 # Contratos de API - Protocolo de Comunicação Whitebox
 
 ## 1. Autenticação
-Todas as requisições devem ser enviadas via `HTTP POST` para a URL do Web App e incluir o `SHARED_TOKEN`.
+Todas as requisições devem ser enviadas via `HTTP POST` para a URL do Web App.
 
 **Header**: `Content-Type: application/json`
+
+O corpo carrega uma de duas credenciais:
+- **Cliente (add-on)**: `oauthToken` — o OAuth token do usuário (`ScriptApp.getOAuthToken()`). O servidor o valida junto ao Google e obtém o e-mail verificado.
+- **Admin**: `token` — o `SHARED_TOKEN`, que existe apenas nas Script Properties do servidor.
+
+### 1.1. Autorização por rota
+| Rotas | Quem pode chamar |
+| :--- | :--- |
+| `ping`, `logar_metricas` | Qualquer conta Google autenticada. |
+| `status_licenca`, `status_distribuicao` | O próprio `professorEmail` (e-mail verificado = e-mail informado). |
+| `analisar`, `registrar_chave`, `listar_turmas_professor`, `criar_leva_template` | O próprio `professorEmail`, com cadastro `Ativo` na aba `Assinaturas`. |
+| `listar_templates`, `distribuir_template`, `historico_templates`, `reset_planilha` | Somente Admin. |
+
+### 1.2. Erros de autenticação e autorização
+O `ContentService` sempre devolve HTTP 200; o status lógico vem em `_httpStatus`.
+
+| `_httpStatus` | `error` | Significado |
+| :--- | :--- | :--- |
+| 401 | `UNAUTHORIZED` | Credencial ausente/inválida, ou e-mail verificado diferente do `professorEmail`. |
+| 403 | `PROFESSOR_NAO_CADASTRADO` | Rota de professor chamada por e-mail fora da aba `Assinaturas`. |
+| 403 | `PROFESSOR_INATIVO` | Professor cadastrado com `Status` diferente de `Ativo`. |
 
 ---
 
 ## 2. Rotas do Servidor (`doPost`)
 
 ### 2.1. `analisar`
-Solicita uma análise socrática de IA de um fragmento de texto.
+Solicita uma análise socrática de IA de um fragmento de texto. Exclusiva do professor (cadastro `Ativo`).
 
 **Payload**:
 ```json
 {
-  "token": "SHARED_TOKEN",
+  "oauthToken": "OAUTH_TOKEN_DO_PROFESSOR",
   "route": "analisar",
   "professorEmail": "prof@escola.edu",
   "alunoEmail": "aluno@escola.edu",
@@ -37,13 +58,17 @@ Solicita uma análise socrática de IA de um fragmento de texto.
 }
 ```
 
+Sem IA disponível para o professor, a resposta traz `"modoIA": false`. Se o provedor falhar, vem `"modoIA": true` com um campo `error`: `IA_API_ERROR` (com `code`, o status HTTP do provedor), `IA_INVALID_RESPONSE_FORMAT`, `IA_EMPTY_RESPONSE`, `IA_EXCEPTION` (inclui recusa do modelo) ou `IA_PARSE_FALLBACK`. O contrato é o mesmo para Gemini, Claude e Ollama.
+
+Todo erro traz também `message`, legível, com o provedor, o modelo e o texto devolvido por ele (ex.: `gemini (gemini-3.8-flash) respondeu HTTP 404: ...`). A biblioteca repassa esse motivo à barra lateral no campo `aiError: { code, message }` de `sendToBackend`; o modo offline chega como `code: "OFFLINE"`. Com `aiError` presente, a barra lateral mostra o motivo no lugar do resultado.
+
 ### 2.2. `logar_metricas`
 Persiste a telemetria comportamental do aluno.
 
 **Payload**:
 ```json
 {
-  "token": "SHARED_TOKEN",
+  "oauthToken": "OAUTH_TOKEN_DO_USUARIO",
   "route": "logar_metricas",
   "professorEmail": "prof@escola.edu",
   "turma": "Turma_A_123",
@@ -61,12 +86,12 @@ Persiste a telemetria comportamental do aluno.
 ```
 
 ### 2.3. `status_licenca`
-Verifica se o professor está ativo e se o modo IA está disponível.
+Verifica se o e-mail do chamador está cadastrado como professor e se o modo IA está disponível. O cliente usa a resposta para decidir a interface: `ATIVO`/`INATIVO` confirmam o cadastro; `NAO_CADASTRADO` não.
 
 **Payload**:
 ```json
 {
-  "token": "SHARED_TOKEN",
+  "oauthToken": "OAUTH_TOKEN_DO_USUARIO",
   "route": "status_licenca",
   "professorEmail": "prof@escola.edu"
 }
@@ -109,7 +134,7 @@ Lista turmas do Classroom onde o usuário é docente.
 
 **Payload**:
 ```json
-{ "token": "SHARED_TOKEN", "route": "listar_turmas_professor", "professorEmail": "prof@edu.com" }
+{ "oauthToken": "OAUTH_TOKEN_DO_PROFESSOR", "route": "listar_turmas_professor", "professorEmail": "prof@edu.com" }
 ```
 
 ### 2.7. `criar_leva_template` (Professor)
@@ -118,8 +143,9 @@ Cria atividade no Classroom com `STUDENT_COPY` do template.
 **Payload**:
 ```json
 { 
-  "token": "SHARED_TOKEN", 
+  "oauthToken": "OAUTH_TOKEN_DO_PROFESSOR", 
   "route": "criar_leva_template", 
+  "professorEmail": "prof@edu.com", 
   "templateDocId": "ID_DOC", 
   "turmas": ["ID_TURMA"], 
   "titulo": "Atividade 01", 
@@ -132,7 +158,7 @@ Consulta progresso de uma criação de leva em andamento.
 
 **Payload**:
 ```json
-{ "token": "SHARED_TOKEN", "route": "status_distribuicao", "executionId": "uuid-v4" }
+{ "oauthToken": "OAUTH_TOKEN_DO_PROFESSOR", "route": "status_distribuicao", "professorEmail": "prof@edu.com", "executionId": "uuid-v4" }
 ```
 
 ### 2.9. `historico_templates` (Admin)
@@ -150,26 +176,24 @@ O cliente usa uma função padronizada para interagir com o servidor.
 
 ```javascript
 /**
- * Realiza chamada POST segura para o Brain Proxy.
+ * Realiza chamada POST segura para o Brain Proxy (versão resumida de whitebox-lib/Utils.gs).
  * @param {string} route Rota de destino
- * @param {object} payload Dados para o body
+ * @param {object} data Dados para o body
  */
-function callProxy(route, payload) {
-  const config = getProxyConfig(); // { url, token }
-  const body = {
-    token: config.token,
-    route: route,
-    ...payload
-  };
-  
-  const options = {
+function callProxy(route, data) {
+  const payload = Object.assign({ route: route }, data);
+  if (!payload.professorEmail) {
+    payload.professorEmail = Session.getActiveUser().getEmail();
+  }
+  payload.oauthToken = ScriptApp.getOAuthToken();
+
+  // BRAIN_PROXY_URL é constante da biblioteca: o token nunca vai para uma URL configurável
+  const response = UrlFetchApp.fetch(BRAIN_PROXY_URL, {
     method: 'post',
     contentType: 'application/json',
-    payload: JSON.stringify(body),
+    payload: JSON.stringify(payload),
     muteHttpExceptions: true
-  };
-  
-  const response = UrlFetchApp.fetch(config.url, options);
+  });
   return JSON.parse(response.getContentText());
 }
 ```

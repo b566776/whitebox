@@ -6,12 +6,13 @@
  *
  * ATENÇÃO: Este é o núcleo protegido da solução Whitebox.
  * NÃO compartilhe este arquivo. Ele contém a lógica de licenciamento,
- * os prompts do Gemini e o acesso à Planilha Global.
+ * os prompts da IA e o acesso à Planilha Global.
  *
  * CONFIGURAÇÃO INICIAL (Script Properties deste script):
- *   SHARED_TOKEN        — Token secreto exigido em toda chamada (você define)
+ *   SHARED_TOKEN        — Token secreto do Admin (Dashboard e rotas administrativas)
  *   ADMIN_SPREADSHEET_ID — ID da sua Planilha Global de administração
- *   GEMINI_GLOBAL_KEY   — (Opcional) Chave Gemini global para professores autorizados
+ *   IA_PROVIDER / IA_MODEL / IA_BASE_URL / IA_GLOBAL_KEY
+ *                       — (Opcional) IA global para professores autorizados; ver IAProviders.gs
  */
 
 // =====================================================
@@ -94,9 +95,9 @@ function realizarAuditoriaIA(texto, contexto, courseId, assignmentId) {
 
   // 2. Resolver API Key (Hierarquia)
   const registro = professorEmail ? buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId) : null;
-  const apiKey = resolverChaveApi(registro, cfg.geminiGlobalKey);
+  const ia = resolverConfigIA(registro, cfg);
 
-  if (!apiKey) {
+  if (!ia) {
     return { 
       error: 'NO_API_KEY', 
       message: 'Análise indisponível: nenhuma chave API encontrada para este professor ou globalmente.' 
@@ -114,7 +115,7 @@ Analise o texto abaixo e retorne um JSON com:
 - alertas: (array de strings)`;
 
   const promptFinal = `${systemPrompt}\n\nTexto do Aluno:\n${texto}\n\nContexto:\n${contexto}`;
-  return analisarComGemini(promptFinal, {}, apiKey);
+  return analisarComIA(promptFinal, {}, ia);
 }
 
 /** 
@@ -284,24 +285,12 @@ function distribuirMestreParaProfessor(email, token) {
     const targetFolder = getOrCreateTargetFolder();
     const copy = originalFile.makeCopy(newName, targetFolder);
     
-    // 2. Injetar DeveloperMetadata de Auto-Configuração [ARCH-LIB]
+    // 2. Gravar a Auto-Configuração no documento [ARCH-LIB]
     try {
-      const cfg = getConfig();
-      const configObj = {
-        proxyUrl: cfg.proxyUrl,
-        professorEmail: email
-        // O sharedToken foi removido por segurança. O cliente usará OAuth Token.
-      };
-      
-      const doc = DocumentApp.openById(copy.getId());
-      // Limpar metadados antigos para evitar duplicados
-      const oldMeta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
-      oldMeta.forEach(m => m.remove());
-
-      doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj), DocumentApp.DeveloperMetadataVisibility.DOCUMENT);
-      Logger.log('[BrainProxy] Metadados injetados com sucesso no novo Mestre.');
+      _gravarConfigNoDocumento(copy.getId(), email);
+      Logger.log('[BrainProxy] Configuração gravada com sucesso no novo Mestre.');
     } catch (metaErr) {
-      Logger.log('[BrainProxy] Erro (não-crítico) ao injetar metadados: ' + metaErr);
+      Logger.log('[BrainProxy] Erro (não-crítico) ao gravar configuração no documento: ' + metaErr);
     }
 
     // 3. Tentar dar permissão de dono ao professor (para ir pro Meu Drive dele)
@@ -615,44 +604,49 @@ function doPost(e) {
     }
     const cfg  = getConfig();
 
-    // 1. Validação de Autenticação [Patch 2]
-    let isAuthenticated = false;
+    // 1. Autenticação [Patch 2]
+    // A. Admin via SHARED_TOKEN — credencial exclusiva do Admin, nunca distribuída a clientes.
+    const isAdmin = !!cfg.sharedToken && body.token === cfg.sharedToken;
+    // B. Cliente (professor ou aluno) via OAuth Token — identidade verificada pelo Google.
+    const callerEmail = isAdmin ? null : verificarEmailOAuth(body.oauthToken);
 
-    // A. Validação Admin (Legacy) via SHARED_TOKEN
-    if (cfg.sharedToken && body.token === cfg.sharedToken) {
-      isAuthenticated = true;
-    } 
-    // B. Validação Cliente via OAuth Token
-    else if (body.oauthToken && body.professorEmail) {
-      const cache = CacheService.getScriptCache();
-      const cacheKey = "OAUTH_" + body.oauthToken;
-      const cachedEmail = cache.get(cacheKey);
-      
-      if (cachedEmail === body.professorEmail) {
-        isAuthenticated = true;
-      } else {
-        try {
-          const response = UrlFetchApp.fetch("https://oauth2.googleapis.com/tokeninfo?access_token=" + body.oauthToken, { muteHttpExceptions: true });
-          if (response.getResponseCode() === 200) {
-            const info = JSON.parse(response.getContentText());
-            if (info.email === body.professorEmail) {
-              isAuthenticated = true;
-              cache.put(cacheKey, info.email, 1800); // Cache por 30 mins
-            }
-          }
-        } catch (authErr) {
-          Logger.log("Erro na validação OAuth: " + authErr);
-        }
-      }
-    }
-
-    if (!isAuthenticated) {
+    if (!isAdmin && !callerEmail) {
       return jsonResponse({ error: 'UNAUTHORIZED', message: 'Token inválido ou não autorizado.' }, 401);
     }
 
     const route = body.route || '';
 
-    // 2. Roteamento
+    // 2. Autorização: alunos só logam métricas (em nome do professor da turma).
+    // Nas demais rotas o chamador precisa ser o próprio professorEmail.
+    const rotaAbertaAAlunos = (route === ROUTE_LOGAR_METRICAS || route === 'ping');
+    const professorEmail = String(body.professorEmail || '').trim().toLowerCase();
+    if (!isAdmin && !rotaAbertaAAlunos && callerEmail !== professorEmail) {
+      return jsonResponse({ error: 'UNAUTHORIZED', message: 'Token inválido ou não autorizado.' }, 401);
+    }
+
+    // [AUTH-03] Papel de professor validado aqui, nunca pelo papel calculado no cliente:
+    // estas rotas exigem cadastro com Status "Ativo" na aba Assinaturas.
+    const rotaDeProfessor = [
+      ROUTE_REGISTRAR_CHAVE, ROUTE_ANALISAR,
+      ROUTE_LISTAR_TURMAS_PROFESSOR, ROUTE_CRIAR_LEVA_TEMPLATE
+    ].indexOf(route) !== -1;
+    if (rotaDeProfessor && professorEmail) {
+      const registro = buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId);
+      if (!registro) {
+        return jsonResponse({
+          error:   'PROFESSOR_NAO_CADASTRADO',
+          message: 'Professor não cadastrado. Solicite o cadastro ao administrador.'
+        }, 403);
+      }
+      if (registro.status !== 'Ativo') {
+        return jsonResponse({
+          error:   'PROFESSOR_INATIVO',
+          message: 'Licença inativa. Entre em contato com o administrador.'
+        }, 403);
+      }
+    }
+
+    // 3. Roteamento
     switch (route) {
       case ROUTE_REGISTRAR_CHAVE:
         return handleRegistrarChave(body, cfg);
@@ -715,7 +709,7 @@ function handleStatusLicenca(body, cfg) {
   }
 
   const usaGlobalBoolean = (usaChaveGlobal === 'Sim');
-  const temChave = (usaGlobalBoolean && cfg.geminiGlobalKey) ? true : 
+  const temChave = (usaGlobalBoolean && iaGlobalDisponivel(cfg)) ? true :
                    (chaveIndividual && chaveIndividual.trim().length > 0) ? true : false;
 
   return jsonResponse({
@@ -735,6 +729,8 @@ function handleStatusLicenca(body, cfg) {
  * para evitar execução acidental pelo Dashboard.
  */
 function handleResetPlanilha(body, cfg) {
+  validateAdminAccess(body.token);
+
   if (body.confirmacao !== 'CONFIRMAR_RESET') {
     return jsonResponse({
       error:   'CONFIRMACAO_NECESSARIA',
@@ -765,9 +761,10 @@ function handleRegistrarChave(body, cfg) {
   const { professorEmail, apiKey } = body;
   if (!professorEmail) return jsonResponse({ error: 'EMAIL_REQUIRED' }, 400);
 
-  // [MED-06 FIX] Validar formato do email antes de gravar na planilha
+  // [MED-06 FIX] Validar formato do email
+  let emailNormalizado;
   try {
-    validarEmail(professorEmail);
+    emailNormalizado = validarEmail(professorEmail);
   } catch (validationErr) {
     return jsonResponse({ error: 'EMAIL_INVALIDO', message: validationErr.message }, 400);
   }
@@ -782,53 +779,34 @@ function handleRegistrarChave(body, cfg) {
 
   // Buscar linha existente
   for (let i = 1; i < data.length; i++) {
-    if (data[i][emailCol] === professorEmail) {
+    if (String(data[i][emailCol]).trim().toLowerCase() === emailNormalizado) {
+      // Grafia da planilha: é a mesma que _lerChaveIndividual usa para ler 'APIKEY_' + registro.email
+      const emailRegistrado = data[i][emailCol];
       // Atualizar chave [Patch 11]
       if (apiKey) {
-        if (apiKey.startsWith('AIza')) {
-          PropertiesService.getScriptProperties().setProperty('APIKEY_' + professorEmail, apiKey);
+        if (detectarProvedorPorChave(apiKey)) {
+          PropertiesService.getScriptProperties().setProperty('APIKEY_' + emailRegistrado, apiKey);
           sheet.getRange(i + 1, chaveCol + 1).setValue('SECURE_STORAGE');
         } else {
           sheet.getRange(i + 1, chaveCol + 1).setValue(apiKey); // Cofre Drive
         }
       } else {
-        PropertiesService.getScriptProperties().deleteProperty('APIKEY_' + professorEmail);
+        PropertiesService.getScriptProperties().deleteProperty('APIKEY_' + emailRegistrado);
         sheet.getRange(i + 1, chaveCol + 1).setValue('');
       }
       // Garantir que a planilha do professor existe
-      const spreadsheetId = garantirPlanilhaProfessor(professorEmail, sheet, i, spreadsheetCol);
+      const spreadsheetId = garantirPlanilhaProfessor(emailRegistrado, sheet, i, spreadsheetCol);
       return jsonResponse({ success: true, action: 'atualizado', spreadsheetId });
     }
   }
 
-  // Professor não encontrado: cadastrar como novo (Status=Ativo, sem chave global)
-  const newRow = new Array(headers.length).fill('');
-  newRow[emailCol] = professorEmail;
-  newRow[headers.indexOf('Instituicao')] = 'Não informada';
-  newRow[headers.indexOf('Status')] = 'Ativo';
-  newRow[headers.indexOf('UsaChaveGlobal')] = 'Não';
-  
-  if (apiKey) {
-    if (apiKey.startsWith('AIza')) {
-      PropertiesService.getScriptProperties().setProperty('APIKEY_' + professorEmail, apiKey);
-      newRow[chaveCol] = 'SECURE_STORAGE';
-    } else {
-      newRow[chaveCol] = apiKey;
-    }
-  } else {
-    newRow[chaveCol] = '';
-  }
-  
-  sheet.appendRow(newRow);
-
-  // Criar planilha do professor e salvar o ID
-  const newRowIndex = sheet.getLastRow();
-  const spreadsheetId = garantirPlanilhaProfessor(professorEmail, sheet, newRowIndex - 1, spreadsheetCol);
-  return jsonResponse({ success: true, action: 'cadastrado', spreadsheetId });
+  // [AUTH-03] Sem auto-cadastro: professores entram apenas pelo onboarding do Admin
+  // (FormOnboarding / adicionarProfessor). O doPost já barra não cadastrados.
+  return jsonResponse({ error: 'PROFESSOR_NAO_CADASTRADO' }, 403);
 }
 
 // =====================================================
-//  HANDLER: Analisar com Gemini
+//  HANDLER: Analisar com IA
 // =====================================================
 
 function handleAnalisar(body, cfg) {
@@ -841,7 +819,7 @@ function handleAnalisar(body, cfg) {
   // O Auditor de IA é uma ferramenta de uso exclusivo do Professor.
   // Alunos não devem ter acesso direto a esta rota via interface.
 
-  // [ARCH-06] Rate Limiting: previne abuso da API Gemini (tokens)
+  // [ARCH-06] Rate Limiting: previne abuso da API de IA (tokens)
   const usuario = alunoEmail || 'anonimo';
   if (!verificarRateLimit(professorEmail, usuario)) {
     return jsonResponse({
@@ -854,10 +832,10 @@ function handleAnalisar(body, cfg) {
   }
 
   const registro = buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId);
-  const apiKey   = resolverChaveApi(registro, cfg.geminiGlobalKey);
+  const ia       = resolverConfigIA(registro, cfg);
 
-  // Modo Offline: sem chave disponível
-  if (!apiKey) {
+  // Modo Offline: sem IA disponível
+  if (!ia) {
     return jsonResponse({
       modoIA: false,
       toneChangeDetected: false,
@@ -867,8 +845,8 @@ function handleAnalisar(body, cfg) {
     });
   }
 
-  // Análise com Gemini (Patch 10: Incluir conselho pedagógico)
-  const analise = analisarComGemini(fragmento, metricas, apiKey, registro.conselhoPedagogico);
+  // Análise com o provedor resolvido (Patch 10: Incluir conselho pedagógico)
+  const analise = analisarComIA(fragmento, metricas, ia, registro.conselhoPedagogico);
   return jsonResponse({ modoIA: true, ...analise });
 }
 
@@ -899,30 +877,65 @@ function handleLogarMetricas(body, cfg) {
 }
 
 // =====================================================
-//  LÓGICA: Resolver Chave API (Hierarquia e Cofre Drive)
+//  LÓGICA: Resolver IA (Hierarquia e Cofre Drive)
 // =====================================================
 
-function resolverChaveApi(registro, geminiGlobalKey) {
+/**
+ * Decide qual provedor, modelo e chave atendem este professor.
+ *
+ * @param {object|null} registro - buscarRegistroProfessor()
+ * @param {object} cfg - getConfig()
+ * @returns {{ provider: string, model: string, apiKey: string|null, baseUrl: string|null }|null}
+ *          null = modo offline
+ */
+function resolverConfigIA(registro, cfg) {
   if (!registro) return null;
 
-  // 1. Chave Global (se professor está autorizado a usá-la)
-  if (registro.usaChaveGlobal === 'Sim' && geminiGlobalKey) {
-    return geminiGlobalKey;
+  // 1. IA Global (se professor está autorizado a usá-la)
+  if (registro.usaChaveGlobal === 'Sim' && iaGlobalDisponivel(cfg)) {
+    return {
+      provider: cfg.iaProvider,
+      model:    cfg.iaModel || IA_PROVIDERS[cfg.iaProvider].modeloPadrao,
+      apiKey:   cfg.iaGlobalKey,
+      baseUrl:  cfg.iaBaseUrl
+    };
   }
 
-  // 2. Chave Individual (Pode ser API Key direta, SECURE_STORAGE ou ID/Link do Cofre no Drive)
+  // 2. Chave Individual: o provedor é deduzido do formato da chave.
+  // IA_MODEL pertence ao provedor global; só vale aqui se o provedor for o mesmo.
+  const chave    = _lerChaveIndividual(registro);
+  const provider = detectarProvedorPorChave(chave);
+
+  // 3. Modo Offline
+  if (!provider) return null;
+
+  return {
+    provider: provider,
+    model:    (provider === cfg.iaProvider && cfg.iaModel) || IA_PROVIDERS[provider].modeloPadrao,
+    apiKey:   chave,
+    baseUrl:  null
+  };
+}
+
+/**
+ * Lê a chave individual do professor: API Key direta, SECURE_STORAGE ou ID/Link do Cofre no Drive.
+ *
+ * @returns {string|null}
+ * @private
+ */
+function _lerChaveIndividual(registro) {
   let chaveRaw = registro.chaveIndividual;
   if (chaveRaw && chaveRaw.trim().length > 0) {
     chaveRaw = chaveRaw.trim();
-    
+
     // [Patch 11] Se for uma chave salva no PropertiesService
     if (chaveRaw === 'SECURE_STORAGE') {
       const storedKey = PropertiesService.getScriptProperties().getProperty('APIKEY_' + registro.email);
       if (storedKey) return storedKey;
     }
-    
-    // Se for uma chave direta do Gemini (padrão AIza...) (Legacy compatibilidade)
-    if (chaveRaw.startsWith('AIza')) {
+
+    // Se for uma chave direta gravada na planilha (Legacy compatibilidade)
+    if (detectarProvedorPorChave(chaveRaw)) {
       return chaveRaw;
     }
     
@@ -954,11 +967,11 @@ function resolverChaveApi(registro, geminiGlobalKey) {
         return null;
       }
       
-      if (chaveExtraida.startsWith('AIza')) {
+      if (detectarProvedorPorChave(chaveExtraida)) {
         Logger.log('[Cofre Drive] Chave API lida do cofre do professor com sucesso.');
         return chaveExtraida;
       } else {
-        Logger.log('[Cofre Drive] O arquivo lido não contém uma chave Gemini válida.');
+        Logger.log('[Cofre Drive] O arquivo lido não contém uma chave de API reconhecida.');
         return null; // Força modo offline
       }
     } catch (e) {
@@ -967,71 +980,11 @@ function resolverChaveApi(registro, geminiGlobalKey) {
     }
   }
 
-  // 3. Modo Offline
   return null;
 }
 
-// =====================================================
-//  LÓGICA: Análise Socrática com Gemini Pro
-// =====================================================
-
-function analisarComGemini(fragmento, metricas, apiKey, conselhoPedagogico) {
-  const prompt = construirPromptSocratico(fragmento, metricas, conselhoPedagogico);
-
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey;
-
-  const payload = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.4,
-      maxOutputTokens: 512,
-      responseMimeType: 'application/json'
-    }
-  };
-
-  try {
-    const response = UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true,
-      deadline: 25  // [EDGE-02] Timeout estendido: SpreadsheetApp.create pode levar 3-8s + Gemini 2-5s
-    });
-
-    const code = response.getResponseCode();
-    const content = response.getContentText();
-
-    if (code !== 200) {
-      Logger.log('[Gemini] Erro HTTP ' + code + ': ' + content);
-      return { error: 'GEMINI_API_ERROR', code: code };
-    }
-
-    let result;
-    try {
-      result = JSON.parse(content);
-    } catch (e) {
-      Logger.log('[Gemini] Resposta da API não é um JSON válido: ' + content);
-      return { error: 'GEMINI_INVALID_RESPONSE_FORMAT' };
-    }
-
-    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!text) {
-      return { error: 'GEMINI_EMPTY_RESPONSE' };
-    }
-
-    // O prompt pede JSON estruturado - uso do extrairJSON para robustez
-    try {
-      return extrairJSON(text);
-    } catch (e) {
-      Logger.log('[Gemini] Erro ao extrair JSON do texto: ' + text);
-      return { error: 'GEMINI_PARSE_ERROR', message: e.toString() };
-    }
-  } catch (err) {
-    Logger.log('[Gemini] Exceção: ' + err);
-    return { error: 'GEMINI_EXCEPTION', message: err.toString() };
-  }
-}
+// analisarComIA() → ver IAProviders.gs
+// A chamada ao provedor (Gemini, Claude, Ollama) foi movida para IAProviders.gs.
 
 /**
  * Utilitário para extrair JSON de strings que podem conter Markdown

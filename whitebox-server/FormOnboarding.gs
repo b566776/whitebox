@@ -209,7 +209,7 @@ function onProfessorFormSubmit(e) {
       const file = DriveApp.getFileById(fileId);
       const textoChave = file.getBlob().getDataAsString().trim();
       
-      if (textoChave.startsWith('AIza')) {
+      if (detectarProvedorPorChave(textoChave)) {
         chaveAprovada = true;
       }
     } catch (err) {
@@ -282,7 +282,7 @@ function onProfessorFormSubmit(e) {
     MailApp.sendEmail({
       to: email,
       subject: '❌ Erro de Cadastro - Permissão do Cofre Drive (Whitebox)',
-      body: 'Olá!\n\nRecebemos sua inscrição no Whitebox, porém NÃO conseguimos acessar a Chave de API através do Link do Cofre fornecido.\n\nPor favor, verifique se:\n1. O link está correto.\n2. O arquivo está compartilhado conosco com permissão de "Leitor".\n3. O arquivo contém apenas a sua chave Gemini (iniciada com AIza...).\n\nCorrija as permissões no Drive e preencha o formulário novamente para ativar sua conta.'
+      body: 'Olá!\n\nRecebemos sua inscrição no Whitebox, porém NÃO conseguimos acessar a Chave de API através do Link do Cofre fornecido.\n\nPor favor, verifique se:\n1. O link está correto.\n2. O arquivo está compartilhado conosco com permissão de "Leitor".\n3. O arquivo contém apenas a sua chave de API (Gemini: iniciada com AIza...; Claude: iniciada com sk-ant-...).\n\nCorrija as permissões no Drive e preencha o formulário novamente para ativar sua conta.'
     });
   }
 }

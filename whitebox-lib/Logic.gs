@@ -5,9 +5,8 @@
  * =======================================================
  *
  * CONFIGURAÇÃO:
- *  Salve nas Script Properties DESTE script (do Add-on, não do Proxy):
- *    BRAIN_PROXY_URL  — URL do Web App do BrainProxy.gs após o deploy
- *    SHARED_TOKEN     — O mesmo token configurado no BrainProxy.gs
+ *  A URL do Brain Proxy é fixa em Constants.gs (BRAIN_PROXY_URL); não há nada a configurar
+ *  por documento. A autenticação no Proxy é feita via OAuth do usuário (sem segredo no cliente).
  */
 
 // =====================================================
@@ -21,96 +20,7 @@ function start(e) {
   DocumentApp.getUi()
     .createMenu('Whitebox')
     .addItem('Abrir Painel Whitebox', 'showSidebar')
-    .addItem('⚙️ Configurar Conexão', 'setupWhitebox')
     .addToUi();
-}
-
-/**
- * Assistente de configuração de conexão para o professor/administrador.
- * Pergunta pela URL do Brain Proxy e o SHARED_TOKEN e salva nas Script/Document Properties.
- */
-function setupWhitebox() {
-  const ui = DocumentApp.getUi();
-  
-  // 1. Pedir a URL do servidor
-  const responseUrl = ui.prompt(
-    'Configuração do Whitebox',
-    'Por favor, insira a URL do servidor (Brain Proxy):\nExemplo: https://script.google.com/macros/s/.../exec',
-    ui.ButtonSet.OK_CANCEL
-  );
-  
-  if (responseUrl.getSelectedButton() !== ui.Button.OK) {
-    return;
-  }
-  
-  const url = responseUrl.getResponseText().trim();
-  if (!url) {
-    ui.alert('Erro: A URL do servidor não pode ser vazia.');
-    return;
-  }
-  
-  // 2. Pedir o token
-  const responseToken = ui.prompt(
-    'Configuração do Whitebox',
-    'Insira o SHARED_TOKEN gerado pelo servidor:\nExemplo: WBX-xxxx...',
-    ui.ButtonSet.OK_CANCEL
-  );
-  
-  if (responseToken.getSelectedButton() !== ui.Button.OK) {
-    return;
-  }
-  
-  const token = responseToken.getResponseText().trim();
-  
-  // 3. Ping de validação
-  ui.alert('Aguarde', 'Validando conexão com o servidor...', ui.ButtonSet.OK);
-  
-  try {
-    const payload = {
-      route: 'ping',
-      token: token
-    };
-    
-    const response = UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
-    
-    if (response.getResponseCode() !== 200) {
-      ui.alert('Erro de Conexão', 'O servidor retornou código HTTP ' + response.getResponseCode() + '. Verifique a URL.', ui.ButtonSet.OK);
-      return;
-    }
-    
-    const resText = response.getContentText();
-    let resBody;
-    try {
-      resBody = JSON.parse(resText);
-    } catch(e) {
-      ui.alert('Erro de Resposta', 'O servidor não retornou um JSON válido. Verifique a URL.', ui.ButtonSet.OK);
-      return;
-    }
-    
-    if (resBody.error || !resBody.ok) {
-      ui.alert('Erro de Autenticação', 'O token fornecido é inválido ou recusado pelo servidor.', ui.ButtonSet.OK);
-      return;
-    }
-    
-    // 4. Salvar nas ScriptProperties do Add-on e também no documento atual para garantir
-    const scriptProps = PropertiesService.getScriptProperties();
-    scriptProps.setProperty('BRAIN_PROXY_URL', url);
-    scriptProps.setProperty('SHARED_TOKEN', token);
-    
-    // Salvar nas DocumentProperties do documento ativo também
-    const docProps = PropertiesService.getDocumentProperties();
-    docProps.setProperty('BRAIN_PROXY_URL', url);
-    docProps.setProperty('SHARED_TOKEN', token);
-    
-    ui.alert('Sucesso', '✅ Whitebox Configurado com sucesso!\n\nFeche e reabra o painel lateral para aplicar as alterações.', ui.ButtonSet.OK);
-  } catch(err) {
-    ui.alert('Erro Crítico', 'Falha ao conectar com o servidor: ' + err.toString(), ui.ButtonSet.OK);
-  }
 }
 
 function showSidebar() {
@@ -152,13 +62,7 @@ function saveTeacherApiKey(apiKey) {
  */
 function getTeacherLicenseStatus() {
   const userEmail = Session.getActiveUser().getEmail();
-  const result    = callProxy(ROUTE_STATUS_LICENCA, { professorEmail: userEmail });
-
-  if (result.error === 'PROXY_NOT_CONFIGURED') {
-    return { status: 'PROXY_NAO_CONFIGURADO', modoIA: false };
-  }
-
-  return result;
+  return callProxy(ROUTE_STATUS_LICENCA, { professorEmail: userEmail });
 }
 
 // =====================================================
@@ -219,7 +123,7 @@ function getContext() {
   const item3Data = getAdvancedItem3Data();
 
   // [AUTH-01] Detecção dinâmica de papel
-  // Professor = Dono do Doc OU Dono da pasta (professorEmail do Item 3) OU Metadado (professorEmail do WHITEBOX_CONFIG)
+  // Professor = Dono do Doc OU Dono da pasta (professorEmail do Item 3) OU Designado (professorEmail do WHITEBOX_CONFIG)
   let isOwner = false;
   try {
     const owner = DriveApp.getFileById(doc.getId()).getOwner();
@@ -231,41 +135,18 @@ function getContext() {
   const isProfessor = item3Data && item3Data.professorEmail && 
     (item3Data.professorEmail.trim().toLowerCase() === userEmail);
 
-  // Busca professor designado explicitamente no metadado do documento (injetado via Distribuir Template)
-  let designatedProfessor = null;
-  try {
-    const meta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
-    for (let i = 0; i < meta.length; i++) {
-      try {
-        const configObj = JSON.parse(meta[i].getValue());
-        if (configObj && configObj.professorEmail) {
-          const emailStr = configObj.professorEmail.trim().toLowerCase();
-          // Se corresponder ao usuário atual, prioriza
-          if (emailStr === userEmail) {
-            designatedProfessor = emailStr;
-            break;
-          }
-          // Caso contrário, guarda o primeiro que encontrar
-          if (!designatedProfessor) {
-            designatedProfessor = emailStr;
-          }
-        }
-      } catch (parseErr) {
-        Logger.log('[Whitebox] Erro ao parsear metadado index ' + i + ': ' + parseErr);
-      }
-    }
-  } catch(e) {
-    Logger.log('[Whitebox] Erro ao ler WHITEBOX_CONFIG: ' + e);
-  }
-  const isDesignated = designatedProfessor && userEmail && 
-    (designatedProfessor.trim().toLowerCase() === userEmail);
+  // Busca professor designado explicitamente no documento (gravado pelo servidor via Distribuir Template).
+  const designatedProfessor = getDesignatedProfessor(userEmail);
+  const isDesignated = designatedProfessor && userEmail &&
+    (designatedProfessor === userEmail);
 
-  // Validação complementar: verifica se o e-mail está cadastrado como professor no banco de dados.
-  // Caso o proxy não esteja configurado ainda (primeira instalação), permitimos o fallback de isOwner/isProfessor.
+  // Validação complementar: o servidor confirma se o e-mail está na tabela de professores
+  // (ATIVO ou INATIVO). NAO_CADASTRADO, proxy não configurado e falha de rede não confirmam
+  // nada: como o Classroom torna o aluno dono da cópia, isOwner sozinho não basta.
   let isRegisteredProfessor = false;
   try {
     const license = getTeacherLicenseStatus();
-    if (license && (license.status === 'ATIVO' || license.status === 'INATIVO' || license.status === 'PROXY_NAO_CONFIGURADO' || license.status === 'NAO_CADASTRADO')) {
+    if (license && (license.status === 'ATIVO' || license.status === 'INATIVO')) {
       isRegisteredProfessor = true;
     }
   } catch (e) {
@@ -278,6 +159,8 @@ function getContext() {
   //   - caso contrário → student
   // Motivação: isDesignated não depende de resposta do proxy, evitando que falha
   // de rede ou licença force o professor a ver a UI de aluno.
+  // O papel aqui só decide qual UI aparece: quem autoriza as rotas de professor
+  // é o servidor (doPost exige cadastro Ativo para o e-mail verificado via OAuth).
   const role = isDesignated ? 'teacher' : ((isOwner || isProfessor) && isRegisteredProfessor) ? 'teacher' : 'student';
 
   const responseObj = {
@@ -309,13 +192,107 @@ function getDocumentStats() {
     .map(p => p.getText().trim().length)
     .filter(len => len > 0);
 
+  _checkAndUpdatePasteSnapshot(paragraphs);
+
   return {
-    docId:             doc.getId(),
-    length:            text.length,
-    wordCount:         text.split(/\s+/).filter(w => w.length > 0).length,
+    docId:              doc.getId(),
+    length:             text.length,
+    wordCount:          text.split(/\s+/).filter(w => w.length > 0).length,
     structureSignature: structureSignature,
-    fullTextChunk:     text.substring(0, 1000)
+    paragraphLengths:   paragraphs.map(p => p.getText().trim().length),
+    fullTextChunk:      text.substring(0, 1000)
   };
+}
+
+/**
+ * Compara comprimentos atuais dos parágrafos com o snapshot anterior
+ * (armazenado em DocumentProperties). Parágrafos que cresceram >= 50 chars
+ * desde a última checagem são marcados como paste no WHITEBOX_PASTE_MAP.
+ * Atualiza o snapshot ao final para a próxima comparação.
+ *
+ * Chamada por getDocumentStats() (a cada 15s do sidebar do aluno) e por
+ * getDocumentAuraMap() (quando o professor clica em Atualizar) — qualquer
+ * verificação que vier primeiro captura a colagem, sem depender do outro.
+ *
+ * [FIX-PASTE-01] Além da comparação incremental, também detecta parágrafos
+ * que são outliers extremos (>= 4x a mediana do documento E >= 400 chars).
+ * Isto captura colagens que ocorreram ANTES do primeiro snapshot,
+ * que o método incremental jamais detectaria.
+ */
+function _checkAndUpdatePasteSnapshot(paragraphs) {
+  const props   = PropertiesService.getDocumentProperties();
+  const current = paragraphs.map(p => p.getText().trim().length);
+
+  // Incremental diff: paragraph grew >= 80 chars since last check → paste
+  try {
+    const prevRaw = props.getProperty('WHITEBOX_PARA_SNAPSHOT');
+    if (prevRaw) {
+      const prev     = JSON.parse(prevRaw);
+      const mapRaw   = props.getProperty(DOC_PROP_PASTE_MAP) || '{}';
+      const pasteMap = JSON.parse(mapRaw);
+      let   dirty    = false;
+      current.forEach(function(len, idx) {
+        if (len - (prev[idx] || 0) >= 80 && !pasteMap[String(idx)]) {
+          pasteMap[String(idx)] = 'snapshot';
+          dirty = true;
+        }
+      });
+      if (dirty) props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify(pasteMap));
+    }
+  } catch (e) {
+    Logger.log('[Whitebox] _checkAndUpdatePasteSnapshot: ' + e);
+  }
+
+  // Anomaly detection: >= 200 chars AND >= 2.5x median catches pre-snapshot pastes.
+  // Runs for ALL document sizes (no minimum paragraph count).
+  try {
+    const nonEmpty = current.filter(function(len) { return len > 0; });
+    if (nonEmpty.length >= 1) {
+      const sorted = nonEmpty.slice().sort(function(a, b) { return a - b; });
+      const mid    = Math.floor(sorted.length / 2);
+      const median = (sorted.length % 2 !== 0)
+        ? sorted[mid]
+        : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+      const minMedian = Math.max(1, median);
+
+      const mapRaw   = props.getProperty(DOC_PROP_PASTE_MAP) || '{}';
+      const pasteMap = JSON.parse(mapRaw);
+      let   dirty    = false;
+      current.forEach(function(len, idx) {
+        if (len >= 200 && len >= minMedian * 2.5 && !pasteMap[String(idx)]) {
+          pasteMap[String(idx)] = 'anomaly';
+          dirty = true;
+        }
+      });
+      if (dirty) props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify(pasteMap));
+    }
+  } catch (e) {
+    Logger.log('[Whitebox] _checkAndUpdatePasteSnapshot anomaly: ' + e);
+  }
+
+  try {
+    props.setProperty('WHITEBOX_PARA_SNAPSHOT', JSON.stringify(current));
+  } catch (e) {
+    Logger.log('[Whitebox] snapshot save: ' + e);
+  }
+}
+
+/**
+ * Marca os índices de parágrafo informados como "paste detectado" no DocumentProperty.
+ * Chamado pelo sidebar quando sizeDiff >= 50 num parágrafo específico.
+ * @param {number[]} paragraphIndices
+ */
+function updatePasteMap(paragraphIndices) {
+  if (!paragraphIndices || paragraphIndices.length === 0) return;
+  try {
+    const props    = PropertiesService.getDocumentProperties();
+    const raw      = props.getProperty(DOC_PROP_PASTE_MAP) || '{}';
+    const pasteMap = JSON.parse(raw);
+    paragraphIndices.forEach(function(idx) { pasteMap[String(idx)] = true; });
+    props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify(pasteMap));
+  } catch (e) {
+    Logger.log('[Whitebox] updatePasteMap erro: ' + e);
+  }
 }
 
 // =====================================================
@@ -361,19 +338,28 @@ function getSelectedTextInfo() {
 function sendToBackend(payload) {
   const item3  = getAdvancedItem3Data();
   const userEmail      = Session.getActiveUser().getEmail();
-  const professorEmail = item3.professorEmail || userEmail;
+  // Professor do documento: o designado pelo servidor na distribuição. O dono da pasta só
+  // vale sem designação — na cópia do Classroom, o dono do arquivo e da pasta é o aluno.
+  const professorEmail = getDesignatedProfessor((userEmail || '').trim().toLowerCase()) ||
+                         item3.professorEmail || userEmail;
   const turma          = item3.gradeLevel || TURMA_FALLBACK;
   const alunoEmail     = payload.studentContext?.rawEmail || userEmail;
 
   const professorDesconhecido = (professorEmail === 'NAO_IDENTIFICADO');
+  const pediuAnalise = !!(payload.contentAnalysis && payload.contentAnalysis.selectedFragment);
   let analise = null;
+  let falhaIA = null; // { error, message }: motivo real quando a análise foi pedida e não veio
 
   // [AUTH-02] Bloqueio de Segurança: Aluno não interage com IA Auditor
   const ctx = getContext();
   const isStudent = (ctx.initialRole === 'student');
 
-  // Se há fragmento selecionado, pedir análise ao Gemini via Proxy (SÓ PARA PROFESSOR)
-  if (!isStudent && !professorDesconhecido && payload.contentAnalysis && payload.contentAnalysis.selectedFragment) {
+  // Se há fragmento selecionado, pedir análise à IA via Proxy (SÓ PARA PROFESSOR)
+  if (pediuAnalise && isStudent) {
+    falhaIA = { error: 'SOMENTE_PROFESSOR', message: 'A análise de IA é exclusiva do professor.' };
+  } else if (pediuAnalise && professorDesconhecido) {
+    falhaIA = { error: 'PROFESSOR_NAO_IDENTIFICADO', message: 'Não foi possível identificar o professor deste documento.' };
+  } else if (pediuAnalise) {
     const analiseResult = callProxy(ROUTE_ANALISAR, {
       professorEmail: professorEmail,
       alunoEmail:     alunoEmail,
@@ -381,7 +367,10 @@ function sendToBackend(payload) {
       metricas:       payload.behavioralMetrics || {}
     });
 
-    if (!analiseResult.error) {
+    // Erro (do servidor ou do provedor de IA) e modo offline não são uma análise
+    if (analiseResult.error || analiseResult.modoIA === false) {
+      falhaIA = analiseResult;
+    } else {
       analise = analiseResult;
     }
   }
@@ -418,13 +407,17 @@ function sendToBackend(payload) {
     };
   }
 
-  // Modo Offline ou erro na IA
+  // Modo Offline ou erro na IA: aiError leva o motivo real para a Sidebar, que o exibe
+  // no lugar de um resultado. Resposta offline do servidor não tem `error` → 'OFFLINE'.
   return {
     status:             200,
     modoIA:             false,
     toneChangeDetected: false,
     riskEvidence:       null,
-    pedagogicalAdvice:  analise?.message || 'Análise de IA não disponível. Configure sua API Key nas configurações.',
+    pedagogicalAdvice:  falhaIA?.message || 'Análise de IA não disponível. Configure sua API Key nas configurações.',
+    aiError:            falhaIA
+      ? { code: falhaIA.error || 'OFFLINE', message: falhaIA.message || falhaIA.error }
+      : null,
     quizData:           [],
     quizStatus:         QUIZ_NONE,
     sourceAnalysis:     []
@@ -540,8 +533,10 @@ function getSubmissionStatus() {
     accessLevel === DocumentApp.Permission.COMMENT
   );
   const ctx         = getAdvancedItem3Data();
-  const userEmail   = Session.getActiveUser().getEmail();
-  const isProfessor = (userEmail === ctx.professorEmail);
+  const userEmail   = (Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+  // Mesmo critério de sendToBackend: professor designado; dono da pasta só sem designação
+  const professor   = getDesignatedProfessor(userEmail) || ctx.professorEmail || '';
+  const isProfessor = (userEmail === professor.trim().toLowerCase());
   const finalStatus = isProfessor ? false : (isFlagged || isViewerOnly);
 
   return {
@@ -612,46 +607,243 @@ function getDocumentAuraMap() {
   const doc        = DocumentApp.getActiveDocument();
   const body       = doc.getBody();
   const paragraphs = body.getParagraphs();
+  const docId      = doc.getId();
 
-  // [MED-02] Tentar ler mapa de colagens persistido pela Sidebar
-  // Formato esperado: { "0": true, "3": true } — índices de parágrafos com paste detectado
-  let pasteMap = {};
+  // Layer 2: snapshot + anomaly (fast, always runs)
+  _checkAndUpdatePasteSnapshot(paragraphs);
+
+  // Layer 1: Drive revision fingerprint diff (retroactive, 30-min cache, graceful fail)
   try {
-    const rawPasteMap = PropertiesService.getDocumentProperties().getProperty(DOC_PROP_PASTE_MAP);
-    if (rawPasteMap) pasteMap = JSON.parse(rawPasteMap);
+    _detectPasteFromRevisions(docId, paragraphs);
   } catch (e) {
-    // Ignora silenciosamente — pasteMap permanece vazio
+    Logger.log('[Whitebox] getDocumentAuraMap: revision diff outer error: ' + e);
+  }
+
+  // Read pasteMap — cached 5 min to avoid re-reading DocProperties on rapid professor refreshes
+  var pasteMap = {};
+  try {
+    var rawPasteMap =
+      PropertiesService.getDocumentProperties()
+        .getProperty(DOC_PROP_PASTE_MAP);
+
+    if (rawPasteMap) {
+      pasteMap = JSON.parse(rawPasteMap);
+    }
+  } catch (e) {
+    Logger.log('[Whitebox] pasteMap read: ' + e);
+  }
+
+  const allTexts = paragraphs.map(p => p.getText().trim()).filter(t => t.length > 0);
+  const medianLen = _computeMedianParagraphLength(allTexts);
+
+  // Layer 3: TTR lexical divergence — experimental, disabled by default.
+  // Enable: Apps Script → Project Settings → Script Properties → WHITEBOX_TTR_ENABLED = true
+  var ttrEnabled = false;
+  var docAvgTTR  = 0;
+  try {
+    ttrEnabled = PropertiesService.getScriptProperties()
+                   .getProperty('WHITEBOX_TTR_ENABLED') === 'true';
+  } catch (e) {}
+
+  if (ttrEnabled) {
+    try {
+      var ttrSum = 0, ttrCount = 0;
+      for (var ti = 0; ti < allTexts.length; ti++) {
+        if (allTexts[ti].length > 20) {
+          var tWords = _tokenizeParagraph(allTexts[ti]);
+          if (tWords.length > 0) {
+            var tUniq = {};
+            for (var tu = 0; tu < tWords.length; tu++) { tUniq[tWords[tu]] = true; }
+            ttrSum += Object.keys(tUniq).length / tWords.length;
+            ttrCount++;
+          }
+        }
+      }
+      docAvgTTR = ttrCount > 0 ? ttrSum / ttrCount : 0;
+    } catch (e) { docAvgTTR = 0; }
   }
 
   return paragraphs.map((p, index) => {
     const text = p.getText().trim();
     if (text.length === 0) return null;
 
-    // Score base: neutro para qualquer comprimento (textos longos não são suspeitos por natureza)
-    let score = 80;
+    const r = text.length / medianLen;
+    let score;
+    if (r <= 0.3)       { score = 70; }
+    else if (r <= 0.8)  { score = 92 - ((r - 0.3) / 0.5) * 10; }
+    else if (r <= 1.2)  { score = 82 - ((r - 0.8) / 0.4) * 8; }
+    else if (r <= 1.8)  { score = 74 - ((r - 1.2) / 0.6) * 20; }
+    else if (r <= 3.0)  { score = 54 - ((r - 1.8) / 1.2) * 22; }
+    else { const capped = Math.min(r, 8.0); score = 32 - ((capped - 3.0) / 5.0) * 22; }
 
-    // Penalidade progressiva apenas para textos muito curtos sem contexto
-    if (text.length < 20) score = 60; // Possível placeholder
+    if (text.length < 20) score = Math.min(score, 60);
 
-    // Penalidade por paste detectado (dado de telemetria real > heurística de tamanho)
-    if (pasteMap[String(index)]) {
-      score = Math.min(score, 35); // Colagem detectada neste parágrafo
+    let lexicalPenalty = 0;
+    if (ttrEnabled) {
+      lexicalPenalty = _computeParagraphLexicalScore(text, docAvgTTR);
+      score = score - lexicalPenalty;
     }
 
-    // Variância visual leve para POC (remover quando integrar dados reais do Gemini)
-    const variance = (index % 3 === 0) ? -5 : 3;
-    score = Math.max(10, Math.min(100, score + variance));
+    const rawScore = Math.max(10, Math.min(100, Math.round(score)));
+
+    if (pasteMap[String(index)]) score = Math.min(score, 30);
+
+    score = Math.max(10, Math.min(100, Math.round(score)));
 
     return {
-      index:        index,
-      preview:      text.substring(0, 30) + '...',
-      score:        score,
-      charCount:    text.length,
-      color:        score > 70 ? '#10b981' : (score > 40 ? '#f59e0b' : '#ef4444'),
-      hasPageBreak: p.getAttributes()[DocumentApp.Attribute.PAGE_BREAK_BEFORE] === true,
-      isPasteDetected: !!pasteMap[String(index)] // Flag explícita para a UI
+      index:           index,
+      preview:         text.substring(0, 30) + '...',
+      score:           score,
+      rawScore:        rawScore,
+      charCount:       text.length,
+      ratio:           Math.round(r * 10) / 10,
+      lexicalPenalty:  lexicalPenalty,
+      color:           score > 80 ? '#10b981' : (score > 55 ? '#f59e0b' : '#ef4444'),
+      hasPageBreak:    p.getAttributes()[DocumentApp.Attribute.PAGE_BREAK_BEFORE] === true,
+      isPasteDetected: !!pasteMap[String(index)],
+      pasteSource:     pasteMap[String(index)] || null
     };
   }).filter(item => item !== null);
+}
+
+/**
+ * Median paragraph length used by getDocumentAuraMap() for relative scoring.
+ * Median is preferred over mean: a single large paste block would inflate the mean,
+ * falsely normalising all genuine paragraphs as "short".
+ *
+ * @param {string[]} texts - Trimmed, non-empty paragraph strings.
+ * @returns {number} Median character length, minimum 1.
+ */
+function _computeMedianParagraphLength(texts) {
+  if (!texts || texts.length === 0) return 1;
+  const lengths = texts.map(t => t.length).sort((a, b) => a - b);
+  const mid = Math.floor(lengths.length / 2);
+  const median = (lengths.length % 2 !== 0)
+    ? lengths[mid]
+    : Math.round((lengths[mid - 1] + lengths[mid]) / 2);
+  return Math.max(1, median);
+}
+
+// =====================================================
+//  LAYER 1 — Drive Revision Fingerprint Diff
+// =====================================================
+
+function _normalizeBlockText(text) {
+  return text.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function _buildFingerprintSet(exportText) {
+  var set   = {};
+  var lines = exportText.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var norm = _normalizeBlockText(lines[i]);
+    if (norm.length >= 60) {
+      set[norm.substring(0, 60)] = true;
+    }
+  }
+  return set;
+}
+
+function _detectPasteFromRevisions(docId, paragraphs) {
+  try {
+    var cache    = CacheService.getDocumentCache();
+    var cacheKey = 'REV_DIFF_DONE_' + docId;
+    if (cache.get(cacheKey)) {
+      Logger.log('[Whitebox] _detectPasteFromRevisions: cache HIT');
+      return;
+    }
+
+    var revResponse = Drive.Revisions.list(docId);
+    if (!revResponse || !revResponse.revisions || revResponse.revisions.length < 2) return;
+
+    var allRevs   = revResponse.revisions;
+    var startIdx  = Math.max(0, allRevs.length - 20);
+    var revWindow = allRevs.slice(startIdx);
+
+    var token    = ScriptApp.getOAuthToken();
+    var requests = [];
+    for (var i = 0; i < revWindow.length; i++) {
+      var rev = revWindow[i];
+      if (rev.exportLinks && rev.exportLinks['text/plain']) {
+        requests.push({
+          url:     rev.exportLinks['text/plain'],
+          method:  'get',
+          headers: { Authorization: 'Bearer ' + token },
+          muteHttpExceptions: true
+        });
+      }
+    }
+    if (requests.length < 2) return;
+
+    var responses = UrlFetchApp.fetchAll(requests);
+
+    var props    = PropertiesService.getDocumentProperties();
+    var mapRaw   = props.getProperty(DOC_PROP_PASTE_MAP) || '{}';
+    var pasteMap = JSON.parse(mapRaw);
+    var dirty    = false;
+
+    for (var j = 1; j < responses.length; j++) {
+      if (responses[j - 1].getResponseCode() !== 200 ||
+          responses[j].getResponseCode()     !== 200) continue;
+
+      var prevText = responses[j - 1].getContentText();
+      var currText = responses[j].getContentText();
+
+      if (currText.length - prevText.length < 100) continue;
+
+      var prevSet = _buildFingerprintSet(prevText);
+      var currSet = _buildFingerprintSet(currText);
+
+      for (var k = 0; k < paragraphs.length; k++) {
+        if (pasteMap[String(k)]) continue;
+
+        var pNorm = _normalizeBlockText(paragraphs[k].getText());
+        if (pNorm.length < 60) continue;
+
+        var fp = pNorm.substring(0, 60);
+        if (currSet[fp] && !prevSet[fp]) {
+          pasteMap[String(k)] = 'revision';
+          dirty = true;
+        }
+      }
+    }
+
+    if (dirty) props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify(pasteMap));
+
+    try { cache.put(cacheKey, '1', 1800); } catch (cacheErr) {}
+    Logger.log('[Whitebox] _detectPasteFromRevisions done.' +
+      ' revisions=' + revResponse.revisions.length +
+      ' revWindow='  + revWindow.length +
+      ' requests='   + requests.length +
+      ' dirty='      + dirty +
+      ' pasteMap='   + JSON.stringify(pasteMap));
+
+  } catch (e) {
+    Logger.log('[Whitebox] _detectPasteFromRevisions (graceful fail): ' + e);
+  }
+}
+
+// =====================================================
+//  LAYER 3 — TTR Lexical Divergence (feature flag)
+// =====================================================
+
+function _tokenizeParagraph(text) {
+  if (!text) return [];
+  return text.toLowerCase()
+    .replace(/[^a-záéíóúàãõâêîôûç\s]/gi, ' ')
+    .split(/\s+/)
+    .filter(function(w) { return w.length > 0; });
+}
+
+function _computeParagraphLexicalScore(text, docAvgTTR) {
+  if (!text || text.length <= 80) return 0;
+  if (typeof docAvgTTR !== 'number' || docAvgTTR <= 0) return 0;
+  var words = _tokenizeParagraph(text);
+  if (words.length === 0) return 0;
+  var unique = {};
+  for (var j = 0; j < words.length; j++) { unique[words[j]] = true; }
+  var ttr = Object.keys(unique).length / words.length;
+  return (Math.abs(ttr - docAvgTTR) > 0.25) ? 15 : 0;
 }
 
 function scrollToParagraph(paragraphIndex) {

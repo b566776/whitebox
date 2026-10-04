@@ -14,73 +14,56 @@
  */
 
 // =====================================================
-//  CONFIGURAÇÃO: Script Properties do Add-on
+//  CONFIGURAÇÃO: Professor designado no documento
 // =====================================================
+// A URL do servidor não é configurável: ver BRAIN_PROXY_URL em Constants.gs.
 
 /**
- * [REFINED] Busca as credenciais do Brain Proxy com fallback hierárquico:
- * 1. DeveloperMetadata do Documento (Configurado via Mestre/Leva)
- * 2. DocumentProperties do Documento (Configuração local do Doc)
- * 3. ScriptProperties da Biblioteca (Global do Professor)
+ * Lê do documento os professores designados pelo servidor na distribuição
+ * (NamedRanges cujo nome é DOC_CONFIG_RANGE_PREFIX + JSON).
  *
- * @returns {{ proxyUrl: string, sharedToken: string }}
+ * O Docs não tem DeveloperMetadata (isso existe só no Sheets). O NamedRange faz parte
+ * do conteúdo, então acompanha as cópias feitas pelo Classroom. O servidor grava na
+ * primeira aba; lemos dela, e não da aba ativa.
+ *
+ * Só o professorEmail é lido daqui. A URL do proxy NUNCA vem do documento (é a constante
+ * BRAIN_PROXY_URL): o aluno é dono da cópia e poderia apontá-la para outro servidor,
+ * que receberia o OAuth token do professor quando ele abrisse o documento.
+ *
+ * @returns {string[]} Emails em lowercase (vazio se não houver designação)
  */
-function getProxyConfig() {
-  const doc = DocumentApp.getActiveDocument();
-  let proxyUrl = '';
-  let sharedToken = '';
-
-  // 1. Tentar DeveloperMetadata (Melhor para persistência em cópias via API)
+function getDesignatedProfessors() {
+  const emails = [];
   try {
-    const meta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
-    for (let i = 0; i < meta.length; i++) {
+    const ranges = DocumentApp.getActiveDocument().getTabs()[0].asDocumentTab().getNamedRanges();
+    ranges.forEach(function(range) {
+      const name = range.getName();
+      if (name.indexOf(DOC_CONFIG_RANGE_PREFIX) !== 0) return;
       try {
-        const config = JSON.parse(meta[i].getValue());
-        if (config && config.proxyUrl) {
-          proxyUrl = config.proxyUrl;
-          sharedToken = config.sharedToken || '';
-          // Se encontrar um com o email do usuário atual, prioriza e termina
-          const userEmail = Session.getActiveUser().getEmail() || '';
-          if (config.professorEmail && config.professorEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
-            break;
-          }
+        const config = JSON.parse(name.substring(DOC_CONFIG_RANGE_PREFIX.length));
+        if (config && config.professorEmail) {
+          emails.push(String(config.professorEmail).trim().toLowerCase());
         }
       } catch (parseErr) {
-        Logger.log('[Whitebox-Lib] Erro ao parsear metadado index ' + i + ': ' + parseErr);
+        Logger.log('[Whitebox-Lib] Erro ao parsear WHITEBOX_CONFIG: ' + parseErr);
       }
-    }
+    });
   } catch (e) {
-    // Apenas loga erro real de parsing, não a ausência de metadados
-    if (e.toString().includes('SyntaxError')) {
-      Logger.log('[Whitebox-Lib] Erro de sintaxe no DeveloperMetadata: ' + e);
-    }
+    Logger.log('[Whitebox-Lib] Erro ao ler WHITEBOX_CONFIG: ' + e);
   }
+  return emails;
+}
 
-  // 2. Tentar DocumentProperties (Configuração manual no documento)
-  if (!proxyUrl) {
-    const docProps = PropertiesService.getDocumentProperties();
-    proxyUrl = docProps.getProperty('BRAIN_PROXY_URL');
-    sharedToken = docProps.getProperty('SHARED_TOKEN');
-  }
-
-  // 3. Fallback: ScriptProperties (Global para este projeto de Biblioteca)
-  if (!proxyUrl) {
-    const scriptProps = PropertiesService.getScriptProperties();
-    proxyUrl = scriptProps.getProperty('BRAIN_PROXY_URL');
-    sharedToken = scriptProps.getProperty('SHARED_TOKEN');
-  }
-
-  if (!proxyUrl || proxyUrl.startsWith('COLE') || proxyUrl.trim() === '') {
-    throw new Error(
-      '[Whitebox] BRAIN_PROXY_URL não localizada. ' +
-      'Configure nas Propriedades da Biblioteca ou do Documento.'
-    );
-  }
-
-  return { 
-    proxyUrl: proxyUrl, 
-    sharedToken: sharedToken || '' 
-  };
+/**
+ * Professor designado deste documento do ponto de vista de um usuário: o próprio
+ * usuário, se ele estiver entre os designados; caso contrário, o primeiro designado.
+ *
+ * @param {string} userEmail - Em lowercase
+ * @returns {string|null} null se o documento não tiver designação
+ */
+function getDesignatedProfessor(userEmail) {
+  const designados = getDesignatedProfessors();
+  return designados.indexOf(userEmail) !== -1 ? userEmail : (designados[0] || null);
 }
 
 // =====================================================
@@ -105,27 +88,17 @@ function getProxyConfig() {
  */
 function callProxy(route, data) {
   try {
-    const cfg = getProxyConfig();
-
-    if (!cfg.proxyUrl) {
-      Logger.log('[Whitebox] BRAIN_PROXY_URL não configurada.');
-      return { error: 'PROXY_NOT_CONFIGURED' };
-    }
-
     const payload = Object.assign({ route: route }, data);
-    
-    // Se tivermos SHARED_TOKEN (legacy ou admin), enviamos.
-    // Caso contrário, enviamos o oauthToken (Cliente via OAuth).
-    if (cfg.sharedToken) {
-      payload.token = cfg.sharedToken;
-    } else {
-      payload.oauthToken = ScriptApp.getOAuthToken();
-      if (!payload.professorEmail) {
-        payload.professorEmail = Session.getActiveUser().getEmail();
-      }
-    }
 
-    const response = UrlFetchApp.fetch(cfg.proxyUrl, {
+    if (!payload.professorEmail) {
+      payload.professorEmail = Session.getActiveUser().getEmail();
+    }
+    // Autenticação: o oauthToken prova ao servidor quem é o usuário e permite que ele
+    // chame a Classroom API como o professor (o servidor roda como USER_DEPLOYING/Admin).
+    payload.oauthToken = ScriptApp.getOAuthToken();
+
+    // O token só pode ir para a URL fixa no código; nunca para uma URL configurável.
+    const response = UrlFetchApp.fetch(BRAIN_PROXY_URL, {
       method:             'post',
       contentType:        'application/json',
       payload:            JSON.stringify(payload),

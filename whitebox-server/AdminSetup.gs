@@ -40,7 +40,6 @@ function setupPlanilhaGlobal() {
   config.getRange('1:1').setFontWeight('bold').setBackground('#444444').setFontColor('#ffffff');
   config.appendRow(['VersaoSchema',    SCHEMA_VERSION_ATUAL,  'Versão do schema da Planilha Global (ARCH-05)']);
   config.appendRow(['versao_addon',    '2.1',                 'Versão com Integração Classroom']);
-  config.appendRow(['gemini_model',    'gemini-1.5-flash',    'Modelo Gemini']);
   config.appendRow(['seed_document_id', '',                   'Doc Semente Master']);
 
   return { id: ss.getId(), url: ss.getUrl() };
@@ -90,6 +89,17 @@ function resetPlanilhaGlobal() {
     newUrl:   result.url,
     backupId: oldId
   };
+}
+
+/**
+ * Gera um novo SHARED_TOKEN (credencial exclusiva do Admin) e invalida o anterior.
+ * Executar manualmente no Editor do Apps Script. O valor não é logado: leia-o em
+ * Configurações do projeto → Propriedades do script e informe-o no Dashboard.
+ */
+function rotacionarSharedToken() {
+  PropertiesService.getScriptProperties()
+    .setProperty(PROP_SHARED_TOKEN, TOKEN_PREFIX + Utilities.getUuid());
+  Logger.log('[AdminSetup] SHARED_TOKEN rotacionado. O token anterior não é mais aceito.');
 }
 
 /**

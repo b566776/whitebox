@@ -13,14 +13,21 @@
  */
 
 // =====================================================
-//  SCRIPT PROPERTIES: Chaves do Add-on
+//  SERVIDOR: URL do Brain Proxy
 // =====================================================
 
-/** URL do Web App do Brain Proxy (whitebox-server após deploy) */
-const PROP_BRAIN_PROXY_URL  = 'BRAIN_PROXY_URL';
-
-/** Token compartilhado — deve ser idêntico ao configurado no servidor */
-const PROP_SHARED_TOKEN     = 'SHARED_TOKEN';
+/**
+ * URL do Web App do Brain Proxy (whitebox-server). É para cá que o add-on envia o
+ * OAuth token do usuário em toda chamada.
+ *
+ * Fica fixa no código de propósito: se viesse de propriedades ou do conteúdo do documento,
+ * qualquer usuário poderia apontá-la para outro servidor e receber os tokens dos demais.
+ *
+ * Para trocar: edite aqui, crie uma nova versão da biblioteca e atualize o cliente.
+ * Atualizar a implantação existente (clasp update-deployment) NÃO muda a URL;
+ * só criar uma implantação nova muda.
+ */
+const BRAIN_PROXY_URL = 'https://script.google.com/macros/s/AKfycbwAzIlfKhJ2zoX7NV1jCzuGU8gb7PeNtXHE3evj1-X5ebcI2oiMbKUhrqrSWhL73uqg/exec';
 
 // =====================================================
 //  DOCUMENT PROPERTIES: Chaves persistidas no documento
@@ -37,6 +44,17 @@ const DOC_PROP_STUDENT_EMAIL = 'STUDENT_EMAIL';
 
 /** Mapa de eventos de colagem capturados via telemetria da Sidebar (JSON) */
 const DOC_PROP_PASTE_MAP    = 'WHITEBOX_PASTE_MAP';
+
+// =====================================================
+//  DOCUMENTO: Auto-configuração gravada pelo servidor
+// =====================================================
+
+/**
+ * Prefixo do nome do NamedRange que carrega a configuração no documento.
+ * Formato: DOC_CONFIG_RANGE_PREFIX + JSON ({ professorEmail }).
+ * DEVE ser idêntico ao de whitebox-server/Constants.gs.
+ */
+const DOC_CONFIG_RANGE_PREFIX = 'WHITEBOX_CONFIG:';
 
 // =====================================================
 //  ROTAS DO PROXY (callProxy)

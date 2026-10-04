@@ -27,15 +27,21 @@
  * Extraído de BrainProxy.gs para que qualquer módulo possa chamar
  * sem depender do contexto do roteador.
  *
- * @returns {{ sharedToken: string, adminSpreadsheetId: string, geminiGlobalKey: string|null }}
+ * @returns {{ sharedToken: string, adminSpreadsheetId: string,
+ *             iaProvider: string, iaModel: string|null, iaBaseUrl: string|null, iaGlobalKey: string|null }}
  */
 function getConfig() {
-  const props = PropertiesService.getScriptProperties();
+  const props      = PropertiesService.getScriptProperties();
+  const iaProvider = (props.getProperty(PROP_IA_PROVIDER) || 'gemini').trim().toLowerCase();
   return {
     sharedToken:        props.getProperty(PROP_SHARED_TOKEN),
     adminSpreadsheetId: props.getProperty(PROP_ADMIN_SPREADSHEET_ID),
-    geminiGlobalKey:    props.getProperty(PROP_GEMINI_GLOBAL_KEY) || null,
-    proxyUrl:           props.getProperty(PROP_BRAIN_PROXY_URL) || ScriptApp.getService().getUrl()
+    iaProvider:         iaProvider,
+    iaModel:            props.getProperty(PROP_IA_MODEL) || null,
+    iaBaseUrl:          props.getProperty(PROP_IA_BASE_URL) || null,
+    // A chave legada do Gemini só vale para o Gemini: nunca é enviada a outro provedor.
+    iaGlobalKey:        props.getProperty(PROP_IA_GLOBAL_KEY) ||
+                        (iaProvider === 'gemini' ? props.getProperty(PROP_GEMINI_GLOBAL_KEY) : null) || null
   };
 }
 
@@ -55,6 +61,48 @@ function validateAdminAccess(token) {
   const shared = props.getProperty(PROP_SHARED_TOKEN);
   if (!shared || token !== shared) {
     throw new Error('UNAUTHORIZED: Token Administrativo inválido ou ausente.');
+  }
+}
+
+// =====================================================
+//  AUTENTICAÇÃO CLIENTE (OAuth)
+// =====================================================
+
+/**
+ * Verifica um OAuth access token junto ao Google e retorna o email do dono.
+ * Resultado cacheado até a expiração do token (máx. 30 min).
+ *
+ * @param {string} oauthToken - Enviado pelo callProxy do add-on
+ * @returns {string|null} Email em lowercase, ou null se o token for inválido
+ */
+function verificarEmailOAuth(oauthToken) {
+  if (!oauthToken) return null;
+
+  // Chave = hash do token: tokens excedem o limite de 250 chars das chaves de cache.
+  const cache    = CacheService.getScriptCache();
+  const cacheKey = 'OAUTH_' + Utilities.base64EncodeWebSafe(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, oauthToken)
+  );
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const response = UrlFetchApp.fetch(
+      'https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(oauthToken),
+      { muteHttpExceptions: true }
+    );
+    if (response.getResponseCode() !== 200) return null;
+
+    const info = JSON.parse(response.getContentText());
+    if (!info.email) return null;
+
+    const email = String(info.email).toLowerCase();
+    const ttl   = Math.min(1800, parseInt(info.expires_in, 10) || 0);
+    if (ttl > 0) cache.put(cacheKey, email, ttl);
+    return email;
+  } catch (authErr) {
+    Logger.log('[Utils] Erro na validação OAuth: ' + authErr);
+    return null;
   }
 }
 
@@ -195,8 +243,12 @@ function buscarRegistroProfessor(email, adminSpreadsheetId) {
       throw new Error('Coluna "Email" não encontrada na aba Assinaturas.');
     }
 
+    // Emails não diferenciam maiúsculas: a planilha pode ter grafia diferente da conta Google.
+    const alvo = String(email || '').trim().toLowerCase();
+    if (!alvo) return null;
+
     for (let i = 1; i < data.length; i++) {
-      if (data[i][emailCol] === email) {
+      if (String(data[i][emailCol]).trim().toLowerCase() === alvo) {
         return {
           email:           data[i][emailCol],
           escola:          escolaCol !== -1 ? data[i][escolaCol] : '',
@@ -249,7 +301,8 @@ function extrairJSON(texto) {
   
   // Retorno Gracioso para não estourar a API do Cliente
   return {
-    error: 'GEMINI_PARSE_FALLBACK',
+    error: 'IA_PARSE_FALLBACK',
+    message: 'A IA respondeu, mas não em um formato que o Whitebox consiga ler. Tente um trecho menor ou tente novamente.',
     riskEvidence: 'A IA respondeu, mas não foi possível estruturar os dados. Resposta bruta: ' + texto.substring(0, 150) + '...',
     pedagogicalAdvice: 'Tente analisar um trecho menor ou tente novamente em alguns instantes.',
     scoreIntegridade: null

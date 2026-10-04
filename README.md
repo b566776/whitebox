@@ -69,12 +69,12 @@ graph TD
     
     %% Fluxo de Configuração
     Doc -- "2. Fornece Auto-Config <br/>(WHITEBOX_CONFIG)" --> Lib
-    Lib -- "3. Requisita IA / Logs <br/>(POST + Token)" --> Server
+    Lib -- "3. Requisita IA / Logs <br/>(POST + OAuth)" --> Server
 
     %% Persistência e Integração
     Server -- "Grava Auditoria" --> ProfDB
     Server -- "Gerencia Licenças" --> AdminDB
-    Server -- "Injeta Metadados <br/>na Distribuição" --> Doc
+    Server -- "Grava o professor designado <br/>na Distribuição" --> Doc
 
     %% Detalhes de Configuração
     style Client fill:#f9f,stroke:#333,stroke-width:2px
@@ -84,8 +84,8 @@ graph TD
     classDef config font-style:italic,fill:#eee,stroke:#999
     
     C_Config["<b>Config Cliente:</b><br/>- Script ID da Lib<br/>- Identificador: 'WhiteboxLib'"]:::config
-    L_Config["<b>Config Lib:</b><br/>- Lê DeveloperMetadata<br/>- Fallback: Script Properties"]:::config
-    S_Config["<b>Config Servidor:</b><br/>- BRAIN_PROXY_URL<br/>- SHARED_TOKEN<br/>- GEMINI_GLOBAL_KEY"]:::config
+    L_Config["<b>Config Lib:</b><br/>- Professor: NamedRange WHITEBOX_CONFIG<br/>- URL do servidor: constante BRAIN_PROXY_URL"]:::config
+    S_Config["<b>Config Servidor:</b><br/>- SHARED_TOKEN<br/>- IA_PROVIDER / IA_MODEL / IA_GLOBAL_KEY"]:::config
 
     Client -.-> C_Config
     Lib -.-> L_Config
@@ -103,16 +103,18 @@ graph TD
 ---
 
 ### 1. Servidor (whitebox-server)
-O servidor centraliza a lógica de IA (Gemini), o armazenamento de logs e o gerenciamento de licenças.
+O servidor centraliza a lógica de IA, o armazenamento de logs e o gerenciamento de licenças. O provedor de IA é configurável (Gemini, Claude ou Ollama) pelas Propriedades do Script; veja "Configurar a IA" em [whitebox-server/DEPLOY.md](whitebox-server/DEPLOY.md).
 Vá até a pasta Classroom e crie a pasta WhiteBox Admin. Crie um novo Script Google Apps. Vá até Configurações e copie o 'Código do script' e cole no clasp.json do whitebox-server. Execute o comnado  clasp push -f para transferir o codigo fonte para o script google . 
 
 3.  **Deploy**: No editor do Apps Script, realize uma "Nova Implantação" como **Web App**.
     *   **Executar como**: Eu (seu e-mail de administrador).
-    *   **Quem tem acesso**: Qualquer pessoa (a segurança é garantida via `SHARED_TOKEN`).
-4.  **Coleta de Dados**: Após o deploy, copie a **URL do Web App** gerada. Esta será a "ponte" de comunicação para o cliente.
+    *   **Quem tem acesso**: Qualquer pessoa (clientes se autenticam via OAuth do Google; o `SHARED_TOKEN` é exclusivo do Admin).
+4.  **Coleta de Dados**: Após o deploy, copie a **URL do Web App** gerada e cole-a na constante `BRAIN_PROXY_URL` de `whitebox-lib/Constants.gs`. Esta será a "ponte" de comunicação para o cliente. Para publicar mudanças depois, atualize a implantação existente em vez de criar outra: assim a URL não muda.
 
 ### 2. Cliente (whitebox-client) - O Wrapper "Imortal"
-O cliente agora atua como um despachante leve (Wrapper) que consome a lógica central de uma **Biblioteca**. Isso permite atualizar o código de milhares de documentos distribuídos instantaneamente, sem que o professor precise trocar o documento modelo.
+O cliente agora atua como um despachante leve (Wrapper) que consome a lógica central de uma **Biblioteca**, de modo que o código do wrapper raramente precisa mudar.
+
+> **Atenção — as cópias não se atualizam sozinhas.** Cada documento carrega no manifesto a versão da biblioteca que estava fixada quando foi copiado. Uma versão nova só chega a documentos distribuídos **depois** de atualizar o número no `appsscript.json` do cliente; as cópias já entregues continuam na versão antiga. O modo de desenvolvimento (`developmentMode`) só entrega o código mais recente a quem tem acesso de **edição** à biblioteca — alunos e professores recebem a versão fixada. Por isso o servidor precisa continuar compatível com as versões da biblioteca ainda em uso.
 
 1.  **Vincular Biblioteca**: No editor do Apps Script do cliente, adicione a `WhiteboxLib`.
     *   **Script ID**: O ID do script é a parte longa da URL de compartilhamento da biblioteca: `https://script.google.com/macros/library/d/[SCRIPT_ID]/[VERSAO]`.
@@ -122,14 +124,16 @@ O cliente agora atua como um despachante leve (Wrapper) que consome a lógica ce
     cd whitebox-client
     clasp push
     ```
-3.  **Auto-Configuração**: O cliente tenta se configurar sozinho via `DeveloperMetadata` injetados pelo servidor. Caso falhe, ele busca nas `Propriedades do Script`:
-    *   `BRAIN_PROXY_URL`: URL do Web App do servidor.
-    *   `SHARED_TOKEN`: Token de segurança idêntico ao do servidor.
+3.  **Auto-Configuração**:
+    *   **Professor designado**: na distribuição, o servidor grava o e-mail do professor no documento (NamedRange `WHITEBOX_CONFIG`), que acompanha as cópias dos alunos. O Google Docs não tem `DeveloperMetadata`; isso existe só no Sheets.
+    *   **`BRAIN_PROXY_URL`**: URL do Web App do servidor, fixa no código da biblioteca (`whitebox-lib/Constants.gs`). Não é lida de propriedades nem do documento, e nenhum usuário consegue alterá-la: é para ela que o OAuth token é enviado.
+    *   Nenhum segredo fica no cliente: cada chamada envia o OAuth token do usuário, que o servidor valida junto ao Google.
+4.  **Escopos**: o `oauthScopes` do cliente é o que vale para o usuário, inclusive para o código da biblioteca. As listas de `whitebox-client/appsscript.json` e `whitebox-lib/appsscript.json` devem ser idênticas (detalhes em [docs/development-guide.md](docs/development-guide.md)).
 
 ### 3. Biblioteca (whitebox-lib) - O Motor Central
 Contém toda a lógica de negócio, UI e utilitários.
 1.  **Deploy**: Realize o push do código e crie uma "Nova Implantação" do tipo **Biblioteca**.
-2.  **Versão**: Sempre que fizer mudanças críticas na lógica, crie uma nova versão da biblioteca no console e atualize o cliente (ou mantenha na versão 'Head' para desenvolvimento).
+2.  **Versão**: A cada mudança que deva chegar aos usuários, crie uma nova versão da biblioteca e atualize o campo `version` no `appsscript.json` do cliente antes de redistribuir o documento modelo. A versão 'Head' (modo de desenvolvimento) serve apenas para quem edita a biblioteca testar.
 
 ### 3. A "Mágica" da Replicação (Criação do Doc Modelo)
 Para distribuir a ferramenta via **Google Classroom**:
@@ -158,4 +162,4 @@ A arquitetura do Google Docs possui barreiras importantes que você precisa conh
 ---
 
 ## 🛠 Informação aos Desenvolvedores / Analytics
-Para assegurar privacidade e eficiência sem quebras com APIs excessivas, toda batida capturada na interface envia pacotes assíncronos ao motor de Machine Learning utilizando uma "Identidade Tripla" formatada baseada rigidamente nos laços de compartilhamento e pastificações do Google Workspace. A representação interna dos `Payloads` fluem via POST amarrados sob a semântica: `[E-mail do Professor] + [Turma/Classroom] + [E-mail do Aluno] + [ID do Documento]`.
+Para assegurar privacidade e eficiência sem quebras com APIs excessivas, toda batida capturada na interface envia pacotes assíncronos ao motor de Machine Learning utilizando uma "Identidade Tripla" formatada baseada rigidamente nos laços de compartilhamento e pastificações do Google Workspace. A representação interna dos `Payloads` fluem via POST amarrados sob a semântica: `[E-mail do Professor] + [Turma/Classroom] + [E-mail do Aluno] + [ID do Documento]`. O e-mail do professor é o do **professor designado** no documento (gravado pelo servidor na distribuição); o dono da pasta só é usado em documentos sem designação.

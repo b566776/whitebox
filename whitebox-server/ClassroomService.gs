@@ -82,24 +82,140 @@ function publishToClassroom(courseId, seedDocId, title, description, token) {
 
 /**
  * Registra a criação da tarefa na Planilha Global do Admin.
+ * @param {string} professorEmail - Email do professor (obrigatório; Session.getActiveUser()
+ *   retorna string vazia em doPost com executeAs:USER_DEPLOYING + acesso anônimo).
  */
-function registrarTarefaGlobal(assignmentId, title, courseId, token) {
+function registrarTarefaGlobal(assignmentId, title, courseId, token, professorEmail) {
   const cfg = getConfig();
   const ss = SpreadsheetApp.openById(cfg.adminSpreadsheetId);
   const sheet = ss.getSheetByName('Tarefas_Globais');
-  
-  // Buscar nome da instituição do professor logado (simplificado para o e-mail logado)
-  const professorEmail = Session.getActiveUser().getEmail();
-  const instituicao = buscarInstituicaoProfessor(professorEmail);
+
+  // Fallback defensivo — só usado se chamado por código legado sem o 5º argumento.
+  const email = professorEmail || Session.getActiveUser().getEmail() || 'desconhecido';
+  const instituicao = buscarInstituicaoProfessor(email);
 
   sheet.appendRow([
     assignmentId,
-    professorEmail,
+    email,
     instituicao,
     title,
     courseId,
     new Date().toISOString()
   ]);
+}
+
+
+// =====================================================
+//  HELPERS: Classroom API via OAuth do Professor
+// =====================================================
+// Necessários porque o Web App executa como Admin (USER_DEPLOYING).
+// Usar o oauthToken do professor via UrlFetchApp garante que as chamadas
+// à Classroom API ocorram no contexto do professor — permitindo listar e
+// criar atividades nos cursos onde o professor (não o Admin) é docente.
+
+/**
+ * Lista cursos ativos onde o PROFESSOR (dono do token) é docente.
+ * @param {string} oauthToken  Token OAuth do professor (enviado pelo callProxy do add-on).
+ * @returns {Array<{id, name, section}>}
+ */
+function _getClassroomCoursesViaOAuth(oauthToken) {
+  let allCourses = [];
+  let pageToken  = null;
+
+  do {
+    let url = 'https://classroom.googleapis.com/v1/courses?teacherId=me&courseStates=ACTIVE&pageSize=50';
+    if (pageToken) url += '&pageToken=' + encodeURIComponent(pageToken);
+
+    const resp = UrlFetchApp.fetch(url, {
+      headers:            { 'Authorization': 'Bearer ' + oauthToken },
+      muteHttpExceptions: true,
+      deadline:           20
+    });
+
+    if (resp.getResponseCode() !== 200) {
+      Logger.log('[ClassroomService] _getClassroomCoursesViaOAuth HTTP ' +
+                 resp.getResponseCode() + ': ' + resp.getContentText().substring(0, 200));
+      break;
+    }
+
+    const data = JSON.parse(resp.getContentText());
+    if (data.courses) allCourses = allCourses.concat(data.courses);
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+
+  return allCourses.map(c => ({
+    id:      c.id,
+    name:    c.name,
+    section: c.section || ''
+  }));
+}
+
+/**
+ * Cria uma atividade (CourseWork) no Classroom como o professor.
+ * @param {string} oauthToken  Token OAuth do professor.
+ * @param {string} courseId
+ * @param {object} resource    Objeto CourseWork conforme a REST API do Classroom.
+ * @returns {object} Objeto assignment retornado pela API.
+ * @throws {Error} Se a API retornar status != 200.
+ */
+function _createCourseWorkViaOAuth(oauthToken, courseId, resource) {
+  const url = 'https://classroom.googleapis.com/v1/courses/' +
+              encodeURIComponent(courseId) + '/courseWork';
+
+  const resp = UrlFetchApp.fetch(url, {
+    method:             'post',
+    headers:            {
+      'Authorization': 'Bearer ' + oauthToken,
+      'Content-Type':  'application/json'
+    },
+    payload:            JSON.stringify(resource),
+    muteHttpExceptions: true,
+    deadline:           30
+  });
+
+  if (resp.getResponseCode() !== 200) {
+    const errBody = resp.getContentText().substring(0, 400);
+    Logger.log('[ClassroomService] _createCourseWorkViaOAuth HTTP ' +
+               resp.getResponseCode() + ': ' + errBody);
+    throw new Error('Classroom API retornou ' + resp.getResponseCode() + ': ' + errBody);
+  }
+
+  return JSON.parse(resp.getContentText());
+}
+
+/**
+ * Lista alunos matriculados num curso, usando o token do professor.
+ * @param {string} oauthToken
+ * @param {string} courseId
+ * @returns {number} Total de alunos matriculados.
+ */
+function _listStudentsViaOAuth(oauthToken, courseId) {
+  let total     = 0;
+  let pageToken = null;
+
+  do {
+    let url = 'https://classroom.googleapis.com/v1/courses/' +
+              encodeURIComponent(courseId) + '/students?pageSize=100';
+    if (pageToken) url += '&pageToken=' + encodeURIComponent(pageToken);
+
+    const resp = UrlFetchApp.fetch(url, {
+      headers:            { 'Authorization': 'Bearer ' + oauthToken },
+      muteHttpExceptions: true,
+      deadline:           15
+    });
+
+    if (resp.getResponseCode() !== 200) {
+      Logger.log('[ClassroomService] _listStudentsViaOAuth HTTP ' +
+                 resp.getResponseCode() + ' para courseId=' + courseId);
+      break;
+    }
+
+    const data = JSON.parse(resp.getContentText());
+    total    += (data.students || []).length;
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+
+  return total;
 }
 
 /**

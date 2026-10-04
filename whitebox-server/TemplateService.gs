@@ -164,21 +164,11 @@ function handleDistribuirTemplate(body, cfg) {
       const nomeCopia      = templateNome + ' — ' + email;
       const copia          = templateFile.makeCopy(nomeCopia, pastaProfessor);
 
-      // 2. Injetar DeveloperMetadata de Auto-Configuração [ARCH-LIB]
+      // 2. Gravar a Auto-Configuração no documento [ARCH-LIB]
       try {
-        const doc = DocumentApp.openById(copia.getId());
-        // Limpar metadados antigos com a mesma chave para evitar duplicados
-        const oldMeta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
-        oldMeta.forEach(m => m.remove());
-
-        const configObj = {
-          proxyUrl:       cfg.proxyUrl,
-          sharedToken:    cfg.sharedToken,
-          professorEmail: email // [AUTH-01 FIX] Designa explicitamente o professor
-        };
-        doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj), DocumentApp.DeveloperMetadataVisibility.DOCUMENT);
+        _gravarConfigNoDocumento(copia.getId(), email); // [AUTH-01 FIX] Designa explicitamente o professor
       } catch (metaErr) {
-        Logger.log('[TemplateService] Erro ao injetar metadados: ' + metaErr);
+        Logger.log('[TemplateService] Erro ao gravar configuração no documento: ' + metaErr);
       }
 
       // 3. Compartilhar com o professor como dono (para ficar no Meu Drive dele)
@@ -255,22 +245,28 @@ function handleListarTurmasProfessor(body, cfg) {
   }
 
   try {
-    // Buscar turmas onde o professor é owner/teacher (executa como: o Add-on)
-    const turmas = getClassroomCourses(); // reutiliza ClassroomService.gs
+    // Usar o oauthToken do professor para listar os cursos DELE, não os do Admin.
+    // O servidor roda como USER_DEPLOYING (Admin), portanto getClassroomCourses()
+    // retornaria apenas os cursos do Admin — o que não é o que queremos.
+    const { oauthToken } = body;
+    const turmas = oauthToken
+      ? _getClassroomCoursesViaOAuth(oauthToken)
+      : getClassroomCourses(); // fallback legado (Admin)
 
-    // Enriquecer com contagem de alunos (paginado)
+    // Enriquecer com contagem de alunos
     const turmasEnriquecidas = turmas.map(turma => {
       let totalAlunos = 0;
       try {
-        let pageToken = null;
-        do {
-          const resp = Classroom.Courses.Students.list(turma.id, {
-            pageSize: 100,
-            pageToken
-          });
-          totalAlunos += (resp.students || []).length;
-          pageToken = resp.nextPageToken;
-        } while (pageToken);
+        if (oauthToken) {
+          totalAlunos = _listStudentsViaOAuth(oauthToken, turma.id);
+        } else {
+          let pageToken = null;
+          do {
+            const resp = Classroom.Courses.Students.list(turma.id, { pageSize: 100, pageToken });
+            totalAlunos += (resp.students || []).length;
+            pageToken = resp.nextPageToken;
+          } while (pageToken);
+        }
       } catch (e) {
         Logger.log('[TemplateService] Erro ao contar alunos da turma ' + turma.id + ': ' + e);
       }
@@ -349,29 +345,15 @@ function handleCriarLevaTemplate(body, cfg) {
   const templateNome = templateFile.getName();
 
   // ── Injetar configuração no template ANTES de criar as cópias ──────────
-  // O Google Classroom preserva DeveloperMetadata ao fazer STUDENT_COPY,
-  // garantindo que cada aluno receba a URL e o token automaticamente.
+  // O NamedRange faz parte do conteúdo e acompanha o STUDENT_COPY do Classroom,
+  // então cada cópia de aluno carrega o professor designado.
+  // Nem o SHARED_TOKEN nem a URL do proxy vão no documento.
   try {
-    const templateDoc = DocumentApp.openById(templateDocId);
-    // Remover metadados antigos para evitar duplicados
-    const oldMeta = templateDoc.getDeveloperMetadata()
-                               .filter(m => m.getKey() === 'WHITEBOX_CONFIG');
-    oldMeta.forEach(m => m.remove());
-
-    const configObj = {
-      proxyUrl:       cfg.proxyUrl,
-      sharedToken:    cfg.sharedToken,
-      professorEmail: professorEmail
-    };
-    templateDoc.addDeveloperMetadata(
-      'WHITEBOX_CONFIG',
-      JSON.stringify(configObj),
-      DocumentApp.DeveloperMetadataVisibility.DOCUMENT
-    );
-    Logger.log('[TemplateService] WHITEBOX_CONFIG injetado no template: ' + templateDocId);
+    _gravarConfigNoDocumento(templateDocId, professorEmail);
+    Logger.log('[TemplateService] WHITEBOX_CONFIG gravado no template: ' + templateDocId);
   } catch (metaErr) {
-    Logger.log('[TemplateService] Aviso: falha ao injetar metadados no template: ' + metaErr);
-    // Não interromper — o Classroom cria a atividade mesmo sem metadados
+    Logger.log('[TemplateService] Aviso: falha ao gravar configuração no template: ' + metaErr);
+    // Não interromper — o Classroom cria a atividade mesmo sem a configuração
   }
   // ───────────────────────────────────────────────────────────────────────
 
@@ -391,18 +373,35 @@ function handleCriarLevaTemplate(body, cfg) {
         titulo, instrucoes, templateDocId, prazo
       );
 
-      // Criar atividade no Classroom
-      const assignment = Classroom.Courses.CourseWork.create(courseWorkResource, courseId);
+      // Criar atividade no Classroom como o PROFESSOR (via oauthToken),
+      // não como Admin. Isso garante que a atividade apareça nos cursos
+      // do professor e seja visível para os alunos matriculados neles.
+      const { oauthToken } = body;
+      const assignment = oauthToken
+        ? _createCourseWorkViaOAuth(oauthToken, courseId, courseWorkResource)
+        : Classroom.Courses.CourseWork.create(courseWorkResource, courseId);
 
       // Buscar nome da turma para log legível
       let courseNome = courseId;
       try {
-        const course = Classroom.Courses.get(courseId);
-        courseNome = course.name + (course.section ? ' — ' + course.section : '');
+        if (oauthToken) {
+          const courseResp = UrlFetchApp.fetch(
+            'https://classroom.googleapis.com/v1/courses/' + encodeURIComponent(courseId),
+            { headers: { 'Authorization': 'Bearer ' + oauthToken }, muteHttpExceptions: true }
+          );
+          if (courseResp.getResponseCode() === 200) {
+            const c = JSON.parse(courseResp.getContentText());
+            courseNome = c.name + (c.section ? ' — ' + c.section : '');
+          }
+        } else {
+          const course = Classroom.Courses.get(courseId);
+          courseNome = course.name + (course.section ? ' — ' + course.section : '');
+        }
       } catch (e) {}
 
-      // Registrar na Planilha Global (Tarefas_Globais) para heatmap e auditoria
-      registrarTarefaGlobal(assignment.id, titulo, courseId, body.token);
+      // Registrar na Planilha Global (Tarefas_Globais) — passa professorEmail explicitamente
+      // [FIX] Session.getActiveUser().getEmail() retorna '' em doPost com acesso anônimo.
+      registrarTarefaGlobal(assignment.id, titulo, courseId, body.token, professorEmail);
 
       // Registrar na planilha individual do professor (aba Levas)
       const idLeva = _registrarLevasProfessor({
@@ -420,9 +419,15 @@ function handleCriarLevaTemplate(body, cfg) {
       // Contar alunos na turma (para relatório)
       let totalAlunos = 0;
       try {
-        const resp = Classroom.Courses.Students.list(courseId, { pageSize: 100 });
-        totalAlunos = (resp.students || []).length;
-      } catch (e) {}
+        totalAlunos = oauthToken
+          ? _listStudentsViaOAuth(oauthToken, courseId)
+          : (() => {
+              const resp = Classroom.Courses.Students.list(courseId, { pageSize: 100 });
+              return (resp.students || []).length;
+            })();
+      } catch (e) {
+        Logger.log('[TemplateService] Erro ao contar alunos em ' + courseId + ': ' + e);
+      }
 
       totalDocsCriados += totalAlunos;
       resultadosPorTurma.push({
@@ -527,6 +532,35 @@ function handleHistoricoTemplates(body, cfg) {
 // =====================================================
 //  HELPERS INTERNOS
 // =====================================================
+
+/**
+ * Grava no documento o professor designado, lido pelo cliente em getDesignatedProfessors().
+ *
+ * O Docs não tem DeveloperMetadata (isso existe só no Sheets). O JSON vai no NOME de um
+ * NamedRange do primeiro elemento do corpo: faz parte do conteúdo, então acompanha as
+ * cópias do documento. Não é segredo — qualquer script com acesso ao documento consegue ler.
+ *
+ * A URL do proxy NÃO é gravada aqui de propósito: o aluno é dono da cópia e poderia
+ * apontá-la para outro servidor, que receberia o OAuth token do professor quando ele
+ * abrisse o documento.
+ *
+ * @private
+ */
+function _gravarConfigNoDocumento(docId, professorEmail) {
+  const nome = DOC_CONFIG_RANGE_PREFIX + JSON.stringify({ professorEmail: professorEmail });
+  if (nome.length > 256) {
+    throw new Error('Configuração excede o limite de 256 caracteres do nome de um NamedRange.');
+  }
+
+  const doc = DocumentApp.openById(docId);
+  // Remover configurações antigas para evitar duplicados
+  doc.getNamedRanges()
+     .filter(r => r.getName().indexOf(DOC_CONFIG_RANGE_PREFIX) === 0)
+     .forEach(r => r.remove());
+
+  doc.addNamedRange(nome, doc.newRange().addElement(doc.getBody().getChild(0)).build());
+  doc.saveAndClose(); // gravar já: o Classroom copia o documento nesta mesma execução
+}
 
 /**
  * Constrói o objeto CourseWork para criação no Classroom.

@@ -33,8 +33,8 @@ function runAllTests() {
     test_validarEmail_vazio,
     test_jsonResponse_comStatus,
     test_jsonResponse_status200,
-    test_getProxyConfig_semProps,
     test_construirPromptSocratico_idiomaPtBR,
+    test_detectarProvedorPorChave,
     test_getOrCreateTargetFolder_naoLancaErro,
     test_calcularHeatmapAluno_emailVazio,
     test_fecharFormulariosVencidos_semTriggerUid,
@@ -135,37 +135,6 @@ function test_jsonResponse_status200() {
 }
 
 // =====================================================
-//  TESTES: getProxyConfig (whitebox-client)
-//  NOTA: Requer acesso à Script Properties — roda no contexto do cliente
-// =====================================================
-
-function test_getProxyConfig_semProps() {
-  // [FIX] Esta função é do whitebox-client. Se estivermos rodando no server, ignorar.
-  if (typeof getProxyConfig !== 'function') {
-    return { skip: true, reason: 'getProxyConfig() é uma função exclusiva do whitebox-client.' };
-  }
-
-  // Verificar que sem props configuradas lança erro descritivo
-  // (funciona apenas se BRAIN_PROXY_URL e SHARED_TOKEN não estiverem definidas)
-  const props     = PropertiesService.getScriptProperties();
-  const savedUrl  = props.getProperty('BRAIN_PROXY_URL');
-  const savedToken = props.getProperty('SHARED_TOKEN');
-
-  if (savedUrl && savedToken) {
-    return { skip: true, reason: 'Script Properties já configuradas — teste de ausência pulado.' };
-  }
-
-  let lancouErro = false;
-  try {
-    getProxyConfig();
-  } catch (e) {
-    lancouErro = true;
-    assert(e.message.includes('[Whitebox]'), 'Erro deve ter prefixo [Whitebox]');
-  }
-  assert(lancouErro, 'getProxyConfig sem props deve lançar Error');
-}
-
-// =====================================================
 //  TESTES: construirPromptSocratico (BrainProxy.gs)
 // =====================================================
 
@@ -176,6 +145,17 @@ function test_construirPromptSocratico_idiomaPtBR() {
   assert(prompt.includes('português brasileiro'), 'Prompt deve conter instrução de idioma pt-BR');
   assert(prompt.includes('riskScore'), 'Prompt deve incluir campo riskScore no JSON');
   assert(prompt.includes('suggestedQuestion'), 'Prompt deve incluir campo suggestedQuestion');
+}
+
+// =====================================================
+//  TESTES: detectarProvedorPorChave (IAProviders.gs)
+// =====================================================
+
+function test_detectarProvedorPorChave() {
+  assertEquals(detectarProvedorPorChave('AIzaSyExemplo'), 'gemini', 'Chave AIza... é do Gemini');
+  assertEquals(detectarProvedorPorChave('sk-ant-api03-exemplo'), 'claude', 'Chave sk-ant-... é do Claude');
+  assertEquals(detectarProvedorPorChave('1BxiMVs0XRY5IdDoArquivoNoDrive'), null, 'ID de cofre no Drive não é chave');
+  assertEquals(detectarProvedorPorChave(''), null, 'Vazio não é chave');
 }
 
 // =====================================================

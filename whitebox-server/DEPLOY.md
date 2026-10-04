@@ -5,13 +5,13 @@
 ```
 [Documento Google do Aluno]
         |
-        | UrlFetchApp (HTTPS + Token)
+        | UrlFetchApp (HTTPS + OAuth do usuário)
         v
 [Brain Proxy — Script Standalone]  <-- código proprietário, só você tem acesso
         |
         |---> Planilha Global (Admin/Dev)  — Assinaturas de professores por escola
         |---> Planilha do Professor        — Logs das turmas
-        |---> API do Gemini Pro            — Análise socrática
+        |---> Provedor de IA configurável  — Análise socrática (Gemini, Claude ou Ollama)
 ```
 
 ---
@@ -41,18 +41,19 @@
 
 1. Abra o Script Editor do Documento Modelo (ou crie um novo projeto vinculado).
 2. Copie os arquivos de `addonAutonomo-apps-script/` para o editor.
-3. Vá em **Configurações do Projeto → Propriedades do Script** e adicione:
+3. Cole a URL copiada no Passo 3 na constante `BRAIN_PROXY_URL` de `whitebox-lib/Constants.gs` e
+   publique uma nova versão da biblioteca. A URL não é mais lida de Propriedades do Script: fica
+   fixa no código para que nenhum usuário possa redirecionar o Add-on para outro servidor.
 
-| Propriedade       | Valor                                          |
-|-------------------|------------------------------------------------|
-| `BRAIN_PROXY_URL` | URL copiada no Passo 3                         |
-| `SHARED_TOKEN`    | O mesmo token configurado no BrainProxy        |
+O Add-on não recebe token: ele se autentica com a conta Google do usuário. O `SHARED_TOKEN`
+fica só nas Script Properties do Brain Proxy, para o Dashboard Admin.
 
 ---
 
 ## PASSO 5: Cadastrar Professores
 
-Existem três formas de adicionar professores à base do Whitebox:
+Só e-mails cadastrados aqui, com `Status: Ativo`, têm o papel de professor. Não há auto-cadastro
+pelo Add-on. Existem três formas de adicionar professores à base do Whitebox:
 
 **Opção A — Onboarding Automático (Recomendado)**
 1. No `Dashboard.html`, clique em **"Gerar Link de Inscrição Segura"**.
@@ -74,21 +75,56 @@ adicionarProfessor("vip@escola.com.br", "Escola XYZ", true, ""); // Chave Global
 
 ---
 
-## Hierarquia de Chaves API & Segurança de Dados
+## Configurar a IA (Script Properties do Brain Proxy)
+
+A IA global atende os professores com `UsaChaveGlobal: Sim`. Configure em
+**Configurações do Projeto → Propriedades do Script**:
+
+| Propriedade     | Valor                                                                 |
+|-----------------|-----------------------------------------------------------------------|
+| `IA_PROVIDER`   | `gemini` (padrão se ausente), `claude` ou `ollama`                    |
+| `IA_MODEL`      | Opcional. Sem ela vale o padrão do provedor. Obrigatória para `ollama` |
+| `IA_BASE_URL`   | Só `ollama`: URL pública do servidor (ex.: `https://ollama.com`)      |
+| `IA_GLOBAL_KEY` | Chave do provedor. Opcional para `ollama`                             |
+
+Exemplos:
+
+| Cenário | `IA_PROVIDER` | `IA_MODEL` | `IA_BASE_URL` | `IA_GLOBAL_KEY` |
+|---|---|---|---|---|
+| Gemini (padrão: `gemini-3.8-flash`) | — | — | — | `AIza...` |
+| Gemini sempre no Flash mais recente | — | `gemini-flash-latest` | — | `AIza...` |
+| Claude (padrão: `claude-opus-5-5`) | `claude` | — | — | `sk-ant-...` |
+| Claude com outro modelo | `claude` | `claude-haiku-4-5` | — | `sk-ant-...` |
+| Ollama da instituição | `ollama` | `gemma4:31b` | `https://ollama.escola.br` | — |
+| Ollama Cloud | `ollama` | `gemma4:31b` | `https://ollama.com` | chave do Ollama |
+
+Observações:
+- Instalações antigas continuam funcionando: sem `IA_PROVIDER`, o servidor usa Gemini com a
+  `GEMINI_GLOBAL_KEY` existente. Essa chave legada nunca é enviada a outro provedor.
+- O Brain Proxy roda na nuvem do Google. Um Ollama em `localhost` ou em rede interna **não** é
+  alcançável; a URL precisa ser pública (HTTPS), de preferência atrás de um proxy com autenticação.
+- Com Claude nos modelos atuais, o servidor habilita `fallbacks: "default"`: se um classificador de
+  segurança recusar o trecho, a API da Anthropic o reexecuta em outro modelo, cobrado pela tarifa dele.
+- O modelo fica em uma propriedade justamente porque modelos são descontinuados: para trocar,
+  edite `IA_MODEL`, sem alterar código. Para um novo provedor, adicione uma entrada em `IAProviders.gs`.
+
+---
+
+## Hierarquia de IA & Segurança de Dados
 
 Para garantir que as chaves da API não fiquem vulneráveis no banco de dados, utilizamos a estratégia de **Cofre no Drive (Delegação de Acesso)**.
 
 ```
 Para cada requisição de análise:
 
-1. O professor está na lista? Se não → retorna "NAO_CADASTRADO" (modo offline).
-2. Status == "Inativo"? → retorna "INATIVO".
-3. UsaChaveGlobal == "Sim" E GEMINI_GLOBAL_KEY configurada? → usa a chave da instituição ✅
-4. ChaveIndividual preenchida com um ID do Google Drive? 
-   ↳ O Proxy tenta ler o arquivo no Drive do professor. 
-   ↳ Se conseguiu ler e tem a chave válida → usa a chave privada do professor ✅
+1. O professor está na lista? Se não → requisição recusada (PROFESSOR_NAO_CADASTRADO).
+2. Status != "Ativo"? → requisição recusada (PROFESSOR_INATIVO).
+3. UsaChaveGlobal == "Sim" E a IA global está configurada? → usa a IA da instituição ✅
+4. ChaveIndividual preenchida (chave salva pela barra lateral ou ID de um arquivo no Drive)?
+   ↳ O Proxy lê a chave (do cofre interno ou do arquivo no Drive do professor).
+   ↳ O formato da chave define o provedor: AIza... → Gemini; sk-ant-... → Claude ✅
 5. Nenhuma das anteriores → entra no MODO OFFLINE nativo.
-   ↳ (As métricas pedagógicas são salvas na planilha do professor, mas o texto não é enviado para o Gemini).
+   ↳ (As métricas pedagógicas são salvas na planilha do professor, mas o texto não é enviado a nenhuma IA).
 ```
 
 ---
@@ -107,6 +143,7 @@ Para cada requisição de análise:
 ## Segurança
 
 - O código do Brain Proxy **nunca é copiado** junto com o documento.
-- Mesmo que alguém inspecione o código do Add-on, só verá chamadas para uma URL com um token.
-- O token garante que apenas o seu Add-on pode chamar o Proxy.
+- Mesmo que alguém inspecione o código do Add-on, só verá chamadas para uma URL: não há segredo no cliente.
+- O Proxy identifica quem chama pelo OAuth token do Google e decide o que cada um pode fazer:
+  alunos só enviam telemetria; rotas de professor exigem cadastro Ativo; rotas de Admin exigem o `SHARED_TOKEN`.
 - Cada professor tem sua própria planilha criada automaticamente no primeiro uso.

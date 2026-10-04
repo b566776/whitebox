@@ -1,105 +1,54 @@
-# ⚙️ Configuração de Conexão — Whitebox
+# ⚙️ Conexão com o Servidor — Whitebox
 
-Este guia descreve como configurar a conexão entre o **Add-on Whitebox** (instalado no Google Docs) e o **servidor Whitebox** (BrainProxy). Siga estas instruções se você ver o erro:
-
-> ❌ `BRAIN_PROXY_URL não configurada nas Script Properties`
+O Add-on não precisa ser configurado em cada documento. A URL do servidor (BrainProxy) é **fixa no código da biblioteca**, e nenhum professor ou aluno consegue alterá-la.
 
 ---
 
-## O que é a `BRAIN_PROXY_URL`?
+## Onde fica a URL
 
-O Whitebox funciona em dois componentes:
-
-| Componente | Onde roda | O que faz |
-|---|---|---|
-| **Add-on (whitebox-client)** | Google Docs do professor | Interface lateral, rastreamento de alunos |
-| **Servidor (whitebox-server / BrainProxy)** | Google Apps Script standalone | IA, Classroom, banco de dados global |
-
-A `BRAIN_PROXY_URL` é o endereço do servidor. Sem ela, o Add-on não sabe como se comunicar com o servidor, e a aba **Distribuir** (e outras funções de IA) ficam inativas.
-
----
-
-## ✅ Método 1 — Assistente de Configuração (Recomendado)
-
-A partir da versão com `setupWhitebox()`, o professor pode configurar com **2 cliques** diretamente no documento:
-
-### Passo a Passo
-
-1. **Abra o documento** onde o Whitebox está instalado
-2. No menu superior, clique em **`Whitebox`**
-3. Clique em **`⚙️ Configurar Conexão`**
-4. Uma caixa de diálogo aparecerá pedindo a **URL do servidor**:
-   ```
-   https://script.google.com/macros/s/AKfycbw.../exec
-   ```
-   > Obtenha esta URL com o administrador do sistema ou no painel do [Apps Script do servidor](https://script.google.com).
-
-5. Em seguida, outra caixa pedirá o **SHARED_TOKEN**:
-   ```
-   WBX-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-   ```
-   > Este token foi gerado automaticamente na primeira vez que o servidor foi acessado.
-
-6. O sistema fará um **ping de validação** para confirmar que a URL e o token estão corretos
-7. Se tudo estiver correto: `✅ Whitebox Configurado!`
-
-> [!TIP]
-> Feche e reabra o Painel Whitebox após a configuração para carregar com as novas credenciais.
-
----
-
-## 🔧 Método 2 — Script Properties Manual (Alternativo)
-
-Se o menu não estiver disponível (ex: primeiro acesso antes do `onOpen` rodar):
-
-1. No documento, vá em **Extensões > Apps Script**
-2. No editor, clique em **⚙️ Configurações do Projeto** (ícone de engrenagem à esquerda)
-3. Clique na aba **Propriedades do script**
-4. Clique em **+ Adicionar propriedade** e adicione:
-
-| Propriedade | Valor |
+| Item | Local |
 |---|---|
-| `BRAIN_PROXY_URL` | `https://script.google.com/macros/s/.../exec` |
-| `SHARED_TOKEN` | `WBX-...` |
+| Constante | `BRAIN_PROXY_URL` em `whitebox-lib/Constants.gs` |
+| Valor | URL do Web App do `whitebox-server` (termina em `/exec`) |
 
-5. Clique **Salvar**
-6. Feche e reabra o documento
+O assistente **Whitebox > ⚙️ Configurar Conexão** e a função `configurarConexaoAgora()` foram removidos. As propriedades `BRAIN_PROXY_URL` (do documento e do script) não são mais lidas.
 
----
-
-## 🔍 Onde encontrar a URL e o Token
-
-### URL do Servidor
-O administrador do sistema pode encontrá-la em:
-- [Dashboard Admin](https://script.google.com/macros/s/AKfycbwAzIlfKhJ2zoX7NV1jCzuGU8gb7PeNtXHE3evj1-X5ebcI2oiMbKUhrqrSWhL73uqg/exec) → O endereço na barra do browser é a URL
-- Ou: Apps Script do `whitebox-server` → **Implantar** → **Gerenciar implantações** → URL da implantação ativa
-
-### SHARED_TOKEN
-- Foi exibido uma única vez na **primeira vez que o servidor foi acessado** (mensagem de auto-provisionamento)
-- Se perdido: acesse Apps Script do `whitebox-server` → **Configurações** → **Propriedades do script** → procure `SHARED_TOKEN`
+### Por que é fixa
+Em toda chamada, o Add-on envia ao servidor o OAuth token de quem está usando o documento. Quando a URL vinha de propriedades, qualquer usuário podia apontá-la para outro endereço pelo menu e passar a receber os tokens dos demais — inclusive o do professor, ao abrir o documento de um aluno. Com a URL no código da biblioteca, que os usuários só conseguem ler, o token só sai para o servidor oficial.
 
 ---
 
-## 🩺 Diagnóstico: Hierarquia de Configuração
+## Como trocar a URL (somente Admin/desenvolvedor)
 
-O `getProxyConfig()` da biblioteca busca `BRAIN_PROXY_URL` nesta ordem:
+A URL só muda se uma **nova implantação** do Web App for criada. Atualizar a implantação existente (`clasp update-deployment`) mantém a mesma URL — prefira sempre esse caminho.
 
-```
-1. DeveloperMetadata do documento   ← Configurado via Criar Leva (automático)
-2. DocumentProperties do documento  ← Configurado manualmente por documento  
-3. ScriptProperties do projeto      ← Configurado pelo assistente (setupWhitebox)
-```
+Se for preciso trocar:
 
-Se nenhum dos três tiver o valor, o erro é exibido.
+1. Edite `BRAIN_PROXY_URL` em `whitebox-lib/Constants.gs`.
+2. `clasp push` na biblioteca e crie uma nova versão.
+3. Atualize `version` no `appsscript.json` do cliente e faça `clasp push` no cliente.
+4. Redistribua o documento modelo.
+
+Documentos já distribuídos continuam na versão antiga da biblioteca e, portanto, na URL antiga (ver [Manual do Desenvolvedor](development-guide.md), seção 2.4). Mantenha a implantação antiga no ar enquanto houver documentos apontando para ela.
 
 ---
 
-## 📋 Checklist de Resolução
+## 🩺 Diagnóstico
 
-- [ ] O servidor Whitebox está deployado? (acesse a URL e veja se mostra o Dashboard)
-- [ ] O `SHARED_TOKEN` bate com o configurado no servidor?
-- [ ] As Script Properties foram salvas no projeto **whitebox-client** (não no servidor)?
-- [ ] Após salvar, o documento foi fechado e reaberto?
+| Sintoma na barra lateral | Causa provável |
+|---|---|
+| `PROXY_CONNECTION_FAILED` | Falha de rede, ou a implantação do Web App foi removida. |
+| `PROXY_INVALID_RESPONSE` | O servidor respondeu algo que não é JSON. Em geral, o dono do script precisa autorizar o Web App de novo (abrir o Dashboard) após uma mudança de escopos. |
+| `UNAUTHORIZED` | O servidor não reconheceu a conta Google, ou o e-mail não é o do professor do documento. |
+| Painel de aluno para um professor | O e-mail não está na aba `Assinaturas`. Não tem relação com a conexão. |
+
+- [ ] O servidor está no ar? (abra a URL no navegador; deve aparecer o Dashboard)
+- [ ] O Add-on foi autorizado com a sua conta Google (pop-up de permissões na primeira abertura)?
+
+### SHARED_TOKEN (somente Admin)
+- É a credencial do **Dashboard Admin**. Professores e alunos nunca precisam dele, e ele não deve ser colocado em documentos nem no cliente.
+- Para consultar: Apps Script do `whitebox-server` → **Configurações** → **Propriedades do script** → `SHARED_TOKEN`
+- Para trocar (ex.: suspeita de vazamento): execute `rotacionarSharedToken()` no editor do `whitebox-server` e informe o novo valor no Dashboard.
 
 ---
 

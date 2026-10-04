@@ -1,54 +1,49 @@
 /**
- * Script de Teste E2E: Validação de Injeção de Metadados [ARCH-LIB]
+ * Script de Teste E2E: Validação da Auto-Configuração gravada no documento [ARCH-LIB]
  * Executar este teste no console do Apps Script do whitebox-server.
+ *
+ * Verifica o que só dá para confirmar no ambiente real:
+ *   1. O servidor consegue gravar o WHITEBOX_CONFIG (NamedRange) no documento.
+ *   2. A configuração sobrevive à cópia do documento — é o que o Classroom faz
+ *      em STUDENT_COPY, e é disso que a designação do professor depende.
  */
 function testarInjecaoMetadados() {
   const TEST_DOC_ID = '1-iOBoLbJ5JO2AdvHTnf4RUVV4WEup6KmaJVu8JbNkmM'; // ID fornecido pelo usuário
   const professorEmail = Session.getActiveUser().getEmail();
-  
+  const esperado = DOC_CONFIG_RANGE_PREFIX + JSON.stringify({ professorEmail: professorEmail });
+
+  const lerConfig = function(docId) {
+    return DocumentApp.openById(docId).getNamedRanges()
+      .map(r => r.getName())
+      .filter(n => n.indexOf(DOC_CONFIG_RANGE_PREFIX) === 0);
+  };
+
   Logger.log('🚀 Iniciando Teste E2E para o Doc: ' + TEST_DOC_ID);
-  
+
+  let copia = null;
   try {
-    // 1. Simular a configuração do Proxy (garantir que temos URL e Token)
-    const cfg = getConfig();
-    if (!cfg.proxyUrl || !cfg.sharedToken) {
-      throw new Error('Script Properties do Servidor incompleto: BRAIN_PROXY_URL ou SHARED_TOKEN ausente.');
-    }
-    
-    // 2. Abrir o Documento
-    const doc = DocumentApp.openById(TEST_DOC_ID);
-    
-    // 3. Limpar metadados antigos para o teste ser limpo
-    const oldMeta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
-    oldMeta.forEach(m => m.remove());
-    Logger.log('🧹 Metadados antigos removidos.');
+    // 1. Gravar (mesmo caminho usado na distribuição; substitui configurações antigas)
+    _gravarConfigNoDocumento(TEST_DOC_ID, professorEmail);
+    Logger.log('✅ Configuração gravada: ' + esperado);
 
-    // 4. Injetar novos metadados (Simulando o fluxo de distribuirMestreParaProfessor)
-    const configObj = {
-      proxyUrl:    cfg.proxyUrl,
-      sharedToken: cfg.sharedToken,
-      professorEmail: professorEmail
-    };
-    
-    doc.addDeveloperMetadata('WHITEBOX_CONFIG', JSON.stringify(configObj), DocumentApp.DeveloperMetadataVisibility.DOCUMENT);
-    Logger.log('✅ Novos metadados injetados: ' + JSON.stringify(configObj));
-
-    // 5. Verificação de Leitura
-    const checkMeta = doc.getDeveloperMetadata().filter(m => m.getKey() === 'WHITEBOX_CONFIG');
-    if (checkMeta.length > 0) {
-      const valorRecuperado = checkMeta[0].getValue();
-      Logger.log('🔍 Verificação de Leitura: OK! Valor: ' + valorRecuperado);
-      
-      if (valorRecuperado === JSON.stringify(configObj)) {
-        Logger.log('🏆 TESTE SUCESSO: O documento está devidamente preparado para a auto-configuração do Cliente.');
-      } else {
-        Logger.log('❌ FALHA: O valor recuperado difere do injetado.');
-      }
-    } else {
-      throw new Error('Falha crítica: Metadado não encontrado após a injeção.');
+    // 2. Verificação de Leitura no documento original
+    const noOriginal = lerConfig(TEST_DOC_ID);
+    if (noOriginal.length !== 1 || noOriginal[0] !== esperado) {
+      throw new Error('Leitura no original difere do gravado: ' + JSON.stringify(noOriginal));
     }
+    Logger.log('🔍 Verificação de Leitura: OK!');
+
+    // 3. Verificação na cópia (simula o STUDENT_COPY do Classroom)
+    copia = DriveApp.getFileById(TEST_DOC_ID).makeCopy('Whitebox - teste de cópia (pode apagar)');
+    const naCopia = lerConfig(copia.getId());
+    if (naCopia.length !== 1 || naCopia[0] !== esperado) {
+      throw new Error('A configuração NÃO sobreviveu à cópia: ' + JSON.stringify(naCopia));
+    }
+    Logger.log('🏆 TESTE SUCESSO: a configuração acompanha a cópia do documento.');
 
   } catch (err) {
     Logger.log('❌ ERRO NO TESTE: ' + err.toString());
+  } finally {
+    if (copia) copia.setTrashed(true);
   }
 }

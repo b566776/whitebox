@@ -832,13 +832,13 @@
 
           <div id="config-key-section">
             <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px 0;">
-              Cole aqui sua chave de API do Google AI Studio (Gemini):
+              Cole aqui sua chave de API (Gemini ou Claude):
             </p>
             <input
               type="password"
               id="teacher-api-key"
               class="key-input"
-              placeholder="AIza..."
+              placeholder="AIza... ou sk-ant-..."
               autocomplete="off"
             />
             <button class="btn btn-primary" id="btn-save-key" onclick="saveApiKey()">
@@ -846,7 +846,9 @@
             </button>
             <p style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">
               Sua chave é armazenada de forma segura e é usada apenas para análise pedagógica dos seus alunos.
-              Obtenha a sua em <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a>.
+              O provedor é reconhecido pelo formato da chave. Obtenha a sua em
+              <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a> (Gemini) ou
+              <a href="https://platform.claude.com/settings/keys" target="_blank">platform.claude.com</a> (Claude).
             </p>
           </div>
 
@@ -865,6 +867,7 @@
       let documentId = '';
       let activeFocusMinutes = 0;
       let lastTextLength = 0;
+      let lastParagraphLengths = [];
       let pasteCount = 0;
       let trackingTimeout; 
       let lastGeneratedQuiz = []; 
@@ -989,7 +992,23 @@
         if(trackingTimeout) clearTimeout(trackingTimeout);
         lastLoopTime = Date.now();
         checkForPendingQuiz(); // Verificar quiz pendente ao iniciar
-        trackingPulse(); // Inicia o primeiro pulso
+
+        // [FIX-PASTE-02] Fetch initial paragraph baseline BEFORE starting pulses.
+        // Without this, the first trackingPulse() saves the current state as
+        // baseline and only the SECOND pulse (15s later) can detect changes.
+        // Pastes in the window between document open and sidebar init are missed.
+        google.script.run
+          .withSuccessHandler(function(stats) {
+            if (stats && stats.paragraphLengths) {
+              lastParagraphLengths = stats.paragraphLengths;
+              lastTextLength = stats.length;
+            }
+            trackingPulse(); // Start pulses AFTER baseline is ready
+          })
+          .withFailureHandler(function() {
+            trackingPulse(); // Start even without baseline
+          })
+          .getDocumentStats();
       }
       
       function trackingPulse() {
@@ -1008,6 +1027,23 @@
           
           if(document.getElementById('stu-words')) document.getElementById('stu-words').innerText = stats.wordCount;
           
+          // [FIX-PASTE-03] Per-paragraph paste detection: compare current vs previous
+          // paragraph lengths and mark any paragraph that grew >= 50 chars in the
+          // server-side WHITEBOX_PASTE_MAP. This catches pastes at every pulse,
+          // independent of server-side snapshot timing.
+          if (lastParagraphLengths.length > 0 && stats.paragraphLengths) {
+            var pasteIndices = [];
+            stats.paragraphLengths.forEach(function(len, idx) {
+              if (len - (lastParagraphLengths[idx] || 0) >= 50) {
+                pasteIndices.push(idx);
+              }
+            });
+            if (pasteIndices.length > 0) {
+              pasteData.count += pasteIndices.length;
+              google.script.run.updatePasteMap(pasteIndices);
+            }
+          }
+          
           let hasChanged = false;
           if (lastTextLength !== 0) {
             const sizeDiff = stats.length - lastTextLength;
@@ -1018,8 +1054,9 @@
               
               if (sizeDiff > 0) {
                 behavioralMetrics.totalAdded += sizeDiff;
+                // [FIX-PASTE-03] Client-side per-paragraph detection moved above.
+                // The old block-level count is now redundant but kept for metrics.
                 if (sizeDiff >= 50) {
-                  pasteData.count++;
                   pasteData.totalCharsPasted += sizeDiff;
                 } else {
                   typingSpeedData.totalCharsTyped += sizeDiff;
@@ -1049,6 +1086,7 @@
           }
           
           lastTextLength = stats.length;
+          lastParagraphLengths = stats.paragraphLengths || [];
           behavioralMetrics.lastSignature = stats.structureSignature;
           
           if (hasChanged) {
@@ -1331,11 +1369,22 @@
             }
           };
           
-          google.script.run.withSuccessHandler(function(backendRes) {
-            btn.disabled = false;
-            spinner.classList.add('hidden');
-            renderTeacherAnalysis(backendRes);
-          }).sendToBackend(payload);
+          google.script.run
+            .withSuccessHandler(function(backendRes) {
+              btn.disabled = false;
+              spinner.classList.add('hidden');
+              // Falha do wrapper/biblioteca chega como { error, message }, sem aiError
+              if (backendRes && backendRes.error && !backendRes.aiError) {
+                backendRes = { aiError: { code: backendRes.error, message: backendRes.message || backendRes.error } };
+              }
+              renderTeacherAnalysis(backendRes);
+            })
+            .withFailureHandler(function(err) {
+              btn.disabled = false;
+              spinner.classList.add('hidden');
+              renderTeacherAnalysis({ aiError: { code: 'SCRIPT_ERROR', message: (err && err.message) || String(err) } });
+            })
+            .sendToBackend(payload);
           
         }).getSelectedTextInfo();
       }
@@ -1345,7 +1394,27 @@
         
         const alertBox = document.getElementById('teacher-alert-box');
         alertBox.className = "alert";
-        
+
+        // Sem análise (erro do provedor/servidor ou IA indisponível): mostrar o motivo real,
+        // nunca um resultado. A mensagem vem do provedor, por isso entra como texto, não HTML.
+        if (res.aiError) {
+          const offline = (res.aiError.code === 'OFFLINE');
+          alertBox.classList.add(offline ? 'alert-warning' : 'alert-error');
+          alertBox.textContent = '';
+          const titulo = document.createElement('strong');
+          titulo.textContent = offline ? 'IA indisponível: ' : 'Erro na análise de IA: ';
+          alertBox.appendChild(titulo);
+          alertBox.appendChild(document.createTextNode(
+            res.aiError.message + (offline ? '' : ' [' + res.aiError.code + ']')
+          ));
+          document.getElementById('coherence-bar').style.width = '0%';
+          document.getElementById('coherence-badge').innerText = 'Sem análise';
+          document.getElementById('teacher-pedagogical').innerText = 'Nenhuma análise foi gerada para este trecho.';
+          document.getElementById('source-analysis-section').classList.add('hidden');
+          document.getElementById('btn-quiz').style.display = 'none';
+          return;
+        }
+
         // Simulação de Score de Coerência (Backend real enviará contentAnalysis.toneConsistencyScore)
         const coherence = (res.contentAnalysis && res.contentAnalysis.toneConsistencyScore) ? res.contentAnalysis.toneConsistencyScore * 100 : 85;
         document.getElementById('coherence-bar').style.width = coherence + "%";
@@ -1440,9 +1509,21 @@
               div.onmouseenter = (e) => {
                 const tooltip = document.getElementById('aura-tooltip');
                 const rect = div.getBoundingClientRect();
-                tooltip.innerHTML = `<strong>${seg.score}% Original</strong><br>${seg.preview}`;
+                var lines = [];
+                if (seg.isPasteDetected) {
+                  lines.push('<span style="color:#ef4444;font-weight:600;">⚠️ COLAGEM DETECTADA (' + seg.pasteSource + ')</span>');
+                }
+                lines.push('<strong>score: ' + seg.score + '</strong> | ratio: ' + seg.ratio + 'x');
+                if (seg.rawScore !== seg.score) {
+                  lines.push('rawScore: ' + seg.rawScore + ' | pasteFlag: ' + seg.isPasteDetected);
+                }
+                if (seg.lexicalPenalty > 0) {
+                  lines.push('lexicalPenalty: −' + seg.lexicalPenalty);
+                }
+                lines.push('<span style="color:#94a3b8;">' + seg.preview + '</span>');
+                tooltip.innerHTML = lines.join('<br>');
                 tooltip.style.display = 'block';
-                tooltip.style.top = rect.top + 'px'; 
+                tooltip.style.top = rect.top + 'px';
                 tooltip.style.left = (rect.right + 10) + 'px';
                 
                 clearTimeout(hoverScrollTimer);
@@ -1495,21 +1576,12 @@
 
         indicator.classList.remove('hidden');
 
-        if (result.status === 'PROXY_NAO_CONFIGURADO') {
-          badge.className = 'license-badge config';
-          badge.textContent = '⚙️ Proxy Não Configurado';
-          indicator.className = 'ai-mode-indicator off';
-          modeIcon.textContent = '🔴';
-          modeText.textContent = 'Configure BRAIN_PROXY_URL nas Script Properties';
-          return;
-        }
-
         if (result.status === 'NAO_CADASTRADO') {
           badge.className = 'license-badge offline';
           badge.textContent = '⚠️ Não Cadastrado';
           indicator.className = 'ai-mode-indicator off';
           modeIcon.textContent = '🟡';
-          modeText.textContent = 'Modo Offline — salve uma API Key para ativar a IA';
+          modeText.textContent = 'Cadastro não encontrado — solicite ao administrador';
           return;
         }
 
@@ -1645,18 +1717,7 @@
             listEl.style.display    = 'block';
 
             if (res.error) {
-              var isProxyError = res.error === 'PROXY_CONNECTION_FAILED' ||
-                                 (res.message && res.message.indexOf('BRAIN_PROXY_URL') !== -1);
-              if (isProxyError) {
-                errorEl.innerHTML =
-                  '<strong>⚙️ Servidor não configurado.</strong><br>' +
-                  'Acesse <b>Whitebox &gt; ⚙️ Configurar Conexão</b> no menu superior para conectar ao servidor.<br><br>' +
-                  '<button onclick="google.script.run.setupWhitebox()" ' +
-                  'style="padding:6px 12px;background:#4f46e5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">' +
-                  '⚙️ Configurar agora</button>';
-              } else {
-                errorEl.textContent = '❌ ' + (res.message || res.error);
-              }
+              errorEl.textContent = '❌ ' + (res.message || res.error);
               errorEl.style.display = 'block';
               return;
             }
