@@ -699,7 +699,8 @@
           </div>
           
           <div id="teacher-alert-box"></div>
-          
+          <div id="teacher-log-warning" class="alert alert-warning hidden"></div>
+
           <div class="coherence-meter">
              <div id="coherence-bar" class="coherence-fill"></div>
           </div>
@@ -1401,6 +1402,17 @@
         
         const alertBox = document.getElementById('teacher-alert-box');
         alertBox.className = "alert";
+
+        // O servidor pode ter recusado o registro na planilha (metricsError) mesmo com o
+        // resultado em mãos, ou quando a própria análise falhou. Mensagem como texto, não HTML.
+        const logWarning = document.getElementById('teacher-log-warning');
+        if (res.metricsError) {
+          logWarning.textContent = '⚠️ Esta análise não foi registrada na planilha. Motivo: ' + res.metricsError.message;
+          logWarning.classList.remove('hidden');
+        } else {
+          logWarning.textContent = '';
+          logWarning.classList.add('hidden');
+        }
 
         // Sem análise (erro do provedor/servidor ou IA indisponível): mostrar o motivo real,
         // nunca um resultado. A mensagem vem do provedor, por isso entra como texto, não HTML.
