@@ -349,8 +349,18 @@ function getHeatmapData(token, scope, identifier) {
  *
  * Para forçar recalculo antes do TTL, chame invalidarCacheHeatmap(email).
  *
+ * Um item por documento do aluno, na mesma posição em todos os arrays:
+ *   labels    — DocId
+ *   valores   — integridade (100 - risco médio das análises de IA); null se não houve análise
+ *   alertas   — nº de análises com risco > 60, contadas só em documento com entrega final
+ *   esforcos  — minutos médios de escrita (linhas do aluno)
+ *   analises  — nº de análises de IA do documento
+ *   entregues — true se o aluno marcou a entrega final
+ *   turmas    — turma registrada na telemetria
+ *
  * @param {string} emailAluno
- * @returns {{ labels: string[], valores: number[], alertas: number[],
+ * @returns {{ labels: string[], valores: Array<number|null>, alertas: number[], esforcos: number[],
+ *             analises: number[], entregues: boolean[], turmas: string[],
  *             _fromCache?: boolean, _cachedAt?: string, _calculatedAt?: string }}
  */
 function calcularHeatmapAluno(emailAluno) {
@@ -399,8 +409,10 @@ function calcularHeatmapAluno(emailAluno) {
 
   // Patch 8: Remover constantes fixas; buscaremos os índices dinamicamente dentro do loop
   const RISCO_ALERT_THRESHOLD = 60; // Risco > 60 é alerta
+  const alvo = String(emailAluno).trim().toLowerCase();
 
-  const aggregated = {}; // docId → { riscoTotal, esforcoTotal, count, alertas, turma }
+  // docId → { riscoTotal, analises, altoRisco, esforcoTotal, count, entregue, turma }
+  const aggregated = {};
   let   planilhasVarriadas = 0;
 
   for (let r = 1; r < assData.length; r++) {
@@ -427,22 +439,39 @@ function calcularHeatmapAluno(emailAluno) {
       
       if (LOG_EMAIL_COL === -1 || LOG_DOC_COL === -1) continue; // Headers inválidos
 
-      for (let i = 1; i < logs.length; i++) {
-        if (logs[i][LOG_EMAIL_COL] !== emailAluno) continue;
+      // As linhas de um documento têm duas origens: a telemetria do aluno (esforço, entrega
+      // final) e as análises de IA, gravadas pelo professor com o e-mail DELE em Email_Aluno.
+      // Por isso o risco é ligado ao aluno pelo DocId, e não pelo e-mail.
+      const ehDoAluno = i => String(logs[i][LOG_EMAIL_COL]).trim().toLowerCase() === alvo;
 
-        const docId   = String(logs[i][LOG_DOC_COL] || ('Doc_' + i));
-        const risco   = parseFloat(logs[i][LOG_RISCO_COL]) || 0;
-        const esforco = parseFloat(logs[i][LOG_ESFORCO_COL]) || 0;
-        const isFinal = logs[i][LOG_FINAL_COL] === 'Sim';
-        const turma   = String(logs[i][LOG_TURMA_COL] || '');
+      const docsDoAluno = {};
+      for (let i = 1; i < logs.length; i++) {
+        if (ehDoAluno(i) && logs[i][LOG_DOC_COL]) docsDoAluno[String(logs[i][LOG_DOC_COL])] = true;
+      }
+
+      for (let i = 1; i < logs.length; i++) {
+        const docId = String(logs[i][LOG_DOC_COL]);
+        if (!docsDoAluno[docId]) continue;
 
         if (!aggregated[docId]) {
-          aggregated[docId] = { riscoTotal: 0, esforcoTotal: 0, count: 0, alertas: 0, turma: turma };
+          aggregated[docId] = { riscoTotal: 0, analises: 0, altoRisco: 0, esforcoTotal: 0, count: 0, entregue: false, turma: '' };
         }
-        aggregated[docId].riscoTotal   += risco;
-        aggregated[docId].esforcoTotal += esforco;
-        aggregated[docId].count++;
-        if (isFinal && risco > RISCO_ALERT_THRESHOLD) aggregated[docId].alertas++;
+        const agg = aggregated[docId];
+
+        if (ehDoAluno(i)) {
+          agg.esforcoTotal += parseFloat(logs[i][LOG_ESFORCO_COL]) || 0;
+          agg.count++;
+          if (logs[i][LOG_FINAL_COL] === 'Sim') agg.entregue = true;
+          if (!agg.turma) agg.turma = String(logs[i][LOG_TURMA_COL] || '');
+        }
+
+        // Só linha de análise tem RiscoScore; a telemetria deixa a célula vazia.
+        const risco = parseFloat(logs[i][LOG_RISCO_COL]);
+        if (!isNaN(risco)) {
+          agg.riscoTotal += risco;
+          agg.analises++;
+          if (risco > RISCO_ALERT_THRESHOLD) agg.altoRisco++;
+        }
       }
     } catch (e) {
       Logger.log('[BrainProxy] calcularHeatmapAluno: erro na planilha ' + profSSId + ': ' + e);
@@ -454,23 +483,23 @@ function calcularHeatmapAluno(emailAluno) {
              ' planilhas em ' + elapsedMs + 'ms para ' + emailAluno);
 
   const labels   = Object.keys(aggregated);
-  const valores  = labels.map(l => {
-    const { riscoTotal, count } = aggregated[l];
-    // Invertemos: risco alto → score de integridade baixo (0-100)
-    const mediaRisco = count > 0 ? riscoTotal / count : 0;
-    return Math.round(100 - mediaRisco);
-  });
-  const alertas  = labels.map(l => aggregated[l].alertas);
-  const esforcos = labels.map(l => {
-    const { esforcoTotal, count } = aggregated[l];
-    return count > 0 ? Math.round(esforcoTotal / count) : 0;
-  });
+  const itens    = labels.map(l => aggregated[l]);
+  // Invertemos: risco alto → score de integridade baixo (0-100). A média é só das análises;
+  // sem análise não há o que afirmar sobre o documento, por isso null e não 100.
+  const valores  = itens.map(a => a.analises > 0 ? Math.round(100 - a.riscoTotal / a.analises) : null);
+  // Alerta = documento entregue que tem análise de risco alto. Entrega (linha do aluno) e
+  // risco (linha do professor) nunca estão na mesma linha: a regra só fecha por documento.
+  const alertas  = itens.map(a => a.entregue ? a.altoRisco : 0);
+  const esforcos = itens.map(a => a.count > 0 ? Math.round(a.esforcoTotal / a.count) : 0);
 
   const resultado = {
     labels,
     valores,
     alertas,
     esforcos,              // Minutos médios de escrita por documento
+    analises:  itens.map(a => a.analises),
+    entregues: itens.map(a => a.entregue),
+    turmas:    itens.map(a => a.turma),
     _calculatedAt: new Date().toISOString(),
     _elapsedMs:    elapsedMs,
     _fromCache:    false
@@ -514,6 +543,33 @@ function invalidarCacheHeatmap(emailAluno) {
   const cacheKey = 'HEATMAP_ALUNO_' + emailAluno.toLowerCase().replace(/[^a-z0-9]/g, '_');
   cache.remove(cacheKey);
   Logger.log('[BrainProxy] Cache heatmap invalidado para: ' + emailAluno);
+}
+
+/**
+ * Invalida o heatmap de todos os alunos que têm linhas em um documento.
+ * Necessário quando quem grava é o professor (análise de IA): a linha leva o e-mail dele,
+ * mas o heatmap que muda é o dos alunos daquele documento.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} logSheet
+ * @param {string[]} headers - Cabeçalho da aba Logs
+ * @param {string} docId
+ */
+function invalidarCacheHeatmapDoDocumento(logSheet, headers, docId) {
+  const docCol   = headers.indexOf('DocId');
+  const emailCol = headers.indexOf('Email_Aluno');
+  const linhas   = logSheet.getLastRow() - 1;
+  if (docCol === -1 || emailCol === -1 || linhas < 1) return;
+
+  const docs   = logSheet.getRange(2, docCol + 1, linhas, 1).getValues();
+  const emails = logSheet.getRange(2, emailCol + 1, linhas, 1).getValues();
+  const vistos = {};
+  for (let i = 0; i < linhas; i++) {
+    const email = String(emails[i][0]);
+    if (String(docs[i][0]) === String(docId) && email && !vistos[email]) {
+      vistos[email] = true;
+      invalidarCacheHeatmap(email);
+    }
+  }
 }
 
 /**
@@ -1144,7 +1200,7 @@ function logarNaPlanilhaProfessor(params) {
     metricas.pasteEvents?.massiveInsertionsDetected ? 'Sim' : 'Não',
     metricas.typingSpeed?.avgCharsPerMinute || 0,
     metricas.typingSpeed?.peakCharsPerMinute || 0,
-    analise?.riskScore        || '',
+    analise?.riskScore        ?? '',   // ?? e não ||: risco 0 é uma análise, não ausência dela
     analise?.riskEvidence     || '',
     analise?.pedagogicalAdvice || '',
     analise?.suggestedQuestion || '',
@@ -1156,6 +1212,7 @@ function logarNaPlanilhaProfessor(params) {
   // [ARCH-04] Invalidar cache do heatmap do aluno após novo log.
   // Garante que a próxima chamada a getHeatmapData reflita os dados atuais.
   invalidarCacheHeatmap(alunoEmail);
+  if (analise && docId) invalidarCacheHeatmapDoDocumento(logSheet, headers, docId);
 
   // Atualizar aba de Turmas
   atualizarTurma(ss, turma);

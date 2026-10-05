@@ -19,6 +19,16 @@ O cliente se autentica com o OAuth token do usuário. O `SHARED_TOKEN` fica apen
 ### Provedor de IA
 A IA da análise socrática é configurável nas Script Properties do **servidor**: `IA_PROVIDER` (`gemini`, `claude` ou `ollama`), `IA_MODEL`, `IA_BASE_URL` e `IA_GLOBAL_KEY`. Vale para os professores com `UsaChaveGlobal = Sim`; os demais usam a própria chave, e o formato dela define o provedor. Tabela de valores e exemplos em [DEPLOY.md](../whitebox-server/DEPLOY.md), seção "Configurar a IA".
 
+### Mapa de Calor por Aluno (Dashboard)
+No card **Inteligência & Mapas de Calor**, a opção **Por Aluno** pede o e-mail do aluno e mostra, para cada documento dele:
+- **Integridade**: 100 menos o risco médio das análises de IA feitas pelo professor naquele documento. Sem análise, aparece "Sem análise" (não há o que afirmar).
+- **Alertas**: quantidade de análises com risco acima de 60, contadas apenas em documento que o aluno marcou como entregue.
+- Se o documento foi entregue e quantas análises tem.
+
+Como funciona: a telemetria e a entrega são gravadas pelo aluno, e as análises pelo professor (com o e-mail dele). O servidor junta as duas pelo ID do documento. Análises gravadas por versões antigas da biblioteca não têm o ID do documento e por isso não entram.
+
+O resultado fica em cache por até 1 hora por aluno e é refeito quando chega nova telemetria do aluno ou nova análise em um documento dele.
+
 ### Papéis e Licenças
 - **Professor** = e-mail na aba `Assinaturas` com `Status` = `Ativo`. O servidor confere isso a cada chamada de `analisar`, `registrar_chave`, `listar_turmas_professor` e `criar_leva_template`.
 - **Não há auto-cadastro**: salvar uma chave de API na barra lateral não cria mais um professor. Cadastre pelo formulário de onboarding, por `adicionarProfessor()` ou direto na aba `Assinaturas`.

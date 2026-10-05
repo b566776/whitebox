@@ -384,7 +384,9 @@ function sendToBackend(payload) {
     const logResult = callProxy(ROUTE_LOGAR_METRICAS, {
       professorEmail: professorEmail,
       turma:          turma,
-      docId:          payload.documentId,
+      // O pedido de análise do professor não traz documentId. Sem o ID, a análise não
+      // tem como ser ligada ao documento (e ao aluno) no heatmap.
+      docId:          payload.documentId || DocumentApp.getActiveDocument().getId(),
       alunoEmail:     alunoEmail,
       metricas:       payload.behavioralMetrics || {},
       analise:        analise,

@@ -327,7 +327,12 @@
         <option value="instituicao">Visão Institucional</option>
         <option value="professor">Visão Total Professor</option>
         <option value="turma">Por Turma/Atividade</option>
+        <option value="aluno">Por Aluno</option>
       </select>
+    </div>
+    <div id="heatmapStudentRow" style="display: none; gap: 0.5rem; margin-bottom: 1rem;">
+      <input type="email" id="studentEmailInput" placeholder="E-mail do aluno">
+      <button onclick="loadHeatmap()" style="white-space: nowrap;">Ver aluno</button>
     </div>
     <div id="heatmapContent">
       <div class="stat-grid">
@@ -524,41 +529,104 @@
   }
 
   function loadHeatmap() {
-    const level = document.getElementById('heatmapLevel').value;
-    const id = (level === 'turma') ? document.getElementById('courseSelect').value : 'global';
-    
+    const level    = document.getElementById('heatmapLevel').value;
+    const porAluno = (level === 'aluno');
+    const list     = document.getElementById('heatmapList');
+    document.getElementById('heatmapStudentRow').style.display = porAluno ? 'flex' : 'none';
+
+    let scope, id;
+    if (porAluno) {
+      scope = 'aluno_atividades';
+      id    = document.getElementById('studentEmailInput').value.trim();
+      if (!id) {
+        heatmapCabecalho(list, 'Integridade e Alertas por Documento', 'Informe o e-mail do aluno e clique em "Ver aluno".');
+        return;
+      }
+    } else {
+      scope = (level === 'turma') ? 'turma_atividades' : 'instituicao';
+      id    = (level === 'turma') ? document.getElementById('courseSelect').value : 'global';
+    }
+
     showLoader(true);
     google.script.run
       .withSuccessHandler(data => {
         showLoader(false);
-        const list = document.getElementById('heatmapList');
-        list.innerHTML = '<h4>Distribuição de Esforço por Atividade</h4>';
-        
-        if (!data.labels || data.labels.length === 0) {
-          list.innerHTML += '<p style="color: var(--text-dim); margin-top: 1rem;">Nenhum dado encontrado para este nível.</p>';
-          return;
+        const vazio = !data.labels || data.labels.length === 0;
+        if (porAluno) {
+          heatmapCabecalho(list, 'Integridade e Alertas por Documento', vazio ? 'Nenhum dado encontrado para este aluno.' : null);
+          if (!vazio) renderHeatmapAluno(list, data);
+        } else {
+          heatmapCabecalho(list, 'Distribuição de Esforço por Atividade', vazio ? 'Nenhum dado encontrado para este nível.' : null);
+          if (!vazio) data.labels.forEach((label, i) => {
+            const val = Math.round(data.media_integridade[i] || 0);
+            list.appendChild(heatmapItem(heatmapTexto('span', label), val + '% Integridade', val));
+          });
         }
-
-        data.labels.forEach((label, i) => {
-          const val = Math.round(data.media_integridade[i] || 0);
-          list.innerHTML += `
-            <div style="margin-bottom: 1rem;">
-              <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
-                <span>${label}</span>
-                <span>${val}% Integridade</span>
-              </div>
-              <div class="heatmap-bar">
-                <div class="heatmap-fill" style="width: ${val}%"></div>
-              </div>
-            </div>
-          `;
-        });
       })
       .withFailureHandler(err => {
         showLoader(false);
         showToast('Erro ao carregar heatmap: ' + err, true);
       })
-      .getHeatmapData(adminToken, level === 'turma' ? 'turma_atividades' : 'instituicao', id);
+      .getHeatmapData(adminToken, scope, id);
+  }
+
+  // Rótulos, turmas e IDs vêm dos logs, que qualquer usuário autenticado grava. Por isso o
+  // heatmap é montado com textContent, nunca com innerHTML.
+  function heatmapTexto(tag, texto, estilo) {
+    const el = document.createElement(tag);
+    el.textContent = texto;
+    if (estilo) el.style.cssText = estilo;
+    return el;
+  }
+
+  function heatmapCabecalho(list, titulo, mensagem) {
+    list.textContent = '';
+    list.appendChild(heatmapTexto('h4', titulo));
+    if (mensagem) list.appendChild(heatmapTexto('p', mensagem, 'color: var(--text-dim); margin-top: 1rem;'));
+  }
+
+  function heatmapItem(tituloEl, direita, pct, detalheEl) {
+    const item  = heatmapTexto('div', '', 'margin-bottom: 1rem;');
+    const linha = heatmapTexto('div', '', 'display: flex; justify-content: space-between; font-size: 0.8rem;');
+    linha.appendChild(tituloEl);
+    linha.appendChild(heatmapTexto('span', direita));
+    const bar  = document.createElement('div');
+    bar.className = 'heatmap-bar';
+    const fill = document.createElement('div');
+    fill.className = 'heatmap-fill';
+    fill.style.width = pct + '%';
+    bar.appendChild(fill);
+    item.appendChild(linha);
+    item.appendChild(bar);
+    if (detalheEl) item.appendChild(detalheEl);
+    return item;
+  }
+
+  // Um item por documento do aluno: integridade (das análises de IA) e alertas
+  // (análises de risco alto em documento entregue). Ver calcularHeatmapAluno.
+  function renderHeatmapAluno(list, data) {
+    const totalAlertas = data.alertas.reduce((soma, n) => soma + n, 0);
+    list.appendChild(heatmapTexto('p',
+      totalAlertas > 0 ? '⚠️ ' + totalAlertas + ' alerta(s) em ' + data.labels.length + ' documento(s)' : 'Sem alertas em ' + data.labels.length + ' documento(s)',
+      'margin: 0.5rem 0 1rem; font-size: 0.85rem; color: ' + (totalAlertas > 0 ? '#ef4444' : 'var(--text-dim)') + ';'));
+
+    data.labels.forEach((docId, i) => {
+      const integridade = data.valores[i];
+      const semAnalise  = (integridade === null || integridade === undefined);
+      const alertas     = data.alertas[i] || 0;
+
+      const link = heatmapTexto('a', (data.turmas[i] ? data.turmas[i] + ' · ' : '') + 'Documento ' + docId, 'color: var(--text);');
+      link.href   = 'https://docs.google.com/document/d/' + encodeURIComponent(docId);
+      link.target = '_blank';
+
+      const detalhe = heatmapTexto('div',
+        [data.entregues[i] ? 'Entregue' : 'Não entregue',
+         data.analises[i] + ' análise(s)',
+         alertas > 0 ? '⚠️ ' + alertas + ' alerta(s)' : 'Sem alertas'].join(' · '),
+        'font-size: 0.75rem; margin-top: 0.35rem; color: ' + (alertas > 0 ? '#ef4444' : 'var(--text-dim)') + ';');
+
+      list.appendChild(heatmapItem(link, semAnalise ? 'Sem análise' : integridade + '% Integridade', semAnalise ? 0 : integridade, detalhe));
+    });
   }
 
   function renderData(data) {
