@@ -1,49 +1,50 @@
 installation:
-  version: 6.8.0
+  version: 6.12.4
   installDate: 2026-04-17T12:33:50.708Z
-  lastUpdated: 2026-05-26T21:08:54.817Z
+  lastUpdated: 2026-10-31T13:02:19.668Z
+  installShims: false
 modules:
   - name: core
-    version: 6.8.0
+    version: 6.12.4
     installDate: 2026-04-17T12:33:32.760Z
-    lastUpdated: 2026-05-26T21:08:54.807Z
+    lastUpdated: 2026-10-31T13:02:19.659Z
     source: built-in
     npmPackage: null
     repoUrl: null
   - name: bmm
-    version: 6.8.0
+    version: 6.12.4
     installDate: 2026-04-17T12:33:33.155Z
-    lastUpdated: 2026-05-26T21:08:54.809Z
+    lastUpdated: 2026-10-31T13:02:19.660Z
     source: built-in
     npmPackage: null
     repoUrl: null
   - name: bmb
     version: v1.8.1
     installDate: 2026-04-17T12:33:35.389Z
-    lastUpdated: 2026-05-26T21:08:54.811Z
+    lastUpdated: 2026-10-31T13:02:19.663Z
     source: external
     npmPackage: bmad-builder
     repoUrl: https://github.com/bmad-code-org/bmad-builder
-    channel: stable
+    channel: pinned
     sha: 3410d952eafe621f31fcdf4dd5efb2b06690a306
   - name: cis
-    version: v0.2.1
+    version: v0.3.2
     installDate: 2026-04-17T12:33:39.707Z
-    lastUpdated: 2026-05-26T21:08:54.815Z
+    lastUpdated: 2026-10-31T13:02:19.665Z
     source: external
     npmPackage: bmad-creative-intelligence-suite
     repoUrl: https://github.com/bmad-code-org/bmad-module-creative-intelligence-suite
-    channel: stable
-    sha: 07a8dd03d196a762f21c241d985293fe5b0f90e7
+    channel: pinned
+    sha: 97298b22fee1c7e482710d3a8414adb5cfccccd9
   - name: tea
-    version: v1.19.0
+    version: v1.27.2
     installDate: 2026-04-17T12:33:44.131Z
-    lastUpdated: 2026-05-26T21:08:54.817Z
+    lastUpdated: 2026-10-31T13:02:19.668Z
     source: external
     npmPackage: bmad-method-test-architecture-enterprise
     repoUrl: https://github.com/bmad-code-org/bmad-method-test-architecture-enterprise
-    channel: stable
-    sha: 8734d51f24071ddbcb3617390b5fcddb4128ef77
+    channel: pinned
+    sha: d99ad29c62697c152e3393351406686d5bcd323c
 ides:
   - claude-code
   - gemini
