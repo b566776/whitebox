@@ -1,0 +1,160 @@
+{
+  "today": "2026-10-31",
+  "claims": [
+    {
+      "claim": "C1 2.561 IES no Brasil em 2024 (317 públicas, 2.244 privadas); 10.226.873 matrículas de graduação (INEP; ordem de grandeza confirmada por Viva e QueroBolsa).",
+      "class": "size",
+      "pub_date": "2025-10",
+      "status": "verified",
+      "recheck": "2027-04-01",
+      "stale": false
+    },
+    {
+      "claim": "C2 206 universidades (53,0% das matrículas), 417 centros universitários (33,7%), 1.897 faculdades (11,0%), 41 IFs/Cefets (2,3%) (INEP Tabela 2).",
+      "class": "size",
+      "pub_date": "2025-10",
+      "status": "verified",
+      "recheck": "2027-04-01",
+      "stale": false
+    },
+    {
+      "claim": "C3 EAD = 50,7% das matrículas de graduação em 2024 (>5 milhões), 95,9% na rede privada; EAD +286,7% e presencial -22,3% em 2014–2024 (INEP; +287% confirmado por TI Inside/Changemaker).",
+      "class": "growth",
+      "pub_date": "2025-10",
+      "status": "verified",
+      "recheck": "2027-04-01",
+      "stale": false
+    },
+    {
+      "claim": "C4 Mantenedoras mega porte (>50 mil matrículas) = 1,4% das IES e 47,1% das matrículas em 2024; grande+mega = 78,8% das matrículas (PEBSP citando Semesp Mapa 2026; fonte única secundária).",
+      "class": "size",
+      "pub_date": "2026-04",
+      "status": "unverified",
+      "recheck": "2027-10-01",
+      "stale": false
+    },
+    {
+      "claim": "C5 ABMES e Google for Education firmaram parceria (23/01/2026) com piloto de Gemini for Education em Ser Educacional e Cruzeiro do Sul (ABMES, fonte primária).",
+      "class": "adoption",
+      "pub_date": "2026-01",
+      "status": "verified",
+      "recheck": "2028-01-01",
+      "stale": false
+    },
+    {
+      "claim": "C6 Faixa Turnitin BR mantida (R$ 9,7–20/usuário/ano); ponto Unifesspa rebaixado: total R$ 156.187 e prazo de 3 anos não confirmado no trecho legível.",
+      "class": "pricing",
+      "pub_date": "2024-06",
+      "status": "verified",
+      "recheck": "2024-09-01",
+      "stale": true
+    },
+    {
+      "claim": "C7 Universidades anglófonas estão cancelando a detecção de IA do Turnitin por falsos positivos (WSU memo 2026-02 lista 6 R1; Vanderbilt 2023); WSU: 33% dos casos de IA sem outra evidência terminaram em 'não responsável'.",
+      "class": "policy",
+      "pub_date": "2026-02",
+      "status": "verified",
+      "recheck": "2028-02-01",
+      "stale": false
+    },
+    {
+      "claim": "C8 IES brasileiras (UCPel 2025, Cásper Líbero 2026) já prescrevem em política que detectores não são prova exclusiva e pedem rascunhos/versões intermediárias/processo documentado (duas fontes primárias independentes).",
+      "class": "policy",
+      "pub_date": "2026-06",
+      "status": "verified",
+      "recheck": "2028-06-01",
+      "stale": false
+    },
+    {
+      "claim": "C9 Turnitin Clarity (GA jul/2025) é add-on pago, ambiente de escrita proprietário, assistente só em inglês, em pilotos nos EUA (fontes secundárias; página oficial 403).",
+      "class": "positioning",
+      "pub_date": "2025-07",
+      "status": "unverified",
+      "recheck": "2025-10-01",
+      "stale": true
+    },
+    {
+      "claim": "C10 Grammarly Authorship (grátis, aluno decide compartilhar) e GPTZero Writing Replay (pareado com detecção) são os players de 'evidência de processo'; nenhum com UI em português ou IES brasileira nomeada (páginas oficiais de ambos).",
+      "class": "positioning",
+      "pub_date": "2026",
+      "status": "verified",
+      "recheck": "2026-04-01",
+      "stale": true
+    },
+    {
+      "claim": "C11 42% de 248 respondentes (enquete informal Anna Mills) acham intrusivo pedir histórico completo do documento; UF piloto Grammarly: 88% sentem trabalho 'fully their own' (fontes únicas).",
+      "class": "student-voice",
+      "pub_date": "2024-09",
+      "status": "unverified",
+      "recheck": "2026-09-01",
+      "stale": true
+    },
+    {
+      "claim": "C12 Decreto 12.456/2025 (novo marco EAD, limite 30% EAD em presenciais, adequação até maio/2027) e parecer CNE sobre IA (correção automatizada = alto risco, revisão humana obrigatória) (fontes secundárias ABMES/Mattos Filho/DGABC).",
+      "class": "regulation",
+      "pub_date": "2025-05",
+      "status": "unverified",
+      "recheck": "2027-05-01",
+      "stale": false
+    },
+    {
+      "claim": "C13 Clarity: escrita obrigatória no editor Turnitin via LTI 1.3, documentado para Canvas (Cedarville); Moodle só por trecho de guia Turnitin (403).",
+      "class": "feature",
+      "pub_date": "2026-08",
+      "status": "verified",
+      "recheck": "2026-11-01",
+      "stale": false
+    },
+    {
+      "claim": "C14 Revision History: Free até 150 docs/mês, Plus US$ 32/ano, Schools & Districts customizado com DPA; declara 200 mil+ educadores (página oficial + compras de Piedmont USD e Diocese de Wollongong).",
+      "class": "pricing",
+      "pub_date": "2026-10",
+      "status": "verified",
+      "recheck": "2027-01-01",
+      "stale": false
+    },
+    {
+      "claim": "C15 Google for Education Build exige 3 integrações aprovadas; Marketplace exige OAuth verification e security assessment para escopos restritos; cobrança fora do Marketplace (docs Google; custo CASA não obtido).",
+      "class": "channel",
+      "pub_date": "2026",
+      "status": "unverified",
+      "recheck": "2027-01-01",
+      "stale": false
+    },
+    {
+      "claim": "C16 IFES compram Turnitin por inexigibilidade, via Turnitin Brazil Ltda ou revendedora Learnbase; justificativa reputacional e por prova social de pares (UFC, UFFS, Unifesspa, UFGD; trechos).",
+      "class": "procurement",
+      "pub_date": "2024",
+      "status": "unverified",
+      "recheck": "2025-01-01",
+      "stale": true
+    },
+    {
+      "claim": "C98 Add-ons do Google Classroom só estão disponíveis para Education Plus e Teaching and Learning Upgrade e exigem allowlist individual do admin (Google Help + Workspace Updates blog).",
+      "class": "channel",
+      "pub_date": "2024-06",
+      "status": "verified",
+      "recheck": "2025-06-01",
+      "stale": true
+    },
+    {
+      "claim": "C100 Escopos restritos exigem CASA com revalidação anual; custo não publicado pelo Google, fontes terciárias divergem (milhares a dezenas de milhares de USD).",
+      "class": "channel",
+      "pub_date": "2026",
+      "status": "unverified",
+      "recheck": "2027-01-01",
+      "stale": false
+    },
+    {
+      "claim": "C93 Add-ons de educação no ecossistema Google vendem freemium ao educador e licença escolar sob consulta por matrícula, fora do Marketplace (Kami, Brisk, Revision History; páginas oficiais).",
+      "class": "pricing",
+      "pub_date": "2026-10",
+      "status": "verified",
+      "recheck": "2027-01-01",
+      "stale": false
+    }
+  ],
+  "stale_count": 6,
+  "earliest_recheck": "2024-09-01",
+  "no_window_classes": []
+}
