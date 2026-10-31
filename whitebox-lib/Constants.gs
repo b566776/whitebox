@@ -27,7 +27,7 @@
  * Atualizar a implantação existente (clasp update-deployment) NÃO muda a URL;
  * só criar uma implantação nova muda.
  */
-const BRAIN_PROXY_URL = 'https://script.google.com/macros/s/AKfycbwAzIlfKhJ2zoX7NV1jCzuGU8gb7PeNtXHE3evj1-X5ebcI2oiMbKUhrqrSWhL73uqg/exec';
+const BRAIN_PROXY_URL = 'https://script.google.com/macros/s/AKfycbzRiSQpiKHH4DG1Ts5Jyx7DdbX7rLJmyPRPQEmqg4JGVFOVwpn_WaAIsE0kqvhie1GJiA/exec';
 
 // =====================================================
 //  DOCUMENT PROPERTIES: Chaves persistidas no documento

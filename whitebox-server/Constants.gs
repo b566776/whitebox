@@ -206,6 +206,12 @@ const DRIVE_ROOT_FOLDER_NAME    = 'whitebox';
  */
 const CACHE_ASSIGNMENT_PREFIX   = 'ASSIGNMENT_FOR_DOC_';
 
+/** Chave do cache dos heatmaps agregados (instituição, professor e turma) */
+const CACHE_HEATMAP_GERAL       = 'HEATMAP_GERAL';
+
+/** TTL do cache dos heatmaps agregados (5 min); nova análise ou entrega o invalida antes */
+const CACHE_HEATMAP_GERAL_TTL_SEC = 300;
+
 /** TTL do cache de assignmentId (6h em segundos) */
 const CACHE_ASSIGNMENT_TTL_SEC  = 21600;
 

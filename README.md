@@ -97,8 +97,8 @@ graph TD
 | Componente | Script ID / URL | Finalidade |
 | :--- | :--- | :--- |
 | **Cliente** | `1AcsKf8oIp2aS2VWPSm86wq_HSUo07KEAZFP2ST3vdilgkvfz9Jc9ZKK4` | Wrapper leve vinculado aos docs. |
-| **Biblioteca** | `1iclQyZIbPsAL90mIX-aA3uZVfJ2TzQjbA5NsJYygme5jNezqnClnzmWJ` | Motor central (ID usado no vínculo do cliente). |
-| **Servidor** | `1vGcyooljMaUVRPoN1gkkDfKNUb-oi65p0x1PODqnN006249US_P6iilp` | Gateway de IA e Gestão de Logs. |
+| **Biblioteca** | `1I-W1uY1EjP6i0cyKF-nfXcLC989yUIKirmmAb44aPbVFLkwMR8uz5Yt8` | Motor central (ID usado no vínculo do cliente). |
+| **Servidor** | `1UzE7vx3UH3MQjvsVcKuIQajLBGYC-kbzTp4is14DLSQ-ff-J6rqQF5cR` | Gateway de IA e Gestão de Logs. |
 
 ---
 

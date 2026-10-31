@@ -318,19 +318,99 @@ function distribuirMestreParaProfessor(email, token) {
 /**
  * Retorna os dados para os mapas de calor solicitados (Snapshot).
  * Abrande os níveis: Aluno, Turma, Professor e Instituição.
+ *
+ * Só o nível Aluno usa o `identifier`. Os demais listam todos os itens do nível
+ * (uma instituição, um professor ou uma turma por item) — ver calcularHeatmapsGerais.
  */
 function getHeatmapData(token, scope, identifier) {
   validateAdminAccess(token);
-  
+
   if (scope === 'aluno_atividades') {
     return calcularHeatmapAluno(identifier); // identifier = email_aluno
   } else if (scope === 'turma_atividades') {
-    return calcularHeatmapTurma(identifier); // identifier = course_id
+    return calcularHeatmapsGerais().turma;
+  } else if (scope === 'professor') {
+    return calcularHeatmapsGerais().professor;
   } else if (scope === 'instituicao') {
-    return calcularHeatmapInstituicao(identifier); // identifier = nome_instituicao
+    return calcularHeatmapsGerais().instituicao;
   }
-  
+
   throw new Error('Escopo de heatmap não suportado: ' + scope);
+}
+
+/** Risco acima deste valor, em documento entregue, conta como alerta */
+const RISCO_ALERT_THRESHOLD = 60;
+
+/**
+ * Agrega as linhas de uma aba Logs por documento. Base de todos os heatmaps.
+ *
+ * As linhas de um documento têm duas origens: a telemetria do aluno (esforço, entrega
+ * final) e as análises de IA, gravadas pelo professor com o e-mail DELE em Email_Aluno.
+ * Por isso tudo é ligado pelo DocId, e não pelo e-mail. Linhas sem DocId (análises
+ * gravadas por versões antigas da biblioteca) não têm como ser atribuídas e ficam de fora.
+ *
+ * @param {Array<Array>} logs - getValues() da aba Logs, com o cabeçalho na primeira linha
+ * @param {Object<string, boolean>} professores - e-mails (lowercase) que não contam como aluno
+ * @returns {Object<string, {turma: string, riscoTotal: number, analises: number, altoRisco: number,
+ *           alunos: Object<string, {esforcoTotal: number, count: number, entregue: boolean}>}>}
+ *          Por DocId; `alunos` é indexado pelo e-mail (lowercase) de quem enviou telemetria.
+ */
+function _agregarLogsPorDocumento(logs, professores) {
+  const docs = {};
+  if (!logs || logs.length < 2) return docs;
+
+  const h       = logs[0];
+  const EMAIL   = h.indexOf('Email_Aluno');
+  const DOC     = h.indexOf('DocId');
+  const TURMA   = h.indexOf('Turma');
+  const RISCO   = h.indexOf('RiscoScore');
+  const ESFORCO = h.indexOf('Tempo_Ativo_Min');
+  const FINAL   = h.indexOf('Entrega_Final');
+  if (EMAIL === -1 || DOC === -1) return docs; // Headers inválidos
+
+  for (let i = 1; i < logs.length; i++) {
+    const docId = String(logs[i][DOC] || '');
+    if (!docId) continue;
+    if (!docs[docId]) docs[docId] = { turma: '', riscoTotal: 0, analises: 0, altoRisco: 0, alunos: {} };
+    const doc = docs[docId];
+
+    // Só linha de análise tem RiscoScore; a telemetria deixa a célula vazia.
+    const risco = parseFloat(logs[i][RISCO]);
+    if (!isNaN(risco)) {
+      doc.riscoTotal += risco;
+      doc.analises++;
+      if (risco > RISCO_ALERT_THRESHOLD) doc.altoRisco++;
+      continue;
+    }
+
+    const email = String(logs[i][EMAIL]).trim().toLowerCase();
+    if (!email || professores[email]) continue;
+    if (!doc.alunos[email]) doc.alunos[email] = { esforcoTotal: 0, count: 0, entregue: false };
+    const aluno = doc.alunos[email];
+    aluno.esforcoTotal += parseFloat(logs[i][ESFORCO]) || 0;
+    aluno.count++;
+    if (logs[i][FINAL] === 'Sim') aluno.entregue = true;
+    if (!doc.turma) doc.turma = String(logs[i][TURMA] || '');
+  }
+  return docs;
+}
+
+/** E-mails (lowercase) da aba Assinaturas: quem é professor não conta como aluno. */
+function _mapaDeProfessores(assData, emailColIdx) {
+  const professores = {};
+  for (let r = 1; r < assData.length; r++) {
+    const email = String(assData[r][emailColIdx] || '').trim().toLowerCase();
+    if (email) professores[email] = true;
+  }
+  return professores;
+}
+
+/**
+ * Integridade = 100 - risco médio das análises (risco alto → integridade baixa).
+ * Sem análise não há o que afirmar: null, e não 100.
+ */
+function _integridadeHeatmap(riscoTotal, analises) {
+  return analises > 0 ? Math.round(100 - riscoTotal / analises) : null;
 }
 
 /**
@@ -357,10 +437,11 @@ function getHeatmapData(token, scope, identifier) {
  *   analises  — nº de análises de IA do documento
  *   entregues — true se o aluno marcou a entrega final
  *   turmas    — turma registrada na telemetria
+ * e um `resumo` do aluno: { integridadeMedia, alunosAtivos, alertas, documentos }.
  *
  * @param {string} emailAluno
  * @returns {{ labels: string[], valores: Array<number|null>, alertas: number[], esforcos: number[],
- *             analises: number[], entregues: boolean[], turmas: string[],
+ *             analises: number[], entregues: boolean[], turmas: string[], resumo: object,
  *             _fromCache?: boolean, _cachedAt?: string, _calculatedAt?: string }}
  */
 function calcularHeatmapAluno(emailAluno) {
@@ -407,9 +488,8 @@ function calcularHeatmapAluno(emailAluno) {
     return { labels: [], valores: [], alertas: [] };
   }
 
-  // Patch 8: Remover constantes fixas; buscaremos os índices dinamicamente dentro do loop
-  const RISCO_ALERT_THRESHOLD = 60; // Risco > 60 é alerta
-  const alvo = String(emailAluno).trim().toLowerCase();
+  const alvo        = String(emailAluno).trim().toLowerCase();
+  const professores = _mapaDeProfessores(assData, emailColIdx);
 
   // docId → { riscoTotal, analises, altoRisco, esforcoTotal, count, entregue, turma }
   const aggregated = {};
@@ -426,53 +506,13 @@ function calcularHeatmapAluno(emailAluno) {
 
       const logs = logSheet.getDataRange().getValues();
       planilhasVarriadas++;
-      
-      if (logs.length < 2) continue;
-      
-      const logH = logs[0];
-      const LOG_EMAIL_COL   = logH.indexOf('Email_Aluno');
-      const LOG_DOC_COL     = logH.indexOf('DocId');
-      const LOG_TURMA_COL   = logH.indexOf('Turma');
-      const LOG_RISCO_COL   = logH.indexOf('RiscoScore');
-      const LOG_ESFORCO_COL = logH.indexOf('Tempo_Ativo_Min');
-      const LOG_FINAL_COL   = logH.indexOf('Entrega_Final');
-      
-      if (LOG_EMAIL_COL === -1 || LOG_DOC_COL === -1) continue; // Headers inválidos
 
-      // As linhas de um documento têm duas origens: a telemetria do aluno (esforço, entrega
-      // final) e as análises de IA, gravadas pelo professor com o e-mail DELE em Email_Aluno.
-      // Por isso o risco é ligado ao aluno pelo DocId, e não pelo e-mail.
-      const ehDoAluno = i => String(logs[i][LOG_EMAIL_COL]).trim().toLowerCase() === alvo;
-
-      const docsDoAluno = {};
-      for (let i = 1; i < logs.length; i++) {
-        if (ehDoAluno(i) && logs[i][LOG_DOC_COL]) docsDoAluno[String(logs[i][LOG_DOC_COL])] = true;
-      }
-
-      for (let i = 1; i < logs.length; i++) {
-        const docId = String(logs[i][LOG_DOC_COL]);
-        if (!docsDoAluno[docId]) continue;
-
-        if (!aggregated[docId]) {
-          aggregated[docId] = { riscoTotal: 0, analises: 0, altoRisco: 0, esforcoTotal: 0, count: 0, entregue: false, turma: '' };
-        }
-        const agg = aggregated[docId];
-
-        if (ehDoAluno(i)) {
-          agg.esforcoTotal += parseFloat(logs[i][LOG_ESFORCO_COL]) || 0;
-          agg.count++;
-          if (logs[i][LOG_FINAL_COL] === 'Sim') agg.entregue = true;
-          if (!agg.turma) agg.turma = String(logs[i][LOG_TURMA_COL] || '');
-        }
-
-        // Só linha de análise tem RiscoScore; a telemetria deixa a célula vazia.
-        const risco = parseFloat(logs[i][LOG_RISCO_COL]);
-        if (!isNaN(risco)) {
-          agg.riscoTotal += risco;
-          agg.analises++;
-          if (risco > RISCO_ALERT_THRESHOLD) agg.altoRisco++;
-        }
-      }
+      // Documentos em que este aluno enviou telemetria; o esforço e a entrega são os dele.
+      const docs = _agregarLogsPorDocumento(logs, professores);
+      Object.keys(docs).forEach(docId => {
+        const doAluno = docs[docId].alunos[alvo];
+        if (doAluno) aggregated[docId] = Object.assign({}, docs[docId], doAluno);
+      });
     } catch (e) {
       Logger.log('[BrainProxy] calcularHeatmapAluno: erro na planilha ' + profSSId + ': ' + e);
     }
@@ -484,13 +524,12 @@ function calcularHeatmapAluno(emailAluno) {
 
   const labels   = Object.keys(aggregated);
   const itens    = labels.map(l => aggregated[l]);
-  // Invertemos: risco alto → score de integridade baixo (0-100). A média é só das análises;
-  // sem análise não há o que afirmar sobre o documento, por isso null e não 100.
-  const valores  = itens.map(a => a.analises > 0 ? Math.round(100 - a.riscoTotal / a.analises) : null);
+  const valores  = itens.map(a => _integridadeHeatmap(a.riscoTotal, a.analises));
   // Alerta = documento entregue que tem análise de risco alto. Entrega (linha do aluno) e
   // risco (linha do professor) nunca estão na mesma linha: a regra só fecha por documento.
   const alertas  = itens.map(a => a.entregue ? a.altoRisco : 0);
   const esforcos = itens.map(a => a.count > 0 ? Math.round(a.esforcoTotal / a.count) : 0);
+  const soma     = campo => itens.reduce((total, a) => total + a[campo], 0);
 
   const resultado = {
     labels,
@@ -500,6 +539,12 @@ function calcularHeatmapAluno(emailAluno) {
     analises:  itens.map(a => a.analises),
     entregues: itens.map(a => a.entregue),
     turmas:    itens.map(a => a.turma),
+    resumo: {
+      integridadeMedia: _integridadeHeatmap(soma('riscoTotal'), soma('analises')),
+      alunosAtivos:     labels.length > 0 ? 1 : 0,
+      alertas:          alertas.reduce((total, n) => total + n, 0),
+      documentos:       labels.length
+    },
     _calculatedAt: new Date().toISOString(),
     _elapsedMs:    elapsedMs,
     _fromCache:    false
@@ -573,72 +618,135 @@ function invalidarCacheHeatmapDoDocumento(logSheet, headers, docId) {
 }
 
 /**
- * [ARCH-04] Stub defensivo para heatmap por instituição (implementação futura).
- * Documenta a intenção sem retornar dados falsos.
+ * Heatmaps agregados: um item por instituição, por professor e por turma.
+ *
+ * Uma única varredura das planilhas de todos os professores produz os três níveis, com as
+ * mesmas regras do heatmap por aluno (ver _agregarLogsPorDocumento e calcularHeatmapAluno).
+ * Só entram documentos em que algum aluno enviou telemetria.
+ *
+ * A turma é o nome registrado na telemetria (a pasta da turma no Drive do aluno): os logs
+ * não guardam ID de curso do Classroom nem de atividade. Como o nome pode se repetir entre
+ * professores, cada turma é identificada junto com o professor.
+ *
+ * Cada nível traz, na mesma posição em todos os arrays:
+ *   labels, valores (integridade ou null), alertas, alunos, documentos, analises
+ * e um `resumo` de todo o conjunto: { integridadeMedia, alunosAtivos, alertas, documentos }.
+ * "Alunos ativos" = alunos distintos com telemetria.
+ *
+ * Cache de CACHE_HEATMAP_GERAL_TTL_SEC; nova análise ou entrega final o invalida
+ * (ver logarNaPlanilhaProfessor). O custo cresce com o nº de professores — ver ARCH-07.
+ *
+ * @returns {{ instituicao: object, professor: object, turma: object }}
  */
-function calcularHeatmapInstituicao(nomeInstituicao) {
-  Logger.log('[BrainProxy] calcularHeatmapInstituicao: não implementado para ' + nomeInstituicao);
-  return {
-    _incomplete: true,
-    _reason:    'Implementação pendente: requer índice de instituições na planilha global.',
-    labels:     [],
-    valores:    [],
-    alertas:    []
-  };
-}
-
-
-function calcularHeatmapTurma(courseId) {
-  const profEmail = Session.getActiveUser().getEmail();
-  const ssId = buscarSpreadsheetProfessor(profEmail);
-  if (!ssId) return { labels: [], media_esforco: [], media_integridade: [] };
-
-  const ss    = SpreadsheetApp.openById(ssId);
-  const sheet = ss.getSheetByName('Logs');
-  const data  = sheet.getDataRange().getValues();
-  const h     = data[0];
-
-  // Resolver colunas por header para robustez
-  const courseCol      = h.indexOf('Turma');          // Coluna Turma (0-based)
-  const assignmentCol  = h.indexOf('DocId');           // Agrupamos por DocId como proxy de Assignment
-  const esforcoCol     = h.indexOf('Tempo_Ativo_Min');
-  const integridadeCol = h.indexOf('RiscoScore');
-
-  const stats = {};
-  for (let i = 1; i < data.length; i++) {
-    // Patch 7: Filtrar pelo courseId forçando String comparison (evitar bugs de type coercion)
-    if (String(data[i][courseCol]) !== String(courseId)) continue;
-
-    const aid = data[i][assignmentCol] || 'SEM_DOC';
-    if (!stats[aid]) stats[aid] = { esforco: 0, integridade: 0, count: 0 };
-    stats[aid].esforco      += parseFloat(data[i][esforcoCol])     || 0;
-    stats[aid].integridade  += parseFloat(data[i][integridadeCol]) || 0;
-    stats[aid].count++;
+function calcularHeatmapsGerais() {
+  const cache  = CacheService.getScriptCache();
+  const cached = cache.get(CACHE_HEATMAP_GERAL);
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (e) {
+      Logger.log('[BrainProxy] calcularHeatmapsGerais: cache inválido, recalculando...');
+    }
   }
 
-  const labels = Object.keys(stats);
-  return {
-    labels,
-    media_esforco:     labels.map(l => stats[l].count > 0 ? stats[l].esforco     / stats[l].count : 0),
-    media_integridade: labels.map(l => stats[l].count > 0 ? stats[l].integridade / stats[l].count : 0)
+  const cfg     = getConfig();
+  const assData = getPlanilhaGlobal(cfg.adminSpreadsheetId).getDataRange().getValues();
+  const assH    = assData[0];
+  const emailColIdx = assH.indexOf(COL_EMAIL);
+  const ssColIdx    = assH.indexOf(COL_SPREADSHEET_ID);
+  const instColIdx  = assH.indexOf(COL_INSTITUICAO);
+
+  const grupos = { instituicao: {}, professor: {}, turma: {} };
+  const geral  = _novoGrupoHeatmap('');
+
+  if (emailColIdx !== -1 && ssColIdx !== -1) {
+    const professores = _mapaDeProfessores(assData, emailColIdx);
+
+    for (let r = 1; r < assData.length; r++) {
+      const profSSId = assData[r][ssColIdx];
+      if (!profSSId || String(profSSId).trim() === '') continue;
+
+      const professor   = String(assData[r][emailColIdx]);
+      const instituicao = String((instColIdx !== -1 && assData[r][instColIdx]) || 'Não informada');
+
+      try {
+        const logSheet = SpreadsheetApp.openById(profSSId).getSheetByName(SHEET_LOGS);
+        if (!logSheet) continue;
+
+        const docs = _agregarLogsPorDocumento(logSheet.getDataRange().getValues(), professores);
+        Object.keys(docs).forEach(docId => {
+          const doc    = docs[docId];
+          const alunos = Object.keys(doc.alunos);
+          if (alunos.length === 0) return; // só análises, nenhum aluno: sem a quem atribuir
+
+          const turma = doc.turma || 'SEM_TURMA';
+          [
+            _grupoHeatmap(grupos.instituicao, instituicao, instituicao),
+            _grupoHeatmap(grupos.professor, professor, professor),
+            _grupoHeatmap(grupos.turma, professor + '\n' + turma, turma + ' (' + professor + ')'),
+            geral
+          ].forEach(grupo => {
+            grupo.riscoTotal += doc.riscoTotal;
+            grupo.analises   += doc.analises;
+            grupo.documentos++;
+            // Mesma regra do heatmap por aluno: risco alto só é alerta em documento entregue
+            if (alunos.some(email => doc.alunos[email].entregue)) grupo.alertas += doc.altoRisco;
+            alunos.forEach(email => { grupo.alunos[email] = true; });
+          });
+        });
+      } catch (e) {
+        Logger.log('[BrainProxy] calcularHeatmapsGerais: erro na planilha ' + profSSId + ': ' + e);
+      }
+    }
+  } else {
+    Logger.log('[BrainProxy] calcularHeatmapsGerais: colunas obrigatórias ausentes na aba Assinaturas.');
+  }
+
+  const resumo = {
+    integridadeMedia: _integridadeHeatmap(geral.riscoTotal, geral.analises),
+    alunosAtivos:     Object.keys(geral.alunos).length,
+    alertas:          geral.alertas,
+    documentos:       geral.documentos
   };
+  const resultado = {
+    instituicao: _nivelHeatmap(grupos.instituicao, resumo),
+    professor:   _nivelHeatmap(grupos.professor, resumo),
+    turma:       _nivelHeatmap(grupos.turma, resumo)
+  };
+
+  try {
+    const serialized = JSON.stringify(resultado);
+    if (serialized.length < 90000) cache.put(CACHE_HEATMAP_GERAL, serialized, CACHE_HEATMAP_GERAL_TTL_SEC);
+  } catch (e) {
+    Logger.log('[BrainProxy] calcularHeatmapsGerais: falha ao persistir no cache: ' + e);
+  }
+
+  return resultado;
 }
 
-/**
- * [HIGH-03 FIX] Busca SpreadsheetId do professor por nome de coluna (não índice).
- */
-function buscarSpreadsheetProfessor(email) {
-  const adminId = PropertiesService.getScriptProperties().getProperty('ADMIN_SPREADSHEET_ID');
-  const sheet   = SpreadsheetApp.openById(adminId).getSheetByName('Assinaturas');
-  const data    = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const emailIdx = headers.indexOf('Email');
-  const ssIdx    = headers.indexOf('SpreadsheetId');
-  if (emailIdx === -1 || ssIdx === -1) return null;
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][emailIdx] === email) return data[i][ssIdx];
-  }
-  return null;
+function _novoGrupoHeatmap(rotulo) {
+  return { rotulo: rotulo, riscoTotal: 0, analises: 0, alertas: 0, documentos: 0, alunos: {} };
+}
+
+/** Devolve o grupo da chave, criando-o na primeira vez. */
+function _grupoHeatmap(grupos, chave, rotulo) {
+  if (!Object.prototype.hasOwnProperty.call(grupos, chave)) grupos[chave] = _novoGrupoHeatmap(rotulo);
+  return grupos[chave];
+}
+
+/** Monta os arrays de um nível, com os itens em alerta primeiro. */
+function _nivelHeatmap(grupos, resumo) {
+  const itens = Object.keys(grupos).map(chave => grupos[chave])
+    .sort((a, b) => (b.alertas - a.alertas) || a.rotulo.localeCompare(b.rotulo));
+  return {
+    labels:     itens.map(g => g.rotulo),
+    valores:    itens.map(g => _integridadeHeatmap(g.riscoTotal, g.analises)),
+    alertas:    itens.map(g => g.alertas),
+    alunos:     itens.map(g => Object.keys(g.alunos).length),
+    documentos: itens.map(g => g.documentos),
+    analises:   itens.map(g => g.analises),
+    resumo:     resumo
+  };
 }
 
 // =====================================================
@@ -1213,6 +1321,8 @@ function logarNaPlanilhaProfessor(params) {
   // Garante que a próxima chamada a getHeatmapData reflita os dados atuais.
   invalidarCacheHeatmap(alunoEmail);
   if (analise && docId) invalidarCacheHeatmapDoDocumento(logSheet, headers, docId);
+  // Integridade e alertas dos heatmaps agregados só mudam com análise ou entrega final
+  if (analise || isFinal) CacheService.getScriptCache().remove(CACHE_HEATMAP_GERAL);
 
   // Atualizar aba de Turmas
   atualizarTurma(ss, turma);

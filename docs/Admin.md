@@ -19,15 +19,25 @@ O cliente se autentica com o OAuth token do usuário. O `SHARED_TOKEN` fica apen
 ### Provedor de IA
 A IA da análise socrática é configurável nas Script Properties do **servidor**: `IA_PROVIDER` (`gemini`, `claude` ou `ollama`), `IA_MODEL`, `IA_BASE_URL` e `IA_GLOBAL_KEY`. Vale para os professores com `UsaChaveGlobal = Sim`; os demais usam a própria chave, e o formato dela define o provedor. Tabela de valores e exemplos em [DEPLOY.md](../whitebox-server/DEPLOY.md), seção "Configurar a IA".
 
-### Mapa de Calor por Aluno (Dashboard)
-No card **Inteligência & Mapas de Calor**, a opção **Por Aluno** pede o e-mail do aluno e mostra, para cada documento dele:
-- **Integridade**: 100 menos o risco médio das análises de IA feitas pelo professor naquele documento. Sem análise, aparece "Sem análise" (não há o que afirmar).
+### Mapas de Calor (Dashboard)
+O card **Inteligência & Mapas de Calor** tem quatro visões, do geral ao particular. Todas usam as mesmas regras:
+- **Integridade**: 100 menos o risco médio das análises de IA feitas pelo professor. Sem análise, aparece "Sem análise" (não há o que afirmar). A barra fica vermelha até 40, âmbar até 70 e verde acima disso.
 - **Alertas**: quantidade de análises com risco acima de 60, contadas apenas em documento que o aluno marcou como entregue.
-- Se o documento foi entregue e quantas análises tem.
 
-Como funciona: a telemetria e a entrega são gravadas pelo aluno, e as análises pelo professor (com o e-mail dele). O servidor junta as duas pelo ID do documento. Análises gravadas por versões antigas da biblioteca não têm o ID do documento e por isso não entram.
+| Visão | Um item por | Mostra |
+| :--- | :--- | :--- |
+| **Institucional** | Instituição (coluna `Instituicao` da aba `Assinaturas`) | Integridade, alunos, documentos, análises e alertas |
+| **Total Professor** | Professor | Idem |
+| **Por Turma** | Turma de cada professor | Idem |
+| **Por Aluno** | Documento do aluno informado | Integridade, se foi entregue, análises e alertas, com link para o documento |
 
-O resultado fica em cache por até 1 hora por aluno e é refeito quando chega nova telemetria do aluno ou nova análise em um documento dele.
+As caixas do topo trazem a **integridade média** e os **alunos ativos** (alunos distintos com telemetria) do conjunto exibido. Nas três primeiras visões, os itens com alerta aparecem primeiro.
+
+Como funciona: a telemetria e a entrega são gravadas pelo aluno, e as análises pelo professor (com o e-mail dele). O servidor junta as duas pelo ID do documento. Limites a conhecer:
+- Análises gravadas por versões antigas da biblioteca não têm o ID do documento e não entram.
+- Só contam documentos em que algum aluno enviou telemetria.
+- A **turma** é o nome da pasta da turma no Drive do aluno, registrado na telemetria. Os logs não guardam o ID do curso do Classroom nem a atividade, por isso não há visão por atividade.
+- As três primeiras visões abrem a planilha de cada professor; o resultado fica em cache por 5 minutos e é refeito quando chega nova análise ou entrega final. A visão por aluno fica em cache por até 1 hora e é refeita quando chega nova telemetria do aluno ou nova análise em um documento dele.
 
 ### Papéis e Licenças
 - **Professor** = e-mail na aba `Assinaturas` com `Status` = `Ativo`. O servidor confere isso a cada chamada de `analisar`, `registrar_chave`, `listar_turmas_professor` e `criar_leva_template`.

@@ -326,7 +326,7 @@
       <select id="heatmapLevel" style="width: auto; margin-bottom: 0;" onchange="loadHeatmap()">
         <option value="instituicao">Visão Institucional</option>
         <option value="professor">Visão Total Professor</option>
-        <option value="turma">Por Turma/Atividade</option>
+        <option value="turma">Por Turma</option>
         <option value="aluno">Por Aluno</option>
       </select>
     </div>
@@ -529,45 +529,52 @@
   }
 
   function loadHeatmap() {
+    // Opção do seletor → escopo do servidor e título da lista
+    const VISOES = {
+      instituicao: { scope: 'instituicao',      titulo: 'Integridade e Alertas por Instituição' },
+      professor:   { scope: 'professor',        titulo: 'Integridade e Alertas por Professor' },
+      turma:       { scope: 'turma_atividades', titulo: 'Integridade e Alertas por Turma' },
+      aluno:       { scope: 'aluno_atividades', titulo: 'Integridade e Alertas por Documento' }
+    };
     const level    = document.getElementById('heatmapLevel').value;
+    const visao    = VISOES[level] || VISOES.instituicao;
     const porAluno = (level === 'aluno');
     const list     = document.getElementById('heatmapList');
     document.getElementById('heatmapStudentRow').style.display = porAluno ? 'flex' : 'none';
 
-    let scope, id;
-    if (porAluno) {
-      scope = 'aluno_atividades';
-      id    = document.getElementById('studentEmailInput').value.trim();
-      if (!id) {
-        heatmapCabecalho(list, 'Integridade e Alertas por Documento', 'Informe o e-mail do aluno e clique em "Ver aluno".');
-        return;
-      }
-    } else {
-      scope = (level === 'turma') ? 'turma_atividades' : 'instituicao';
-      id    = (level === 'turma') ? document.getElementById('courseSelect').value : 'global';
+    // Só a visão por aluno tem identificador; as demais listam todos os itens do nível.
+    const id = porAluno ? document.getElementById('studentEmailInput').value.trim() : '';
+    if (porAluno && !id) {
+      heatmapResumo(null);
+      heatmapCabecalho(list, visao.titulo, 'Informe o e-mail do aluno e clique em "Ver aluno".');
+      return;
     }
 
     showLoader(true);
     google.script.run
       .withSuccessHandler(data => {
         showLoader(false);
-        const vazio = !data.labels || data.labels.length === 0;
-        if (porAluno) {
-          heatmapCabecalho(list, 'Integridade e Alertas por Documento', vazio ? 'Nenhum dado encontrado para este aluno.' : null);
-          if (!vazio) renderHeatmapAluno(list, data);
-        } else {
-          heatmapCabecalho(list, 'Distribuição de Esforço por Atividade', vazio ? 'Nenhum dado encontrado para este nível.' : null);
-          if (!vazio) data.labels.forEach((label, i) => {
-            const val = Math.round(data.media_integridade[i] || 0);
-            list.appendChild(heatmapItem(heatmapTexto('span', label), val + '% Integridade', val));
-          });
+        heatmapResumo(data.resumo);
+        if (!data.labels || data.labels.length === 0) {
+          heatmapCabecalho(list, visao.titulo, porAluno ? 'Nenhum dado encontrado para este aluno.' : 'Nenhum dado encontrado para este nível.');
+          return;
         }
+        heatmapCabecalho(list, visao.titulo);
+        (porAluno ? renderHeatmapAluno : renderHeatmapNivel)(list, data);
       })
       .withFailureHandler(err => {
         showLoader(false);
         showToast('Erro ao carregar heatmap: ' + err, true);
       })
-      .getHeatmapData(adminToken, scope, id);
+      .getHeatmapData(adminToken, visao.scope, id);
+  }
+
+  // Caixas do topo: integridade média e alunos com telemetria na visão atual
+  function heatmapResumo(resumo) {
+    const integridade = resumo ? resumo.integridadeMedia : null;
+    document.getElementById('avgIntegrity').innerText =
+      (integridade === null || integridade === undefined) ? '--%' : integridade + '%';
+    document.getElementById('activeStudents').innerText = resumo ? resumo.alunosAtivos : '--';
   }
 
   // Rótulos, turmas e IDs vêm dos logs, que qualquer usuário autenticado grava. Por isso o
@@ -585,47 +592,65 @@
     if (mensagem) list.appendChild(heatmapTexto('p', mensagem, 'color: var(--text-dim); margin-top: 1rem;'));
   }
 
-  function heatmapItem(tituloEl, direita, pct, detalheEl) {
+  // Uma linha do heatmap. Integridade nula = nenhuma análise de IA: "Sem análise", não 100%.
+  function heatmapItem(tituloEl, integridade, partesDetalhe, alertas) {
+    const semAnalise = (integridade === null || integridade === undefined);
+    const cor        = alertas > 0 ? '#ef4444' : 'var(--text-dim)';
+
     const item  = heatmapTexto('div', '', 'margin-bottom: 1rem;');
     const linha = heatmapTexto('div', '', 'display: flex; justify-content: space-between; font-size: 0.8rem;');
     linha.appendChild(tituloEl);
-    linha.appendChild(heatmapTexto('span', direita));
+    linha.appendChild(heatmapTexto('span', semAnalise ? 'Sem análise' : integridade + '% Integridade'));
     const bar  = document.createElement('div');
     bar.className = 'heatmap-bar';
     const fill = document.createElement('div');
     fill.className = 'heatmap-fill';
-    fill.style.width = pct + '%';
+    fill.style.width = (semAnalise ? 0 : integridade) + '%';
+    // Cor pela faixa de integridade (mesma legenda da aba Visual_Heatmap do professor). O
+    // degradê fixo do CSS pintava de vermelho justamente as barras mais longas, as melhores.
+    fill.style.background = integridade > 70 ? '#10b981' : (integridade > 40 ? '#f59e0b' : '#ef4444');
     bar.appendChild(fill);
     item.appendChild(linha);
     item.appendChild(bar);
-    if (detalheEl) item.appendChild(detalheEl);
+    item.appendChild(heatmapTexto('div',
+      partesDetalhe.concat(alertas > 0 ? '⚠️ ' + alertas + ' alerta(s)' : 'Sem alertas').join(' · '),
+      'font-size: 0.75rem; margin-top: 0.35rem; color: ' + cor + ';'));
     return item;
   }
+
+  function heatmapTotais(list, alertas, documentos) {
+    list.appendChild(heatmapTexto('p',
+      alertas > 0 ? '⚠️ ' + alertas + ' alerta(s) em ' + documentos + ' documento(s)' : 'Sem alertas em ' + documentos + ' documento(s)',
+      'margin: 0.5rem 0 1rem; font-size: 0.85rem; color: ' + (alertas > 0 ? '#ef4444' : 'var(--text-dim)') + ';'));
+  }
+
+  const heatmapSoma = lista => lista.reduce((soma, n) => soma + n, 0);
 
   // Um item por documento do aluno: integridade (das análises de IA) e alertas
   // (análises de risco alto em documento entregue). Ver calcularHeatmapAluno.
   function renderHeatmapAluno(list, data) {
-    const totalAlertas = data.alertas.reduce((soma, n) => soma + n, 0);
-    list.appendChild(heatmapTexto('p',
-      totalAlertas > 0 ? '⚠️ ' + totalAlertas + ' alerta(s) em ' + data.labels.length + ' documento(s)' : 'Sem alertas em ' + data.labels.length + ' documento(s)',
-      'margin: 0.5rem 0 1rem; font-size: 0.85rem; color: ' + (totalAlertas > 0 ? '#ef4444' : 'var(--text-dim)') + ';'));
+    heatmapTotais(list, heatmapSoma(data.alertas), data.labels.length);
 
     data.labels.forEach((docId, i) => {
-      const integridade = data.valores[i];
-      const semAnalise  = (integridade === null || integridade === undefined);
-      const alertas     = data.alertas[i] || 0;
-
       const link = heatmapTexto('a', (data.turmas[i] ? data.turmas[i] + ' · ' : '') + 'Documento ' + docId, 'color: var(--text);');
       link.href   = 'https://docs.google.com/document/d/' + encodeURIComponent(docId);
       link.target = '_blank';
 
-      const detalhe = heatmapTexto('div',
-        [data.entregues[i] ? 'Entregue' : 'Não entregue',
-         data.analises[i] + ' análise(s)',
-         alertas > 0 ? '⚠️ ' + alertas + ' alerta(s)' : 'Sem alertas'].join(' · '),
-        'font-size: 0.75rem; margin-top: 0.35rem; color: ' + (alertas > 0 ? '#ef4444' : 'var(--text-dim)') + ';');
+      list.appendChild(heatmapItem(link, data.valores[i],
+        [data.entregues[i] ? 'Entregue' : 'Não entregue', data.analises[i] + ' análise(s)'],
+        data.alertas[i] || 0));
+    });
+  }
 
-      list.appendChild(heatmapItem(link, semAnalise ? 'Sem análise' : integridade + '% Integridade', semAnalise ? 0 : integridade, detalhe));
+  // Um item por instituição, professor ou turma, com as mesmas regras da visão por aluno.
+  // Ver calcularHeatmapsGerais.
+  function renderHeatmapNivel(list, data) {
+    heatmapTotais(list, heatmapSoma(data.alertas), heatmapSoma(data.documentos));
+
+    data.labels.forEach((rotulo, i) => {
+      list.appendChild(heatmapItem(heatmapTexto('span', rotulo), data.valores[i],
+        [data.alunos[i] + ' aluno(s)', data.documentos[i] + ' documento(s)', data.analises[i] + ' análise(s)'],
+        data.alertas[i] || 0));
     });
   }
 
