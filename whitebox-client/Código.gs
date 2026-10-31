@@ -74,6 +74,7 @@ function getStudentQuiz() { return callLibrary('getStudentQuiz', []); }
 function submitStudentQuizAnswers(a) { return callLibrary('submitStudentQuizAnswers', [a]); }
 function markAsSubmitted() { return callLibrary('markAsSubmitted', []); }
 function statusDistribuicao(id) { return callLibrary('statusDistribuicao', [id]); }
+function getProcessReport() { return callLibrary('getProcessReport', []); }
 
 // =====================================================
 //  FALLBACKS (Resiliência Offline)

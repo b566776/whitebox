@@ -1,0 +1,1114 @@
+# -*- coding: utf-8 -*-
+"""
+Script to generate an editorial-grade, publication-quality WhiteBox Executive Dossier:
+Product Briefing, Marketing, Market Research & Commercialization, rendered to PDF via headless Chrome.
+"""
+
+import os
+import subprocess
+import sys
+import shutil
+
+def build_html():
+    html = """<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>WhiteBox — Briefing do Produto, Marketing e Comercialização</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --primary: #0f172a;
+    --primary-light: #1e293b;
+    --accent: #2563eb;
+    --accent-light: #eff6ff;
+    --accent-dark: #1d4ed8;
+    --teal: #0f766e;
+    --teal-bg: #f0fdf4;
+    --amber: #b45309;
+    --amber-bg: #fffbeb;
+    --red: #b91c1c;
+    --red-bg: #fef2f2;
+    --purple: #6b21a8;
+    --purple-bg: #faf5ff;
+    --text-main: #334155;
+    --text-muted: #64748b;
+    --border: #cbd5e1;
+    --border-light: #e2e8f0;
+    --card-bg: #f8fafc;
+    --surface: #ffffff;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text-main);
+    background-color: #f1f5f9;
+    font-size: 9.2pt;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .document-container {
+    max-width: 860px;
+    margin: 0 auto;
+    background: var(--surface);
+  }
+
+  /* PRINT SPECIFIC RULES */
+  @page {
+    size: A4 portrait;
+    margin: 15mm 14mm 15mm 14mm;
+  }
+
+  @media print {
+    body {
+      background: #ffffff;
+      font-size: 8.8pt;
+      line-height: 1.45;
+    }
+    .document-container {
+      max-width: 100%;
+      margin: 0;
+    }
+    .page-break {
+      page-break-before: always;
+      break-before: page;
+    }
+    .avoid-break {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .header-anchor {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+  }
+
+  /* COVER PAGE */
+  .cover-page {
+    padding: 36px 36px 28px;
+    height: 96vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border-bottom: 2px solid var(--border-light);
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .cover-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 16px;
+  }
+
+  .logo-box {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-symbol {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 800;
+    font-size: 16px;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-text {
+    font-size: 19px;
+    font-weight: 800;
+    color: var(--primary);
+    letter-spacing: -0.5px;
+  }
+
+  .badge-tag {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 7.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--accent-light);
+    color: var(--accent-dark);
+    border: 1px solid #bfdbfe;
+  }
+
+  .cover-body {
+    margin: 20px 0;
+  }
+
+  .cover-title-group h1 {
+    font-size: 25pt;
+    font-weight: 800;
+    line-height: 1.15;
+    color: var(--primary);
+    letter-spacing: -0.8px;
+    margin-bottom: 10px;
+  }
+
+  .cover-title-group h2 {
+    font-size: 12.5pt;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+  }
+
+  .cover-highlight-card {
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-left: 5px solid var(--accent);
+    border-radius: 8px;
+    padding: 16px 20px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+    margin-top: 14px;
+  }
+
+  .cover-highlight-card h3 {
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 6px;
+  }
+
+  .cover-highlight-card p {
+    font-size: 8.8pt;
+    color: var(--text-main);
+    line-height: 1.5;
+  }
+
+  .cover-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .meta-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .meta-label {
+    font-size: 7pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+  }
+
+  .meta-value {
+    font-size: 8.8pt;
+    font-weight: 600;
+    color: var(--primary);
+  }
+
+  /* INNER PAGES LAYOUT */
+  .content-area {
+    padding: 24px 36px 36px;
+  }
+
+  /* HEADINGS */
+  h2.part-heading {
+    font-size: 15pt;
+    font-weight: 800;
+    color: var(--primary);
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 6px;
+    margin-top: 24px;
+    margin-bottom: 14px;
+    letter-spacing: -0.4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  h3.section-heading {
+    font-size: 11pt;
+    font-weight: 700;
+    color: var(--primary-light);
+    margin-top: 18px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-left: 3px solid var(--accent);
+    padding-left: 8px;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  h4.subsection-heading {
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: var(--primary);
+    margin-top: 12px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  p {
+    margin-bottom: 8px;
+    color: var(--text-main);
+    text-align: justify;
+  }
+
+  p strong {
+    color: var(--primary);
+  }
+
+  /* CALLOUTS AND CARDS */
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+  }
+
+  .card-quote {
+    background: #f8fafc;
+    border-left: 3.5px solid var(--accent);
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 12px;
+    font-size: 8.8pt;
+  }
+
+  .card-alert {
+    background: var(--amber-bg);
+    border: 1px solid #fde68a;
+    border-left: 3.5px solid var(--amber);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    font-size: 8.6pt;
+  }
+
+  .card-alert strong {
+    color: #92400e;
+  }
+
+  .card-success {
+    background: var(--teal-bg);
+    border: 1px solid #bbf7d0;
+    border-left: 3.5px solid var(--teal);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    font-size: 8.6pt;
+  }
+
+  /* LISTS */
+  ul, ol {
+    margin: 6px 0 10px 20px;
+  }
+
+  li {
+    margin-bottom: 4px;
+    color: var(--text-main);
+  }
+
+  /* TABLES */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 14px;
+    font-size: 8.2pt;
+    background: white;
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid var(--border-light);
+  }
+
+  th {
+    background: #f1f5f9;
+    color: var(--primary);
+    font-weight: 700;
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1.5px solid var(--border-light);
+    font-size: 7.8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-light);
+    vertical-align: top;
+    color: var(--text-main);
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  tr:nth-child(even) td {
+    background: #fbfcfe;
+  }
+
+  /* STATUS BADGES */
+  .badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 7pt;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge-blue { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+  .badge-green { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+  .badge-amber { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+  .badge-red { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+  .badge-purple { background: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff; }
+
+  /* GRIDS */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .kpi-card {
+    background: white;
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 10px;
+    text-align: center;
+  }
+
+  .kpi-number {
+    font-size: 13.5pt;
+    font-weight: 800;
+    color: var(--accent);
+    margin-bottom: 2px;
+  }
+
+  .kpi-label {
+    font-size: 7pt;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  /* TOC BOX */
+  .toc-box {
+    background: #f8fafc;
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+  }
+
+  .toc-title {
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 4px;
+  }
+
+  .toc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 18px;
+    font-size: 8.2pt;
+  }
+
+  .toc-item {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-main);
+  }
+
+  .toc-item span:first-child {
+    font-weight: 600;
+  }
+
+  .toc-item span:last-child {
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* FOOTER */
+  .doc-footer {
+    padding: 14px 36px;
+    border-top: 1px solid var(--border-light);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 7.5pt;
+    background: #f8fafc;
+  }
+</style>
+</head>
+<body>
+
+<div class="document-container">
+
+  <!-- ================= COVER PAGE ================= -->
+  <div class="cover-page">
+    <div class="cover-header">
+      <div class="logo-box">
+        <div class="logo-symbol">WB</div>
+        <div class="logo-text">WhiteBox</div>
+      </div>
+      <div>
+        <span class="badge-tag">Dossiê Estratégico Executivo</span>
+      </div>
+    </div>
+
+    <div class="cover-body">
+      <div class="cover-title-group">
+        <h1>WhiteBox: Briefing do Produto, Marketing e Comercialização</h1>
+        <h2>Estratégia de Produto, Posicionamento Competitivo, Go-to-Market e Precificação para o Ensino Superior Brasileiro</h2>
+      </div>
+
+      <div class="cover-highlight-card">
+        <h3>Tese Central de Negócio</h3>
+        <p>
+          O WhiteBox é uma infraestrutura de transparência e autoria acadêmica integrada ao Google Docs que registra o percurso real de escrita do estudante (tempo de foco, ritmo de digitação, sessões, blocos colados). 
+          <strong>Ele não julga nem classifica se o texto foi gerado por IA; ele comprova se o aluno escreveu.</strong>
+          Com o colapso dos detectores de IA tradicionais e a pressão de marcos regulatórios (CNE, Decreto EAD 12.456/2025, políticas da UCPel e Cásper Líbero), o WhiteBox preenche um espaço em branco no Brasil: <em>evidência de processo em português para decisão humana, com privacidade por desenho e custo abaixo da Turnitin</em>.
+        </p>
+      </div>
+
+      <div class="grid-3" style="margin-top: 18px;">
+        <div class="kpi-card">
+          <div class="kpi-number">10,2 Milhões</div>
+          <div class="kpi-label">Matrículas de Graduação (79,8% Privadas)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-number">50,7% EAD</div>
+          <div class="kpi-label">Alunado a Distância (95,9% no Setor Privado)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-number">R$ 9,70 – R$ 20</div>
+          <div class="kpi-label">Preço Âncora Turnitin/Aluno/Ano em IFES</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cover-meta-grid">
+      <div class="meta-col">
+        <span class="meta-label">Data de Consolidação</span>
+        <span class="meta-value">Outubro de 2026</span>
+      </div>
+      <div class="meta-col">
+        <span class="meta-label">Escopo do Dossiê</span>
+        <span class="meta-value">Briefing + Market + GTM</span>
+      </div>
+      <div class="meta-col">
+        <span class="meta-label">Público-Alvo Primário</span>
+        <span class="meta-value">IES Privadas & Grupos EAD</span>
+      </div>
+      <div class="meta-col">
+        <span class="meta-label">Status Executivo</span>
+        <span class="meta-value">Pronto para Pilotos</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= CONTENT AREA ================= -->
+  <div class="content-area">
+
+    <!-- SUMÁRIO EXECUTIVO GERAL -->
+    <div class="toc-box avoid-break">
+      <div class="toc-title">Estrutura Geral do Dossiê</div>
+      <div class="toc-grid">
+        <div class="toc-item"><span>Parte I: Briefing do Produto (Product Brief)</span> <span>Seções 1.1 – 1.8</span></div>
+        <div class="toc-item"><span>1.1 Sumário Executivo & Tese</span> <span>Definição</span></div>
+        <div class="toc-item"><span>1.2 O Problema & Dores dos Usuários</span> <span>Docentes / Alunos</span></div>
+        <div class="toc-item"><span>1.3 A Solução WhiteBox & Design Ético</span> <span>Workflow</span></div>
+        <div class="toc-item"><span>1.4 Diferenciais & Matriz Comparativa</span> <span>Turnitin / Extensões</span></div>
+        <div class="toc-item"><span>1.5 Segmentos & Personas de Adoção</span> <span>Privadas / Públicas</span></div>
+        <div class="toc-item"><span>1.6 Metas de Validação em 12 Meses</span> <span>5 Pilotos Pagos</span></div>
+        <div class="toc-item"><span>1.7 Escopo da 1ª Oferta & Visão 3 Anos</span> <span>Roadmap</span></div>
+        <div class="toc-item"><span>Parte II: Marketing, Pesquisa & GTM</span> <span>Seções 2.1 – 2.8</span></div>
+        <div class="toc-item"><span>2.1 Dimensão 1: Mercado Alcançável</span> <span>Censo 2024 / EAD</span></div>
+        <div class="toc-item"><span>2.2 Dimensão 2: Comportamento de Compra</span> <span>Grupos / Públicas</span></div>
+        <div class="toc-item"><span>2.3 Dimensão 3: Dores & Falsos Positivos</span> <span>CNE / WSU / UCPel</span></div>
+        <div class="toc-item"><span>2.4 Dimensão 4: Benchmark de Preços</span> <span>Contratos Federais</span></div>
+        <div class="toc-item"><span>2.5 Dimensão 5: Estratégia de Go-to-Market</span> <span>Land-and-Expand</span></div>
+        <div class="toc-item"><span>2.6 Recomendações Estratégicas</span> <span>Ações Prioritárias</span></div>
+        <div class="toc-item"><span>2.7 Matriz de Hipóteses & Validação</span> <span>Questões Abertas</span></div>
+        <div class="toc-item"><span>2.8 Apêndice de Fontes & Legislação</span> <span>Referências</span></div>
+      </div>
+    </div>
+
+    <!-- ================= PARTE I: BRIEFING DO PRODUTO ================= -->
+    <h2 class="part-heading">
+      PARTE I — Briefing do Produto (Product Brief)
+      <span class="badge badge-blue">Visão de Produto</span>
+    </h2>
+
+    <h3 class="section-heading">1.1 Sumário Executivo do Produto</h3>
+    <p>
+      O <strong>WhiteBox</strong> opera como um painel lateral nativo no Google Docs que captura a telemetria do processo de composição textual: tempo ativo de escrita, pausas reflexivas, ritmo de digitação (keystrokes por minuto), colagens em bloco e número de sessões de trabalho. Ao término da atividade, entrega simultaneamente ao professor e ao estudante um <strong>relatório de processo idêntico, claro e em português</strong>.
+    </p>
+    <div class="card-quote avoid-break">
+      <strong>Princípio Não-Punitivo:</strong> O WhiteBox não emite pareceres probabilísticos nem vereditos sobre autoria sintética ("X% de probabilidade de IA"). Ele entrega a linha do tempo do esforço humano real, fornecendo a base fática e documental para a devolutiva pedagógica e para o direito de defesa do estudante.
+    </div>
+
+    <h3 class="section-heading">1.2 O Problema do Mercado e a Dor dos Usuários</h3>
+    <p>
+      A disseminação de Modelos de Linguagem de Grande Escala (LLMs) quebrou o paradigma tradicional de avaliação da produção escrita no ensino superior, criando três vetores críticos de estresse:
+    </p>
+    <ul>
+      <li>
+        <strong>O Dilema do Docente:</strong> Relatos indicam que até 90% dos estudantes em certas disciplinas utilizam IA generativa na produção de trabalhos escritos. Em contrapartida, os detectores de texto estatísticos apresentam altas taxas de falso positivo (a Universidade Vanderbilt estimou cerca de 750 trabalhos legítimos acusados indevidamente por ano mesmo a 1% de erro; na Washington State University - WSU, 33% dos processos disciplinares por IA terminaram em "não responsável" por ausência de prova real). O professor vive o medo de punir inocentes ou a resignação de fingir que avalia.
+      </li>
+      <li>
+        <strong>O Vácuo Normativo e a Exigência de Processo:</strong> O Parecer do Conselho Nacional de Educação (CNE) sobre IA na educação classificou avaliações e correções automatizadas com impacto acadêmico como de <em>alto risco</em>, exigindo supervisão e revisão humana mandatória. Políticas de IES pioneiras (como a Portaria OS 035/2025 da UCPel e a Política v1.0 de 2026 da Faculdade Cásper Líbero) vedam a punição com base exclusiva em detectores e exigem contraditório, versões intermediárias, rascunhos e "processo documentado".
+      </li>
+      <li>
+        <strong>A Desproteção do Aluno que Realmente Escreveu:</strong> Em ferramentas tradicionais como o Turnitin, o relatório analítico é restrito ao professor. O aluno arca com a inversão do ônus da prova sem dispor de um instrumento formal para demonstrar suas horas de pesquisa, rascunhos e reescrita.
+      </li>
+      <li>
+        <strong>O Novo Marco Regulatório da EAD (Decreto 12.456/2025):</strong> Ao fixar limites para carga horária a distância em cursos presenciais (máximo de 30%) e exigir revisão de Projetos Pedagógicos de Curso (PPCs) até maio de 2027, obriga as IES a demonstrar rigor avaliativo em escala.
+      </li>
+    </ul>
+
+    <h3 class="section-heading">1.3 A Solução WhiteBox e Arquitetura de Design</h3>
+    <p>
+      O fluxo foi desenhado para eliminar fricções de adoção tanto para o corpo docente quanto para a infraestrutura de TI da universidade:
+    </p>
+    <div class="card avoid-break">
+      <h4 class="subsection-heading">Fluxo Operacional de Ponta a Ponta:</h4>
+      <ol>
+        <li><strong>Distribuição Descentralizada:</strong> O docente cria a tarefa no Google Classroom utilizando um documento-modelo padrão que já contém o vínculo com a biblioteca do WhiteBox (sem necessidade de que o aluno instale extensões do Chrome de terceiros).</li>
+        <li><strong>Escrita com Telemetria Ativa:</strong> O estudante abre sua cópia no Google Docs, clica no menu do WhiteBox para autorizar o script com conta institucional (escopos OAuth restritos a arquivos próprios, <code>drive.file</code>, garantindo total conformidade de segurança). O painel lateral registra metadados de foco, digitação e colagens.</li>
+        <li><strong>Relatório Espelhado:</strong> Ao finalizar, professor e aluno têm acesso ao mesmo painel visual resumido: tempo de redação, sessões, gráficos de ritmo e cards de blocos colados (com indicação se houve citação).</li>
+        <li><strong>Diálogo Socrático (Camada Gemini Opcional):</strong> A IA atua exclusivamente como assistente pedagógica do professor, sugerindo perguntas reflexivas sobre o processo de redação para a devolutiva presencial ou virtual, sem emitir notas ou juízos de valor automáticos.</li>
+      </ol>
+    </div>
+
+    <div class="grid-2 avoid-break">
+      <div class="card-success">
+        <strong>Três Pilares Éticos do WhiteBox:</strong>
+        <ul style="margin: 4px 0 0 16px;">
+          <li><strong>Zero Veredito Automático:</strong> Score de risco desativado por padrão; foco absoluto em evidências auditáveis.</li>
+          <li><strong>Transparência Bidirecional:</strong> Relatório idêntico para aluno e professor ("Escudo do Estudante").</li>
+          <li><strong>Minimização de Dados (LGPD):</strong> Armazena metadados temporais e métricas de processo, nunca o conteúdo dos textos.</li>
+        </ul>
+      </div>
+      <div class="card-alert">
+        <strong>Transparência Operacional sobre Limitações:</strong>
+        <p style="margin: 4px 0 0 0; font-size: 8.4pt;">
+          O WhiteBox assume que redigitação manual de saídas de IA ou uso de ditado por voz aparecem como escrita contínua ou trechos não verificados. Essa limitação é documentada e reforça que a ferramenta serve para apoiar o julgamento docente, não para substituí-lo.
+        </p>
+      </div>
+    </div>
+
+    <div class="page-break"></div>
+
+    <h3 class="section-heading">1.4 Diferenciais Competitivos e Lacuna no Brasil</h3>
+    <p>
+      O WhiteBox ataca exatamente onde as soluções incumbentes e ferramentas estrangeiras falham no contexto universitário brasileiro:
+    </p>
+    <table class="avoid-break">
+      <thead>
+        <tr>
+          <th>Solução / Player</th>
+          <th>Ambiente de Escrita</th>
+          <th>Idioma / Suporte</th>
+          <th>Foco Institucional</th>
+          <th>Principal Ponto Cego / Fricção</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Turnitin Clarity</strong></td>
+          <td>Editor proprietário via LTI 1.3</td>
+          <td>Inglês (assistente exclusivo EN)</td>
+          <td>Universidades R1 (EUA/Europa)</td>
+          <td>Obriga aluno a sair do Docs/Word; não integra Classroom; add-on caro sob consulta</td>
+        </tr>
+        <tr>
+          <td><strong>Grammarly Authorship</strong></td>
+          <td>Extensão Chrome no Google Docs</td>
+          <td>Inglês</td>
+          <td>K-12 e Ensino Superior EUA</td>
+          <td>Controle exclusivo do aluno; sem visão agregada de turma para o professor; em inglês</td>
+        </tr>
+        <tr>
+          <td><strong>Revision History / Brisk</strong></td>
+          <td>Extensão Chrome no Google Docs</td>
+          <td>Inglês</td>
+          <td>K-12 Escolas EUA</td>
+          <td>Voltado ao ensino básico americano; sem faturamento local nem suporte a IES brasileiras</td>
+        </tr>
+        <tr>
+          <td><strong>Detectores (Winston, Copyleaks)</strong></td>
+          <td>Upload de arquivos / Web</td>
+          <td>Variado (estatístico)</td>
+          <td>Institucional e B2C</td>
+          <td>Crise global de falsos positivos; deslegitimados pelo CNE e banidos em universidades R1</td>
+        </tr>
+        <tr>
+          <td><strong>WhiteBox</strong></td>
+          <td><strong>Nativo Google Docs / Classroom</strong></td>
+          <td><strong>Português (Brasil) nativo</strong></td>
+          <td><strong>Graduação e EAD em IES Brasileiras</strong></td>
+          <td><strong>Nenhum software concorrente ocupa essa posição no mercado nacional</strong></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 class="section-heading">1.5 Públicos e Segmentos de Adoção</h3>
+    <ul>
+      <li>
+        <strong>Comprador Inicial:</strong> Pró-Reitor Acadêmico, Diretor de Regulação/EAD e Lideranças de Inovação de IES Privadas que utilizam Google Workspace for Education. Foco imediato nos grupos Ser Educacional e Cruzeiro do Sul (pioneiros da parceria oficial ABMES-Google) e centros universitários com forte volume em cursos de escrita intensiva (Direito, Pedagogia, Administração, Psicologia, Comunicação).
+      </li>
+      <li>
+        <strong>Usuário Primário (Docente):</strong> Professor universitário responsável por dezenas ou centenas de TCCs, relatórios de estágio e atividades discursivas de EAD, necessitando de uma forma ágil (menos de 45 segundos por trabalho) de verificar o processo sem burocracia manual.
+      </li>
+      <li>
+        <strong>Usuário Protegido (Estudante):</strong> O aluno que dedicou semanas ao seu projeto e obtém uma comprovação inquestionável de esforço legítimo, prevenindo acusações levianas.
+      </li>
+      <li>
+        <strong>Segunda Onda (Universidades Públicas):</strong> Bibliotecas Centrais e Pró-Reitorias de Pesquisa e Pós-Graduação, que já compram Turnitin por inexigibilidade e buscam alternativas pedagógicas para a graduação.
+      </li>
+    </ul>
+
+    <h3 class="section-heading">1.6 Metas de Validação e Critérios de Sucesso (12 Meses)</h3>
+    <table class="avoid-break">
+      <thead>
+        <tr>
+          <th>Indicador / Sinal Crítico</th>
+          <th>Meta em 12 Meses</th>
+          <th>Hipótese de Negócio Respondida</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Pilotos Institucionais Pagos</strong></td>
+          <td>5 contratos assinados (centros univ. e grupos)</td>
+          <td>Comprova a real disposição a pagar por evidência de processo no Brasil</td>
+        </tr>
+        <tr>
+          <td><strong>Adesão de Telemetria por Turma</strong></td>
+          <td>Superior a 80% dos trabalhos entregues com dados</td>
+          <td>Valida a facilidade de ativação do script pelo estudante</td>
+        </tr>
+        <tr>
+          <td><strong>Conversão de Piloto em Licença Anual</strong></td>
+          <td>Pelo menos 2 conversões em contratos anuais</td>
+          <td>Confirma viabilidade comercial e sobrevivência ao comitê de compras da IES</td>
+        </tr>
+        <tr>
+          <td><strong>Percepção Discente</strong></td>
+          <td>Maioria qualifica o relatório como "protetor" e "justo"</td>
+          <td>Mitiga o risco de rejeição por percepção de vigilância</td>
+        </tr>
+        <tr>
+          <td><strong>Publicação no Workspace Marketplace</strong></td>
+          <td>Aprovado sem escopos restritos (CASA bypass)</td>
+          <td>Assegura distribuição fluida e baixo custo operacional de conformidade</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 class="section-heading">1.7 Escopo da 1ª Oferta (In-Scope vs. Out-of-Scope)</h3>
+    <div class="grid-2 avoid-break">
+      <div class="card">
+        <h4 class="subsection-heading" style="color: var(--teal);">No Escopo Imediato:</h4>
+        <ul style="font-size: 8.2pt; margin-left: 14px;">
+          <li>Relatório visual de processo completo (foco, sessões, digitação, colagens).</li>
+          <li>Visão agregada por turma no painel do professor para triagem rápida.</li>
+          <li>Campo obrigatório de declaração de uso de IA preenchido pelo aluno.</li>
+          <li>Escopos OAuth restritos a <code>drive.file</code> (sem auditoria CASA).</li>
+          <li>Painel administrativo de IES para controle de domínios institucionais.</li>
+          <li>Contrato de tratamento de dados aderente à LGPD (minimização total).</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4 class="subsection-heading" style="color: var(--red);">Fora de Escopo Nesta Fase:</h4>
+        <ul style="font-size: 8.2pt; margin-left: 14px;">
+          <li>Qualquer algoritmo de detecção estatística de IA baseada em texto.</li>
+          <li>Integração com LMS legados via LTI (Moodle, Blackboard, Canvas).</li>
+          <li>Aplicativo ou suporte à redação por smartphone / tablet.</li>
+          <li>Revenda oficial de licenças do Google Workspace.</li>
+          <li>Score automático compulsório que funcione como nota ou punição.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-break"></div>
+
+    <!-- ================= PARTE II: PESQUISA DE MERCADO E GTM ================= -->
+    <h2 class="part-heading">
+      PARTE II — Pesquisa de Mercado, Marketing e Estratégia Comercial
+      <span class="badge badge-purple">Estratégia GTM & Pricing</span>
+    </h2>
+
+    <h3 class="section-heading">2.1 Dimensão 1: Mercado Alcançável e Dinâmica Estrutural</h3>
+    <p>
+      Os dados consolidados do Censo da Educação Superior (INEP 2024) revelam um mercado massivo, fortemente concentrado e orientado ao setor privado e à modalidade a distância:
+    </p>
+    <ul>
+      <li><strong>Base Total de Alunos:</strong> 10.226.873 matrículas de graduação distribuídas em 2.561 instituições (317 públicas e 2.244 privadas) e 374.501 funções docentes.</li>
+      <li><strong>Predomínio Privado:</strong> A rede privada abrange 79,8% de todos os alunos do país (cresceu 3,2% no último ano, enquanto a rede pública recuou 0,2%).</li>
+      <li><strong>Consolidação da EAD:</strong> A educação a distância ultrapassou a modalidade presencial, atingindo 50,7% do total de matrículas (mais de 5,1 milhões de alunos), com 95,9% desse contingente concentrado em instituições privadas. Entre 2014 e 2024, a EAD expandiu 286,7%, enquanto o ensino presencial encolheu 22,3%.</li>
+      <li><strong>Extrema Concentração Institucional:</strong> Embora existam 1.897 faculdades isoladas (74,1% das IES), elas detêm apenas 11% dos alunos. As 206 universidades (53,0% das matrículas) e os 417 centros universitários (33,7%) somam <strong>623 instituições que concentram 87% de todas as matrículas do Brasil</strong>. As chamadas megamantenedoras (acima de 50 mil alunos) representam 1,4% das entidades e controlam 47,1% do alunado nacional.</li>
+      <li><strong>Teto Teórico de Mercado:</strong> Aplicando a faixa histórica de preços do Turnitin em compras públicas brasileiras (R$ 9,70 a R$ 20,00 por usuário/ano), o teto financeiro potencial do mercado superior situa-se entre R$ 100 milhões e R$ 200 milhões anuais. O Serviceable Addressable Market (SAM) do WhiteBox corresponde à fatia de alunos matriculados em IES com Google Workspace for Education e em disciplinas de produção textual.</li>
+    </ul>
+
+    <h3 class="section-heading">2.2 Dimensão 2: Comportamento de Compra dos Segmentos</h3>
+    <div class="grid-2 avoid-break">
+      <div class="card">
+        <h4 class="subsection-heading">Grandes Grupos Privados (Alvo Primário):</h4>
+        <p style="font-size: 8.5pt;">
+          Operam programas estruturados de inovação aberta e pilotos remunerados (ex.: Yduqs Labs com ciclos de ~6 meses envolvendo TI, Suprimentos e Jurídico; Cubo/Distrito da Cogna; fundos da Ânima). A parceria ABMES-Google com Ser Educacional e Cruzeiro do Sul posiciona esses grupos como a porta de entrada mais quente para soluções nativas do Workspace.
+        </p>
+      </div>
+      <div class="card">
+        <h4 class="subsection-heading">Universidades Públicas (Segunda Onda):</h4>
+        <p style="font-size: 8.5pt;">
+          Processo de compra lento via Inexigibilidade de Licitação (fornecedor exclusivo), gerido conjuntamente pela Biblioteca Central e Pró-Reitoria de Pós-Graduação. Contratos variam entre R$ 20 mil e R$ 90 mil anuais (Turnitin). Exigem ampla prova social prévia e farta documentação jurídica.
+        </p>
+      </div>
+    </div>
+
+    <h3 class="section-heading">2.3 Dimensão 3: O Benchmark Real de Preço (Contratos Turnitin)</h3>
+    <p>
+      A análise documental de contratos públicos de contratação de ferramentas de integridade acadêmica em Instituições Federais de Ensino Superior (IFES) estabelece a âncora de preços com a qual o mercado está acostumado:
+    </p>
+    <table class="avoid-break">
+      <thead>
+        <tr>
+          <th>Instituição (IFES)</th>
+          <th>Solução Contratada</th>
+          <th>Valor Anual</th>
+          <th>Usuários Licenciados</th>
+          <th>Custo Efetivo / Usuário / Ano</th>
+          <th>Modelo / Canal</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>UFGD</strong></td>
+          <td>Turnitin Similarity</td>
+          <td>R$ 19.422,00</td>
+          <td>2.000 usuários</td>
+          <td><strong>R$ 9,71</strong></td>
+          <td>Inexigibilidade / Direto</td>
+        </tr>
+        <tr>
+          <td><strong>UFC</strong></td>
+          <td>Feedback Studio + Originality</td>
+          <td>US$ 15.694,00 (~R$ 85k)</td>
+          <td>5.000 usuários</td>
+          <td><strong>~US$ 3,14 (~R$ 17,00)</strong></td>
+          <td>Inexigibilidade / Direto</td>
+        </tr>
+        <tr>
+          <td><strong>UEM</strong></td>
+          <td>Turnitin Integridade</td>
+          <td>R$ 60.000,00</td>
+          <td>3.000 usuários</td>
+          <td><strong>R$ 20,00</strong></td>
+          <td>Biblioteca + Pró-Reitoria</td>
+        </tr>
+        <tr>
+          <td><strong>Unifesspa</strong></td>
+          <td>Originality (via Learnbase)</td>
+          <td>R$ 156.187,00 (3 anos)</td>
+          <td>4.636 usuários</td>
+          <td><strong>~R$ 11,20 / ano</strong></td>
+          <td>Revenda Oficial Learnbase</td>
+        </tr>
+        <tr>
+          <td><strong>UFOPA</strong></td>
+          <td>Originality Check</td>
+          <td>R$ 21.313,00</td>
+          <td>Uso Departamental</td>
+          <td>—</td>
+          <td>Inexigibilidade</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="card-quote avoid-break">
+      <strong>Insight Estratégico de Preço:</strong> O Turnitin cobra por usuário da instituição inteira (ou de todo o corpo de pós-graduação), mesmo que a maioria não utilize o serviço ativamente. O WhiteBox pode praticar um preço institucional por aluno <strong>abaixo da faixa de R$ 9,70</strong> ou ofertar um plano por <strong>professor ativo / turma de escrita intensiva</strong>, capturando maior margem onde a ferramenta é indispensável e oferecendo uma economia substancial para o pró-reitor.
+    </div>
+
+    <div class="page-break"></div>
+
+    <h3 class="section-heading">2.4 Dimensão 4: Estratégia de Go-to-Market (Land-and-Expand)</h3>
+    <p>
+      Para vencer a inércia dos comitês de TI corporativos e evitar o ciclo de vendas tradicional de 6 a 12 meses, a estratégia comercial do WhiteBox apoia-se em um modelo <strong>B2B2C híbrido (Land-and-Expand)</strong>:
+    </p>
+
+    <div class="card avoid-break">
+      <h4 class="subsection-heading">Os Três Estágios da Rota de Comercialização:</h4>
+      <ol>
+        <li>
+          <strong>Estágio 1 — Entrada Livre pelo Professor (Land):</strong>
+          O docente adota o WhiteBox gratuitamente por meio do documento-modelo distribuído no Google Classroom. Esse modelo roda sobre a edição gratuita <em>Google Workspace for Education Fundamentals</em>, superando a barreira dos add-ons oficiais que exigiriam licenciamento pago do Google por parte da IES.
+        </li>
+        <li>
+          <strong>Estágio 2 — Conversão em Piloto Institucional Pago (Bridge):</strong>
+          Com métricas reais de engajamento docente em cursos-chave (Direito, Pedagogia, EAD), a equipe comercial aborda as diretorias acadêmicas ou submete a solução aos programas de inovação das mantenedoras (ex.: desafios de inovação Yduqs/Cogna e parcerias ABMES). O piloto é formalizado a preço simbólico ou reduzido (R$ 5.000 a R$ 15.000 por semestre para até 1.000 alunos), validando suporte e gerando dados locais de retenção.
+        </li>
+        <li>
+          <strong>Estágio 3 — Contratação de Licença Institucional de Domínio (Expand):</strong>
+          Provisionamento centralizado para todo o domínio da IES, com painel administrativo consolidado para pró-reitorias, relatórios de auditoria e integração com os fluxos acadêmicos oficiais, ancorado a um custo anual por usuário inferior ao do Turnitin Similarity.
+        </li>
+      </ol>
+    </div>
+
+    <div class="card-alert avoid-break">
+      <strong>Alinhamento Regulatório OAuth e Marketplace:</strong>
+      Para viabilizar a distribuição sem atritos, o WhiteBox realizou a substituição de escopos sensíveis de leitura ampla (<code>drive.readonly</code>) por escopos estritos ao arquivo criado (<code>drive.file</code>). Isso elimina a necessidade da onerosa e complexa auditoria CASA (Cloud Application Security Assessment), permitindo a publicação no Google Workspace Marketplace com aprovação rápida e sem alertas de "aplicativo não verificado" para o estudante.
+    </div>
+
+    <h3 class="section-heading">2.5 Recomendações Estratégicas Consolidadas</h3>
+    <table class="avoid-break">
+      <thead>
+        <tr>
+          <th>Frente</th>
+          <th>Recomendação Prioritária</th>
+          <th>Nível de Confiança</th>
+          <th>Impacto no Negócio</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Segmento Alvo</strong></td>
+          <td>Focar em IES Privadas com Workspace, iniciando pelos pilotos ABMES-Google (Ser e Cruzeiro do Sul) e cursos de escrita intensiva.</td>
+          <td><span class="badge badge-green">Alta</span></td>
+          <td>Menor resistência à inovação, aderência à EAD e canal quente aberto via parceria.</td>
+        </tr>
+        <tr>
+          <td><strong>Posicionamento</strong></td>
+          <td>"Evidência de processo para decisão humana em português"; repudiar categoricamente o rótulo de "detector de IA".</td>
+          <td><span class="badge badge-green">Crítica</span></td>
+          <td>Blindagem ética e jurídica contra a crise de falsos positivos que afeta o Turnitin.</td>
+        </tr>
+        <tr>
+          <td><strong>Precificação</strong></td>
+          <td>Oferecer licença institucional por aluno abaixo de R$ 9,70/ano, com alternativa por professor ativo (R$ 150 a 300/ano).</td>
+          <td><span class="badge badge-amber">Média</span></td>
+          <td>Desafia o incumbente no custo total e permite contratações departamentais rápidas.</td>
+        </tr>
+        <tr>
+          <td><strong>Canal de Entrada</strong></td>
+          <td>Manter a distribuição via documento-modelo vinculada ao Classroom no Workspace Fundamentals.</td>
+          <td><span class="badge badge-green">Alta</span></td>
+          <td>Permite que qualquer professor teste sem depender de prévia autorização da TI central.</td>
+        </tr>
+        <tr>
+          <td><strong>Conformidade</strong></td>
+          <td>Contrato padrão de tratamento de dados com garantia explícita de não comercialização e retenção mínima.</td>
+          <td><span class="badge badge-green">Alta</span></td>
+          <td>Desarma a objeção de vigilância estudantil e atende à governança LGPD das mantenedoras.</td>
+        </tr>
+        <tr>
+          <td><strong>Públicas (Onda 2)</strong></td>
+          <td>Aguardar consolidação de 5 cases privados antes de disputar dispensas/inexigibilidades com a Turnitin.</td>
+          <td><span class="badge badge-amber">Média</span></td>
+          <td>Evita drenar caixa em editais públicos morosos antes de atingir solidez de produto.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="page-break"></div>
+
+    <h3 class="section-heading">2.6 Matriz de Validação das Questões Abertas</h3>
+    <table class="avoid-break">
+      <thead>
+        <tr>
+          <th>Questão Aberta</th>
+          <th>Método de Resolução Recomendado</th>
+          <th>Investimento / Prazo</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Qual o percentual exato de IES privadas no Google Workspace vs. M365?</td>
+          <td>Varredura automatizada de registros DNS/MX nos domínios das 2.244 IES privadas.</td>
+          <td>Baixo (Script de 1 dia)</td>
+        </tr>
+        <tr>
+          <td>Qual a real elasticidade de preço de IES privadas para relatórios de processo?</td>
+          <td>Proposta de 5 pilotos pagos a valores escalonados (R$ 5k a R$ 15k).</td>
+          <td>Médio (Ciclo de 3 meses)</td>
+        </tr>
+        <tr>
+          <td>Como os discentes brasileiros reagem emocionalmente ao registro de telemetria?</td>
+          <td>Aplicação de pesquisa NPS e percepção de justiça dentro das turmas-piloto.</td>
+          <td>Baixo (Durante o piloto)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 class="section-heading">2.7 Apêndice de Fontes e Referências Regulatórias</h3>
+    <table class="avoid-break">
+      <thead>
+        <tr>
+          <th>Ref.</th>
+          <th>Documento / Evidência</th>
+          <th>Origem / Publicador</th>
+          <th>Ano</th>
+          <th>Relevância para a Decisão</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>[1]</strong></td>
+          <td>Censo da Educação Superior 2024</td>
+          <td>INEP / MEC / ABMES</td>
+          <td>2025/2026</td>
+          <td>Base estatística: 10,2M alunos, 79,8% privados, 50,7% EAD, 623 IES = 87% do alunado.</td>
+        </tr>
+        <tr>
+          <td><strong>[5]</strong></td>
+          <td>Parceria ABMES e Google for Education</td>
+          <td>ABMES Oficial</td>
+          <td>Jan/2026</td>
+          <td>Piloto com Ser Educacional e Cruzeiro do Sul; validação direta de canal Google.</td>
+        </tr>
+        <tr>
+          <td><strong>[13]</strong></td>
+          <td>Decreto 12.456/2025 (Novo Marco da EAD)</td>
+          <td>Governo Federal / MEC</td>
+          <td>2025</td>
+          <td>Limite de 30% de carga EAD e readequação de avaliações institucionais até maio de 2027.</td>
+        </tr>
+        <tr>
+          <td><strong>[14]</strong></td>
+          <td>Parecer sobre IA Generativa na Educação</td>
+          <td>CNE (Conselho Nacional de Ed.)</td>
+          <td>2025/2026</td>
+          <td>Classifica avaliação automatizada sem revisão humana como risco acadêmico grave.</td>
+        </tr>
+        <tr>
+          <td><strong>[18]</strong></td>
+          <td>Portaria OS 035/2025 (Diretrizes de IA)</td>
+          <td>UCPel (Univ. Católica de Pelotas)</td>
+          <td>Out/2025</td>
+          <td>Proíbe reprovação por detector; exige rascunhos, histórico e defesa técnica.</td>
+        </tr>
+        <tr>
+          <td><strong>[19]</strong></td>
+          <td>Política de Uso de IA Generativa v1.0</td>
+          <td>Faculdade Cásper Líbero</td>
+          <td>Jun/2026</td>
+          <td>Alerta sobre falsos positivos de detectores; institucionaliza avaliações de processo.</td>
+        </tr>
+        <tr>
+          <td><strong>[21]</strong></td>
+          <td>Memorando de Cancelamento do Turnitin AI</td>
+          <td>Provost, Washington State Univ.</td>
+          <td>Fev/2026</td>
+          <td>WSU desliga detector: 33% de alunos inocentes em processos e 1.485 falsos positivos/sem.</td>
+        </tr>
+        <tr>
+          <td><strong>[35-55]</strong></td>
+          <td>Contratos Públicos de IFES (UFGD, UFC, UEM)</td>
+          <td>Portal da Transparência / ComprasNet</td>
+          <td>2021–2024</td>
+          <td>Comprova preço institucional da Turnitin de R$ 9,70 a R$ 20,00 por aluno/ano no Brasil.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="card-quote avoid-break" style="margin-top: 14px;">
+      <strong>Visão de Longo Prazo (3 Anos):</strong> Tornar o WhiteBox a infraestrutura padrão de integridade formativa e confiança do ecossistema Google Workspace for Education no Brasil e na América Latina, substituindo o medo da acusação infundada pelo diálogo pedagógico sobre a autoria real.
+    </div>
+
+  </div>
+
+  <!-- ================= FOOTER ================= -->
+  <div class="doc-footer">
+    <div><strong>WhiteBox Academic Technologies</strong> — Relatório Estratégico Integrado</div>
+    <div>Classificação: Confidencial / Estratégico · 2026</div>
+  </div>
+
+</div>
+
+</body>
+</html>
+"""
+    return html
+
+def main():
+    workspace = r"c:\Users\jmarc\Documents\whitebox"
+    html_path = os.path.join(workspace, "whitebox-briefing-marketing-comercializacao.html")
+    pdf_path = os.path.join(workspace, "whitebox-briefing-marketing-comercializacao.pdf")
+    artifacts_pdf_path = os.path.join(workspace, "_bmad-output", "planning-artifacts", "whitebox-briefing-marketing-comercializacao.pdf")
+
+    print("[1/3] Generating comprehensive HTML document...")
+    html_content = build_html()
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    print(f"HTML written to {html_path} ({len(html_content)} bytes)")
+
+    print("[2/3] Rendering PDF via Google Chrome headless...")
+    chrome_exe = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    cmd = [
+        chrome_exe,
+        "--headless=new",
+        "--disable-gpu",
+        "--no-pdf-header-footer",
+        f"--print-to-pdf={pdf_path}",
+        html_path
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("Chrome error:", result.stderr)
+        sys.exit(1)
+        
+    if os.path.exists(pdf_path):
+        size = os.path.getsize(pdf_path)
+        print(f"PDF successfully generated at {pdf_path} ({size} bytes)")
+    else:
+        print("Error: PDF was not generated.")
+        sys.exit(1)
+
+    print("[3/3] Copying PDF to planning artifacts directory...")
+    shutil.copyfile(pdf_path, artifacts_pdf_path)
+    print(f"Copied to {artifacts_pdf_path}")
+    print("Done!")
+
+if __name__ == "__main__":
+    main()
