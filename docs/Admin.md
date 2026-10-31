@@ -36,7 +36,7 @@ As caixas do topo trazem a **integridade média** e os **alunos ativos** (alunos
 Como funciona: a telemetria e a entrega são gravadas pelo aluno, e as análises pelo professor (com o e-mail dele). O servidor junta as duas pelo ID do documento. Limites a conhecer:
 - Análises gravadas por versões antigas da biblioteca não têm o ID do documento e não entram.
 - Só contam documentos em que algum aluno enviou telemetria.
-- A **turma** é o nome da pasta da turma no Drive do aluno, registrado na telemetria. Os logs não guardam o ID do curso do Classroom nem a atividade, por isso não há visão por atividade.
+- A **turma** é o nome da pasta da turma no Drive do aluno, registrado na telemetria; quando o add-on não tem acesso ao Drive do documento (`driveAccess` = `false`), fica `SEM_TURMA`. Os logs não guardam o ID do curso do Classroom nem a atividade, por isso não há visão por atividade.
 - As três primeiras visões abrem a planilha de cada professor; o resultado fica em cache por 5 minutos e é refeito quando chega nova análise ou entrega final. A visão por aluno fica em cache por até 1 hora e é refeita quando chega nova telemetria do aluno ou nova análise em um documento dele.
 
 ### Papéis e Licenças
@@ -55,11 +55,14 @@ O cliente (`whitebox-client`) deve estar vinculado à biblioteca central:
 ## 🚀 Checklist de Implantação
 1.  **Deploy da Lib**: Realize o push da `whitebox-lib` e crie uma versão de implantação.
 2.  **Vínculo do Cliente**: No `whitebox-client`, adicione a biblioteca usando o Script ID e o identificador correto, e atualize `version` para a versão criada no passo 1.
-3.  **Escopos**: Confira que `oauthScopes` é idêntico em `whitebox-client` e `whitebox-lib`.
+3.  **Escopos**: Confira que `oauthScopes` é idêntico em `whitebox-client` e `whitebox-lib` e que o Drive usa `drive.file` (nenhum escopo restrito; ver [Manual do Desenvolvedor](development-guide.md), seção 2.5).
+4.  **Tela de consentimento / Marketplace SDK**: no projeto Cloud, remova o escopo antigo de leitura do Drive (Drive readonly) da lista de escopos da tela de consentimento OAuth e do Marketplace SDK, deixando `drive.file` como único escopo do Drive. Depois, crie uma nova versão da biblioteca e atualize `version` no cliente (passos 1 e 2).
+5.  **Gate pós-deploy**: antes de liberar para as turmas, abra uma cópia de aluno e confirme `item3.driveAccess: true` no log do Apps Script (`getContext`). Se vier `false`, o nome da turma precisa vir da distribuição (trabalho adiado em `deferred-work.md`: gravar a turma no `WHITEBOX_CONFIG`).
 
 ## 🔍 Solução de Problemas
 - **Erros de Rede**: Use o console do desenvolvedor do navegador para verificar chamadas `UrlFetch` que falharam para o proxy.
-- **Permissão Negada**: Certifique-se de que os alunos autorizaram o Add-on a rodar em seu domínio. Depois de qualquer mudança de escopos, todos precisam autorizar de novo.
+- **Permissão Negada**: Certifique-se de que os alunos autorizaram o Add-on a rodar em seu domínio. Depois de qualquer mudança de escopos (por exemplo, a troca do escopo do Drive para `drive.file`), todos precisam autorizar de novo ao abrir o documento.
+- **Professor vê o aviso "Sem acesso ao Drive deste documento" / turma `SEM_TURMA` na telemetria**: o escopo `drive.file` não cobriu o documento. No log do Apps Script, `getContext` mostra `item3.driveAccess: false`. O painel continua funcionando (métricas, análise, distribuição); só o nome da pasta da turma e a detecção retroativa de colagem ficam indisponíveis. Depois da troca de escopos todos precisam autorizar de novo, mas reautorizar **não** faz o `drive.file` passar a cobrir um arquivo que ele não cobre: a saída é distribuir o documento pela aba **Distribuir**, que grava a designação do professor no documento (a turma continua `SEM_TURMA` até a designação passar a incluir a turma — trabalho adiado).
 - **`Classroom API retornou 403` na aba Distribuir**: o token do professor não tem os escopos `classroom.*` (documento com manifesto antigo ou autorização não refeita), ou a Classroom API não está ativa no projeto do script do documento.
 - **Falhas de Sincronização**: Verifique os logs do servidor (Brain Proxy) para erros `UNAUTHORIZED` (OAuth token inválido/expirado, ou e-mail do chamador diferente do `professorEmail`).
 - **Professor vê o painel de aluno ou recebe `PROFESSOR_NAO_CADASTRADO` / `PROFESSOR_INATIVO`**: confira o e-mail e o `Status` dele na aba `Assinaturas`.

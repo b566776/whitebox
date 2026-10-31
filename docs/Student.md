@@ -18,7 +18,7 @@ O Auditor de IA é uma ferramenta do professor: alunos não têm acesso a ele, n
 Na primeira vez que você abrir o painel, o Google pedirá autorização. A lista é a mesma para alunos e professores, por isso inclui itens que só o professor usa:
 - **Documento atual e painel lateral**: para medir o processo de escrita neste documento.
 - **Seu e-mail**: para identificar de quem é o registro.
-- **Leitura do Google Drive**: para identificar a pasta da turma e o histórico de revisões do documento.
+- **Arquivos do Drive abertos com o Whitebox** (escopo `drive.file`): para identificar a pasta da turma e o histórico de revisões deste documento. Não dá acesso aos demais arquivos do seu Drive. Se o Google não liberar este documento, o painel continua funcionando e a turma fica registrada como `SEM_TURMA`.
 - **Envio de e-mail e Google Classroom**: usados apenas pelo professor (enviar desafios e distribuir atividades).
 
 ## 🔒 Privacidade e Transparência

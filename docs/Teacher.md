@@ -5,7 +5,8 @@ Este guia detalha como os professores interagem com o Add-on Whitebox para geren
 ## 📋 Configuração Inicial
 
 0.  **Pré-requisito — Cadastro**: Seu e-mail precisa estar cadastrado pelo administrador (formulário de onboarding). Sem cadastro, o painel abre no modo aluno e o servidor recusa as funções de professor (análise de IA, chave de API, distribuição). Com a licença inativa, o painel de professor abre, mas essas funções ficam bloqueadas.
-1.  **Auto-Configuração**: Ao distribuir um documento, o servidor grava nele quem é o professor responsável; é assim que o painel reconhece você nas cópias dos alunos. Na primeira abertura, o Google pede autorização, incluindo acesso às suas turmas do Classroom (usado pela aba **Distribuir**).
+1.  **Auto-Configuração**: Ao distribuir um documento, o servidor grava nele quem é o professor responsável; é assim que o painel reconhece você nas cópias dos alunos. Em qualquer documento sem designação (por exemplo, seu documento mestre, ainda sem distribuição), o painel reconhece você pelo cadastro. Na primeira abertura, o Google pede autorização, incluindo acesso às suas turmas do Classroom (usado pela aba **Distribuir**) e aos arquivos do Drive abertos com o Whitebox. Se os escopos mudarem em uma nova versão, o Google pede a autorização de novo.
+    - Se aparecer o aviso **"Sem acesso ao Drive deste documento"** no topo do painel, o Google não liberou o documento para o add-on: o nome da turma e a detecção retroativa de colagem ficam indisponíveis, mas métricas, análise e distribuição continuam funcionando.
 2.  **Abrir Barra Lateral**: Vá ao menu `Whitebox` > `Abrir Painel Whitebox`.
 3.  **Conexão com o servidor**: não há nada a configurar. O endereço do servidor já vem na ferramenta e a autenticação usa a sua conta Google.
 

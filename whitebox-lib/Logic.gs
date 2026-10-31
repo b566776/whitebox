@@ -153,15 +153,22 @@ function getContext() {
     Logger.log('[Whitebox] Erro ao validar licença do professor no getContext: ' + e);
   }
 
+  // Documento sem nenhuma designação = documento mestre (ainda não distribuído).
+  const hasDesignation = !!designatedProfessor;
+
   // [AUTH-01 FIX] Papéis:
   //   - isDesignated (WHITEBOX_CONFIG) → sempre teacher (metadata é injetado pelo servidor, confiável)
+  //   - isRegisteredProfessor + documento sem designação → teacher (caminho sem Drive:
+  //     com o escopo drive.file, isOwner/isProfessor podem falhar no documento mestre)
   //   - isOwner/isProfessor + isRegisteredProfessor → teacher (validação via servidor)
   //   - caso contrário → student
   // Motivação: isDesignated não depende de resposta do proxy, evitando que falha
   // de rede ou licença force o professor a ver a UI de aluno.
   // O papel aqui só decide qual UI aparece: quem autoriza as rotas de professor
   // é o servidor (doPost exige cadastro Ativo para o e-mail verificado via OAuth).
-  const role = isDesignated ? 'teacher' : ((isOwner || isProfessor) && isRegisteredProfessor) ? 'teacher' : 'student';
+  const role = isDesignated ? 'teacher'
+    : (isRegisteredProfessor && (!hasDesignation || isOwner || isProfessor)) ? 'teacher'
+    : 'student';
 
   const responseObj = {
     email:        userEmail,
@@ -175,6 +182,7 @@ function getContext() {
       isProfessor: isProfessor,
       isDesignated: isDesignated,
       designatedProfessor: designatedProfessor,
+      hasDesignation: hasDesignation,
       isRegisteredProfessor: isRegisteredProfessor
     }
   };
@@ -338,20 +346,28 @@ function getSelectedTextInfo() {
 function sendToBackend(payload) {
   const item3  = getAdvancedItem3Data();
   const userEmail      = Session.getActiveUser().getEmail();
-  // Professor do documento: o designado pelo servidor na distribuição. O dono da pasta só
-  // vale sem designação — na cópia do Classroom, o dono do arquivo e da pasta é o aluno.
-  const professorEmail = getDesignatedProfessor((userEmail || '').trim().toLowerCase()) ||
-                         item3.professorEmail || userEmail;
-  const turma          = item3.gradeLevel || TURMA_FALLBACK;
+  const ctx            = getContext();
+  // Professor do documento: o designado pelo servidor na distribuição. Sem designação,
+  // o próprio usuário quando o painel o reconhece como professor (documento mestre);
+  // senão o dono da pasta, se o Drive o informou — na cópia do Classroom, o dono do
+  // arquivo e da pasta é o aluno; sem Drive, item3.professorEmail é 'NAO_IDENTIFICADO'.
+  const designado      = getDesignatedProfessor((userEmail || '').trim().toLowerCase());
+  const donoPasta      = (item3.professorEmail && item3.professorEmail !== 'NAO_IDENTIFICADO')
+                         ? item3.professorEmail : null;
+  const professorEmail = designado ||
+                         (ctx.initialRole === 'teacher' ? userEmail : null) ||
+                         donoPasta || userEmail;
+  // Sem acesso ao Drive, gradeLevel é 'NAO_IDENTIFICADO' (truthy): a turma fica SEM_TURMA.
+  const turma          = (item3.gradeLevel && item3.gradeLevel !== 'NAO_IDENTIFICADO')
+                         ? item3.gradeLevel : TURMA_FALLBACK;
   const alunoEmail     = payload.studentContext?.rawEmail || userEmail;
 
-  const professorDesconhecido = (professorEmail === 'NAO_IDENTIFICADO');
+  const professorDesconhecido = !professorEmail || (professorEmail === 'NAO_IDENTIFICADO');
   const pediuAnalise = !!(payload.contentAnalysis && payload.contentAnalysis.selectedFragment);
   let analise = null;
   let falhaIA = null; // { error, message }: motivo real quando a análise foi pedida e não veio
 
   // [AUTH-02] Bloqueio de Segurança: Aluno não interage com IA Auditor
-  const ctx = getContext();
   const isStudent = (ctx.initialRole === 'student');
 
   // Se há fragmento selecionado, pedir análise à IA via Proxy (SÓ PARA PROFESSOR)
@@ -576,6 +592,9 @@ function getAdvancedItem3Data() {
   let institutionId = 'NAO_IDENTIFICADO';
   let professorEmail = 'NAO_IDENTIFICADO';
   let revisionsCount = 0;
+  // true só quando arquivo, pasta e revisões foram lidos. false = o escopo drive.file
+  // não cobriu este documento: campos degradados (degradação explícita, não erro).
+  let driveAccess    = false;
 
   try {
     if (email.includes('@')) {
@@ -592,11 +611,12 @@ function getAdvancedItem3Data() {
     if (revisions && revisions.revisions) {
       revisionsCount = revisions.revisions.length;
     }
+    driveAccess = true;
   } catch (err) {
     Logger.log('[Whitebox] Item3 ignorado: ' + err);
   }
 
-  return { gradeLevel, institutionId, professorEmail, revisionsCount };
+  return { gradeLevel, institutionId, professorEmail, revisionsCount, driveAccess };
 }
 
 // =====================================================
@@ -831,6 +851,8 @@ function _detectPasteFromRevisions(docId, paragraphs) {
       ' pasteMap='   + JSON.stringify(pasteMap));
 
   } catch (e) {
+    // Sem acesso ao Drive, não repetir a chamada a cada refresh do mapa de calor.
+    try { CacheService.getDocumentCache().put('REV_DIFF_DONE_' + docId, '1', 1800); } catch (cacheErr) {}
     Logger.log('[Whitebox] _detectPasteFromRevisions (graceful fail): ' + e);
   }
 }

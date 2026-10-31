@@ -676,6 +676,11 @@
         <button class="tab-btn" id="tab-btn-config" onclick="switchTab('config')">⚙️ Config</button>
       </div>
 
+      <!-- Aviso (só professor): escopo drive.file não cobriu este documento -->
+      <div id="teacher-drive-notice" class="alert alert-warning hidden">
+        Sem acesso ao Drive deste documento: nome da turma e detecção retroativa de colagem indisponíveis. Métricas e análises continuam funcionando.
+      </div>
+
       <!-- ══ TAB: AUDITORIA ══ -->
       <div id="tab-auditoria" class="tab-panel active">
 
@@ -914,8 +919,13 @@
             currentRole = ctx.initialRole || 'student';
             studentEmail = ctx.email || '';
             documentId = ctx.docId || '';
-            gradeLevel = (ctx.item3 && ctx.item3.gradeLevel) ? ctx.item3.gradeLevel : 'UNKNOWN';
+            gradeLevel = (ctx.item3 && ctx.item3.gradeLevel && ctx.item3.gradeLevel !== 'NAO_IDENTIFICADO') ? ctx.item3.gradeLevel : 'UNKNOWN';
             professorEmail = (ctx.item3 && ctx.item3.professorEmail) ? ctx.item3.professorEmail : 'UNKNOWN_PROF';
+
+            // Degradação explícita: o aviso fica dentro de #teacher-view, então o aluno nunca o vê.
+            if (ctx.item3 && ctx.item3.driveAccess === false) {
+              document.getElementById('teacher-drive-notice').classList.remove('hidden');
+            }
             
             manualSwitchRole(currentRole === 'professor' ? 'teacher' : currentRole);
 
