@@ -74,6 +74,10 @@ function getStudentQuiz() { return callLibrary('getStudentQuiz', []); }
 function submitStudentQuizAnswers(a) { return callLibrary('submitStudentQuizAnswers', [a]); }
 function markAsSubmitted() { return callLibrary('markAsSubmitted', []); }
 function statusDistribuicao(id) { return callLibrary('statusDistribuicao', [id]); }
+function getSubmissionStatus() { return callLibrary('getSubmissionStatus', []); }
+function updatePasteMap(idx) { return callLibrary('updatePasteMap', [idx]); }
+function submitFinalQuiz(q, o) { return callLibrary('submitFinalQuiz', [q, o]); }
+function getStudentEmail() { return callLibrary('getStudentEmail', []); }
 function getProcessReport() { return callLibrary('getProcessReport', []); }
 
 // =====================================================
