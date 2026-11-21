@@ -2,7 +2,7 @@
 title: 'Process report card for student and teacher from stored telemetry'
 type: 'feature'
 created: '2026-10-31'
-status: 'in-progress'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'c8151bb30c654902cc812a741bb98eea1bf0042c'
@@ -61,13 +61,13 @@ context: ['{project-root}/docs/api-contracts.md', '{project-root}/docs/data-sche
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `whitebox-server/ProcessReport.gs` (new) -- `resumirProcessoDocumento` + `handleResumoProcesso` -- evidence summary with caller-based filtering.
-- [ ] `whitebox-server/BrainProxy.gs`, `whitebox-server/Constants.gs` -- route constant, whitelist entry, dispatch with `callerEmail` -- wiring.
-- [ ] `whitebox-server/tests/process-report.test.js` (new) + `whitebox-server/.claspignore` -- Node tests loading only `ProcessReport.gs` in a `vm` context for every matrix row that concerns the summary.
-- [ ] `whitebox-lib/Constants.gs`, `whitebox-lib/Logic.gs`, `whitebox-client/Código.gs` -- `ROUTE_RESUMO_PROCESSO`, `getProcessReport()`, wrapper.
-- [ ] `whitebox-lib/Sidebar.html` -- `wordCount` in the payload; `renderProcessReport`; cards in both views with load triggers and retry hint.
-- [ ] `whitebox-lib/tests/context.test.js` -- `getProcessReport` sends `docId` and the right `professorEmail` for a student on a designated copy and for a teacher on a master doc.
-- [ ] docs listed in the Code Map.
+- [x] `whitebox-server/ProcessReport.gs` (new) -- `resumirProcessoDocumento` + `handleResumoProcesso` -- evidence summary with caller-based filtering.
+- [x] `whitebox-server/BrainProxy.gs`, `whitebox-server/Constants.gs` -- route constant, whitelist entry, dispatch with `callerEmail` -- wiring.
+- [x] `whitebox-server/tests/process-report.test.js` (new) + `whitebox-server/.claspignore` -- Node tests loading only `ProcessReport.gs` in a `vm` context for every matrix row that concerns the summary.
+- [x] `whitebox-lib/Constants.gs`, `whitebox-lib/Logic.gs`, `whitebox-client/Código.gs` -- `ROUTE_RESUMO_PROCESSO`, `getProcessReport()`, wrapper.
+- [x] `whitebox-lib/Sidebar.html` -- `wordCount` in the payload; `renderProcessReport`; cards in both views with load triggers and retry hint.
+- [x] `whitebox-lib/tests/context.test.js` -- `getProcessReport` sends `docId` and the right `professorEmail` for a student on a designated copy and for a teacher on a master doc.
+- [x] docs listed in the Code Map.
 
 **Acceptance Criteria:**
 - Given a student copy with telemetry, when the student opens the panel, then the card shows minutes, sessions, words, pastes and CPM for that student and the live counters keep running.
@@ -78,6 +78,8 @@ context: ['{project-root}/docs/api-contracts.md', '{project-root}/docs/data-sche
 ## Implementation Notes
 
 ## Spec Change Log
+
+- 2026-11-21: implementação concluída; corrigido o card que ficava em "Carregando..." quando o papel mudava durante o carregamento (a Sidebar recarrega para o novo papel). Validação manual pós-deploy continua com o usuário.
 
 ## Review Triage Log
 

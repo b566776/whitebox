@@ -8,6 +8,9 @@ O Whitebox opera através de uma **Biblioteca Central** que garante que todos os
 - **Ritmo de Escrita**: Ele rastreia sua velocidade de digitação (CPM) para ajudar a identificar fluxos de escrita naturais.
 - **Consciência de Colagem**: Pesquisas legítimas são aceitáveis, mas colagens massivas são sinalizadas para discussão pedagógica.
 
+### 📋 Relatório de processo
+Abaixo dos contadores ao vivo, o card **Relatório de processo** mostra o que já foi registrado sobre o seu trabalho neste documento, somando todas as sessões: minutos ativos, sessões, palavras, colagens, caracteres, ritmo de escrita (CPM) e se houve entrega. É o mesmo resumo que o seu professor vê sobre você, sem nenhuma nota de risco. Ele é atualizado a cada envio de métricas.
+
 ## 🤖 O Auditor de IA e os Desafios
 O Auditor de IA é uma ferramenta do professor: alunos não têm acesso a ele, nem pela barra lateral nem diretamente no servidor.
 1.  **Análise**: Seu professor pode pedir uma análise pedagógica de um trecho do seu texto.

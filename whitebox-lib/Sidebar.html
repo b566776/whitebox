@@ -1019,12 +1019,12 @@
         google.script.run
           .withSuccessHandler(function(data) {
             _processReportLoading = false;
-            if (role !== currentRole) return; // o papel mudou enquanto carregava
+            if (role !== currentRole) return loadProcessReport(); // o papel mudou enquanto carregava: recarrega para o novo
             renderProcessReport(data);
           })
           .withFailureHandler(function(err) {
             _processReportLoading = false;
-            if (role !== currentRole) return;
+            if (role !== currentRole) return loadProcessReport();
             renderProcessReport({ error: 'LIB_CALL_FAILED', message: (err && err.message) || 'Falha de comunicação.' });
           })
           .getProcessReport();

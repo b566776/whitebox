@@ -27,6 +27,9 @@ Os professores podem personalizar o Auditor de IA para cada tarefa:
 - **Status em Tempo Real**: Veja quais alunos têm foco ativo em seus documentos.
 - **Indicadores de Risco**: Monitore o CPM (Caracteres por Minuto) e as contagens de eventos de colagem diretamente da barra lateral ou do painel institucional.
 
+### 📋 Relatório de processo
+No topo da aba **Auditoria**, o card **Relatório de processo** mostra, para cada aluno do documento, o que já foi registrado no servidor: minutos ativos, número de sessões, palavras (última contagem), colagens, caracteres adicionados e apagados, CPM médio e pico, última atividade e se houve entrega final. Não há veredito: são só as medidas. Use **Atualizar** para recarregar. O aluno vê exatamente o mesmo bloco, só o dele.
+
 ## 📤 Distribuição de Modelos (Levas)
 A aba **Distribuir** permite que você envie o documento atual como uma tarefa para seus alunos:
 1.  **Título e Instruções**: Defina como a tarefa aparecerá no Classroom.

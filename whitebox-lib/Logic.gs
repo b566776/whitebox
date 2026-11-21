@@ -340,10 +340,6 @@ function getSelectedTextInfo() {
 }
 
 /**
- * Envia dados para análise no Brain Proxy (substitui sendToBackend)
- * Chamado tanto para log de métricas quanto para análise de trecho
- */
-/**
  * Professor do documento: o designado pelo servidor na distribuição. Sem designação,
  * o próprio usuário quando o painel o reconhece como professor (documento mestre);
  * senão o dono da pasta, se o Drive o informou — na cópia do Classroom, o dono do
@@ -382,6 +378,10 @@ function getProcessReport() {
   });
 }
 
+/**
+ * Envia dados para análise no Brain Proxy (substitui sendToBackend)
+ * Chamado tanto para log de métricas quanto para análise de trecho
+ */
 function sendToBackend(payload) {
   const item3  = getAdvancedItem3Data();
   const userEmail      = Session.getActiveUser().getEmail();
