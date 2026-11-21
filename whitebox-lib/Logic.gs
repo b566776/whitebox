@@ -340,6 +340,45 @@ function getSelectedTextInfo() {
 }
 
 /**
+ * Professor do documento: o designado pelo servidor na distribuição. Sem designação,
+ * o próprio usuário quando o painel o reconhece como professor (documento mestre);
+ * senão o dono da pasta, se o Drive o informou — na cópia do Classroom, o dono do
+ * arquivo e da pasta é o aluno; sem Drive, item3.professorEmail é 'NAO_IDENTIFICADO'.
+ *
+ * @param {string} userEmail
+ * @param {object} ctx   - getContext()
+ * @param {object} item3 - getAdvancedItem3Data()
+ * @returns {string} e-mail (pode ser 'NAO_IDENTIFICADO' quando nada foi resolvido)
+ */
+function resolverProfessorDoDocumento(userEmail, ctx, item3) {
+  const designado = getDesignatedProfessor((userEmail || '').trim().toLowerCase());
+  const donoPasta = (item3.professorEmail && item3.professorEmail !== 'NAO_IDENTIFICADO')
+                    ? item3.professorEmail : null;
+  return designado ||
+         (ctx.initialRole === 'teacher' ? userEmail : null) ||
+         donoPasta || userEmail;
+}
+
+/**
+ * Resumo da telemetria deste documento para o card "Relatório de processo".
+ * O servidor filtra pelo e-mail verificado: o aluno recebe só o próprio bloco; o
+ * professor do documento (cadastrado e Ativo) recebe um bloco por aluno.
+ *
+ * @returns {{ registros: number, alunos: Array }|{ error: string, message: string }}
+ */
+function getProcessReport() {
+  const userEmail      = Session.getActiveUser().getEmail();
+  const professorEmail = resolverProfessorDoDocumento(userEmail, getContext(), getAdvancedItem3Data());
+  if (!professorEmail || professorEmail === 'NAO_IDENTIFICADO') {
+    return { error: 'PROFESSOR_NAO_IDENTIFICADO', message: 'Não foi possível identificar o professor deste documento.' };
+  }
+  return callProxy(ROUTE_RESUMO_PROCESSO, {
+    professorEmail: professorEmail,
+    docId:          DocumentApp.getActiveDocument().getId()
+  });
+}
+
+/**
  * Envia dados para análise no Brain Proxy (substitui sendToBackend)
  * Chamado tanto para log de métricas quanto para análise de trecho
  */
@@ -347,16 +386,7 @@ function sendToBackend(payload) {
   const item3  = getAdvancedItem3Data();
   const userEmail      = Session.getActiveUser().getEmail();
   const ctx            = getContext();
-  // Professor do documento: o designado pelo servidor na distribuição. Sem designação,
-  // o próprio usuário quando o painel o reconhece como professor (documento mestre);
-  // senão o dono da pasta, se o Drive o informou — na cópia do Classroom, o dono do
-  // arquivo e da pasta é o aluno; sem Drive, item3.professorEmail é 'NAO_IDENTIFICADO'.
-  const designado      = getDesignatedProfessor((userEmail || '').trim().toLowerCase());
-  const donoPasta      = (item3.professorEmail && item3.professorEmail !== 'NAO_IDENTIFICADO')
-                         ? item3.professorEmail : null;
-  const professorEmail = designado ||
-                         (ctx.initialRole === 'teacher' ? userEmail : null) ||
-                         donoPasta || userEmail;
+  const professorEmail = resolverProfessorDoDocumento(userEmail, ctx, item3);
   // Sem acesso ao Drive, gradeLevel é 'NAO_IDENTIFICADO' (truthy): a turma fica SEM_TURMA.
   const turma          = (item3.gradeLevel && item3.gradeLevel !== 'NAO_IDENTIFICADO')
                          ? item3.gradeLevel : TURMA_FALLBACK;

@@ -51,7 +51,7 @@ Armazena dados sensíveis dos alunos e configurações locais.
 | **Turma** | ID do curso no Classroom. |
 | **DocId** | ID do Google Doc do aluno. |
 | **Email_Aluno** | Identificador do aluno. |
-| **Palavras** | Contagem total de palavras. |
+| **Palavras** | Contagem total de palavras do documento no momento do envio (`behavioralMetrics.wordCount`). Linhas gravadas antes do Relatório de processo têm 0. |
 | **Tempo_Ativo_Min** | Minutos gastos editando ativamente. |
 | **Colar_Eventos** | Contagem de acionadores de colagem (paste). |
 | **RiscoScore** | Risco calculado de 0-100. |

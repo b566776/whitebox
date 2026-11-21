@@ -13,6 +13,7 @@ O corpo carrega uma de duas credenciais:
 | Rotas | Quem pode chamar |
 | :--- | :--- |
 | `ping`, `logar_metricas` | Qualquer conta Google autenticada. |
+| `resumo_processo` | Qualquer conta Google autenticada; o servidor filtra as linhas pelo e-mail verificado (ver 2.3.1). |
 | `status_licenca`, `status_distribuicao` | O próprio `professorEmail` (e-mail verificado = e-mail informado). |
 | `analisar`, `registrar_chave`, `listar_turmas_professor`, `criar_leva_template` | O próprio `professorEmail`, com cadastro `Ativo` na aba `Assinaturas`. |
 | `listar_templates`, `distribuir_template`, `historico_templates`, `reset_planilha` | Somente Admin. |
@@ -108,6 +109,43 @@ Verifica se o e-mail do chamador está cadastrado como professor e se o modo IA 
   "tipoChave": "individual"
 }
 ```
+
+### 2.3.1. `resumo_processo`
+Resume a telemetria já gravada na aba `Logs` do professor para **um** documento. Alimenta o card "Relatório de processo" da barra lateral, no aluno e no professor. Só evidência de processo: nenhum `RiscoScore`, veredito, conselho ou pergunta entra na resposta, e linhas de análise de IA são ignoradas.
+
+**Payload**:
+```json
+{
+  "oauthToken": "OAUTH_TOKEN_DO_USUARIO",
+  "route": "resumo_processo",
+  "professorEmail": "prof@escola.edu",
+  "docId": "ID_DO_DOCUMENTO"
+}
+```
+
+**Autorização** (só pelo e-mail verificado; o servidor não vê a designação gravada no documento):
+- Chamador = `professorEmail`, cadastrado e `Ativo`: um bloco por aluno do documento.
+- Qualquer outro chamador: só as linhas cujo `Email_Aluno` é o próprio chamador, seja o que for que o payload diga. Sem linhas, `registros` é 0.
+- Linhas cujo `Email_Aluno` é o próprio professor (testando a visão do aluno) nunca entram.
+
+**Resposta** (alunos ordenados por `ultimaAtividade`, mais recente primeiro):
+```json
+{
+  "registros": 5,
+  "alunos": [{
+    "email": "aluno@escola.edu",
+    "minutosAtivos": 29, "sessoes": 2, "palavras": 812,
+    "colagens": 3, "charsAdicionados": 5120, "charsDeletados": 640,
+    "cpmMedio": 140, "cpmPico": 310, "entregue": false,
+    "primeiraAtividade": "2026-10-30T13:02:00.000Z",
+    "ultimaAtividade": "2026-10-31T14:40:00.000Z"
+  }]
+}
+```
+
+Os contadores do painel são cumulativos por sessão da barra lateral. O resumo soma trechos monotônicos: uma sessão nova começa quando `Tempo_Ativo_Min`, `Colar_Eventos` ou `Chars_Adicionados` diminui, ou quando passam mais de 30 minutos entre dois `Timestamp`. `cpmMedio` é a média dos `Cpm_Medio` não nulos, `cpmPico` o maior `Cpm_Pico`, `palavras` a última contagem não nula.
+
+**Erros**: `400 BAD_REQUEST` (sem `professorEmail` ou `docId`), `403 PROFESSOR_NAO_CADASTRADO`, `403 PROFESSOR_INATIVO` (só quando o chamador é o professor). Sem planilha ou sem aba `Logs`, a resposta é `{ "registros": 0, "alunos": [] }`.
 
 ### 2.4. `listar_templates` (Admin)
 Lista templates de Docs na pasta central do Admin.
