@@ -2,12 +2,13 @@
  * ========================================================
  *  Whitebox - Setup da Planilha Global do Administrador
  * ========================================================
- * COMO USAR O AUTO-PROVISIONAMENTO:
- * 1. O código do BrainProxy.gs possui a rota doGet() embutida.
- * 2. Após publicar o projeto como um Web App (App da Web), visite a URL do Web App no seu navegador.
- * 3. O próprio proxy detectará a primeira execução e chamará a setupPlanilhaGlobal() automaticamente,
- *    criando o banco no seu Drive e salvando a propriedade ADMIN_SPREADSHEET_ID no Script sozinho.
- * 4. Ele também irá gerar automaticamente um SHARED_TOKEN seguro e exibir na sua tela!
+ * PROVISIONAMENTO (manual, uma vez por servidor). Não há auto-provisionamento:
+ * enquanto ADMIN_SPREADSHEET_ID não existir, o doGet() responde "Whitebox não provisionado".
+ * 1. No Editor do Apps Script, execute resetPlanilhaGlobal(): chama setupPlanilhaGlobal(),
+ *    grava ADMIN_SPREADSHEET_ID e aplica o schema. Sem planilha vinculada, nada é apagado.
+ * 2. Execute rotacionarSharedToken() para gerar o SHARED_TOKEN do Dashboard.
+ * 3. Leia o SHARED_TOKEN em Configurações do projeto → Propriedades do script e abra a URL do Web App.
+ * setupPlanilhaGlobal() sozinha só cria a planilha; não grava a propriedade nem o token.
  */
 
 function setupPlanilhaGlobal() {

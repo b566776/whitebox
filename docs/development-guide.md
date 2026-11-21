@@ -71,7 +71,7 @@ O Whitebox inclui um framework de testes customizado e leve em `TestRunner.gs`.
 - **Biblioteca fora do Apps Script** (Node 20+): `node --test whitebox-lib/tests/context.test.js` carrega `Constants.gs`, `Utils.gs` e `Logic.gs` com stubs dos serviços Google e cobre papel (`getContext`), `driveAccess`, telemetria sem Drive, o aviso da Sidebar e os manifestos. A pasta `tests/` fica fora do `clasp push` (`.claspignore`).
 
 ### 3.2. Testes de Fumaça Manuais
-1.  **Auto-Provisionamento**: Visite a URL do Web App do servidor pela primeira vez (*); ele deve criar a Planilha Admin Global e mostrar o token.
+1.  **Provisionamento** (uma vez por servidor): sem `ADMIN_SPREADSHEET_ID`, a URL do Web App responde "Whitebox não provisionado". No editor do `whitebox-server`, em `AdminSetup.gs`, execute `resetPlanilhaGlobal()` (cria a Planilha Admin Global, grava `ADMIN_SPREADSHEET_ID` e aplica o schema; sem planilha vinculada, nada é apagado) e depois `rotacionarSharedToken()`. Abra a URL do Web App e informe o token (*). Não rode só `setupPlanilhaGlobal()`: ela cria a planilha, mas não a vincula ao servidor.
 
 (*) Se for solicitado um token vá nas Configurações do Script server; No menu lateral esquerdo, clique no ícone de engrenagem (Configurações do Projeto). Desça até a seção Propriedades do Script. Localize a propriedade chamada SHARED_TOKEN. O valor ao lado dela é o token que você deve inserir na tela.
 
