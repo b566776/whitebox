@@ -90,6 +90,15 @@
       .stat-label { color: var(--text-muted); }
       .stat-value { font-weight: 600; }
 
+      /* Relatório de processo (aluno e professor) */
+      .process-report { font-size: 12px; }
+      .process-report .pr-empty { color: var(--text-muted); font-size: 12px; }
+      .process-report .pr-aluno { padding: 8px 0; border-top: 1px solid var(--border-color); }
+      .process-report .pr-aluno:first-child { border-top: none; padding-top: 0; }
+      .process-report .pr-email { font-weight: 600; margin-bottom: 4px; word-break: break-all; }
+      .process-report .stat-row { margin-bottom: 4px; font-size: 12px; }
+      .process-report .pr-retry { color: var(--primary-color); cursor: pointer; text-decoration: underline; }
+
       .alert {
         padding: 12px;
         border-radius: 6px;
@@ -631,6 +640,13 @@
                 <span class="metric-label">Mudanças Est.</span>
               </div>
            </div>
+
+           <!-- Relatório de processo: o que já está registrado no servidor para este documento -->
+           <div class="card" style="margin-top: 12px;">
+              <h2 style="font-size: 14px;">📋 Relatório de processo</h2>
+              <p class="hint" style="margin: 0 0 8px;">Evidências já registradas para este documento. Os contadores acima são desta sessão.</p>
+              <div id="process-report-student" class="process-report">Carregando...</div>
+           </div>
            
            <div id="submission-status" class="submission-banner" style="margin-top: 16px;">
              <i class="fas fa-check-circle"></i> Trabalho Entregue e Auditado
@@ -683,6 +699,16 @@
 
       <!-- ══ TAB: AUDITORIA ══ -->
       <div id="tab-auditoria" class="tab-panel active">
+
+      <div class="card">
+        <h2>📋 Relatório de processo
+           <button class="btn-outline" style="width: auto; padding: 2px 8px; font-size: 10px;" onclick="loadProcessReport()">Atualizar</button>
+        </h2>
+        <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
+          Evidências de processo registradas para este documento, por aluno. Sem veredito: só o que foi medido.
+        </p>
+        <div id="process-report-teacher" class="process-report">Carregando...</div>
+      </div>
 
       <div class="card">
         <h2>👩‍🏫 Jornada do Professor</h2>
@@ -975,6 +1001,81 @@
         }
         
         updateUI();
+        loadProcessReport();
+      }
+
+      // --- RELATÓRIO DE PROCESSO (aluno e professor) ---
+
+      var _processReportLoading = false;
+
+      function processReportContainer() {
+        return document.getElementById(currentRole === 'student' ? 'process-report-student' : 'process-report-teacher');
+      }
+
+      function loadProcessReport() {
+        if (_processReportLoading) return;
+        _processReportLoading = true;
+        const role = currentRole;
+        google.script.run
+          .withSuccessHandler(function(data) {
+            _processReportLoading = false;
+            if (role !== currentRole) return loadProcessReport(); // o papel mudou enquanto carregava: recarrega para o novo
+            renderProcessReport(data);
+          })
+          .withFailureHandler(function(err) {
+            _processReportLoading = false;
+            if (role !== currentRole) return loadProcessReport();
+            renderProcessReport({ error: 'LIB_CALL_FAILED', message: (err && err.message) || 'Falha de comunicação.' });
+          })
+          .getProcessReport();
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, function(c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+
+      function formatarDataHora(iso) {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '—';
+        return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      }
+
+      /**
+       * Renderiza o card para o papel atual. O professor vê um bloco por aluno (com e-mail);
+       * o aluno vê o mesmo bloco, só o dele. Falha mostra uma dica para tentar de novo;
+       * o rastreio ao vivo não depende disto.
+       */
+      function renderProcessReport(data) {
+        const el = processReportContainer();
+        if (!el) return;
+        if (!data || data.error) {
+          const motivo = (data && (data.message || data.error)) || 'Falha de comunicação.';
+          el.innerHTML = '<div class="pr-empty">Não foi possível carregar o relatório (' + escapeHtml(motivo) + '). ' +
+                         '<span class="pr-retry" onclick="loadProcessReport()">Tentar de novo</span></div>';
+          return;
+        }
+        if (!data.registros || !data.alunos || data.alunos.length === 0) {
+          el.innerHTML = '<div class="pr-empty">Nenhuma atividade registrada ainda para este documento.</div>';
+          return;
+        }
+        const linha = function(label, valor) {
+          return '<div class="stat-row"><span class="stat-label">' + label + '</span><span class="stat-value">' + valor + '</span></div>';
+        };
+        el.innerHTML = data.alunos.map(function(a) {
+          return '<div class="pr-aluno">' +
+            (currentRole === 'teacher' ? '<div class="pr-email">' + escapeHtml(a.email) + '</div>' : '') +
+            linha('Minutos ativos', a.minutosAtivos) +
+            linha('Sessões', a.sessoes) +
+            linha('Palavras (última contagem)', a.palavras) +
+            linha('Colagens', a.colagens) +
+            linha('Caracteres (+/−)', a.charsAdicionados + ' / ' + a.charsDeletados) +
+            linha('CPM médio / pico', a.cpmMedio + ' / ' + a.cpmPico) +
+            linha('Última atividade', formatarDataHora(a.ultimaAtividade)) +
+            linha('Entregue', a.entregue ? 'Sim' : 'Não') +
+          '</div>';
+        }).join('');
       }
 
       function updateUI() {
@@ -1193,6 +1294,7 @@
                rawEmail: currentRole === 'student' ? studentEmail : null
             },
             behavioralMetrics: {
+               wordCount: stats.wordCount || 0,
                activeFocusTimeMinutes: activeFocusMinutes,
                idleGapCount: behavioralMetrics.idleGapCount,
                editRatio: editRatio,
@@ -1224,6 +1326,7 @@
             }
             document.getElementById('sync-dot').style.backgroundColor = "var(--success-color)";
             document.getElementById('stu-sync-msg').innerText = "Métricas salvas e enviadas.";
+            if (currentRole === 'student') loadProcessReport();
           })
           .withFailureHandler(function(err) {
              showSyncFailure((err && err.message) || "Falha de comunicação com o servidor.");

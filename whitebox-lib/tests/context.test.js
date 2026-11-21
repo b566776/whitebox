@@ -156,6 +156,35 @@ test('Professor cadastrado, Drive OK em pasta do aluno e sem designação: anál
   assert.equal(log.payload.professorEmail, 'prof@ies.edu.br');
 });
 
+// getProcessReport: envia docId e o professor do documento; o servidor filtra pelo chamador.
+function pedirRelatorio(ctx, calls) {
+  ctx.getProcessReport();
+  const rota = vm.runInContext('ROUTE_RESUMO_PROCESSO', ctx);
+  assert.equal(rota, 'resumo_processo');
+  const chamada = calls.find(c => c.route === rota);
+  assert.ok(chamada, 'resumo_processo deve ser chamado');
+  return chamada.payload;
+}
+
+test('getProcessReport: aluno em cópia designada envia docId e o professor designado', () => {
+  const { ctx, calls } = montar({ driveOk: false, userEmail: 'aluno@ies.edu.br', designados: ['prof@ies.edu.br'], licenca: null });
+  const payload = pedirRelatorio(ctx, calls);
+  assert.equal(payload.docId, 'DOC123');
+  assert.equal(payload.professorEmail, 'prof@ies.edu.br');
+});
+
+test('getProcessReport: professor no documento mestre envia o próprio e-mail', () => {
+  const { ctx, calls } = montar({ driveOk: true, userEmail: 'prof@ies.edu.br', ownerEmail: 'prof@ies.edu.br', folderOwner: 'prof@ies.edu.br', designados: [], licenca: 'ATIVO' });
+  const payload = pedirRelatorio(ctx, calls);
+  assert.equal(payload.docId, 'DOC123');
+  assert.equal(payload.professorEmail, 'prof@ies.edu.br');
+});
+
+test('Cliente: wrapper getProcessReport chama a biblioteca', () => {
+  const src = fs.readFileSync(path.join(LIB, '..', 'whitebox-client', 'Código.gs'), 'utf8');
+  assert.match(src, /function getProcessReport\(\)\s*\{\s*return callLibrary\('getProcessReport', \[\]\);/);
+});
+
 test('Sidebar: aviso de Drive fica dentro da visão do professor e reage a driveAccess === false', () => {
   const html = fs.readFileSync(path.join(LIB, 'Sidebar.html'), 'utf8');
   const teacherView = html.indexOf('id="teacher-view"');
