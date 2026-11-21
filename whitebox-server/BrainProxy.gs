@@ -780,9 +780,10 @@ function doPost(e) {
 
     const route = body.route || '';
 
-    // 2. Autorização: alunos só logam métricas (em nome do professor da turma).
+    // 2. Autorização: alunos só logam métricas (em nome do professor da turma) e
+    // consultam o próprio resumo de processo (o handler filtra pelo e-mail verificado).
     // Nas demais rotas o chamador precisa ser o próprio professorEmail.
-    const rotaAbertaAAlunos = (route === ROUTE_LOGAR_METRICAS || route === 'ping');
+    const rotaAbertaAAlunos = (route === ROUTE_LOGAR_METRICAS || route === ROUTE_RESUMO_PROCESSO || route === 'ping');
     const professorEmail = String(body.professorEmail || '').trim().toLowerCase();
     if (!isAdmin && !rotaAbertaAAlunos && callerEmail !== professorEmail) {
       return jsonResponse({ error: 'UNAUTHORIZED', message: 'Token inválido ou não autorizado.' }, 401);
@@ -820,6 +821,8 @@ function doPost(e) {
         return handleLogarMetricas(body, cfg);
       case ROUTE_STATUS_LICENCA:
         return handleStatusLicenca(body, cfg);
+      case ROUTE_RESUMO_PROCESSO:
+        return handleResumoProcesso(body, cfg, callerEmail);
 
       // ── Módulo de Distribuição de Templates ──────────────────────
       case ROUTE_LISTAR_TEMPLATES:

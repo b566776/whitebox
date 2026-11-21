@@ -72,6 +72,9 @@ const ROUTE_LOGAR_METRICAS  = 'logar_metricas';
 /** Rota para consulta de status de licença do professor */
 const ROUTE_STATUS_LICENCA  = 'status_licenca';
 
+/** Rota para o resumo da telemetria de um documento (aluno vê só as próprias linhas) */
+const ROUTE_RESUMO_PROCESSO = 'resumo_processo';
+
 // =====================================================
 //  ROTAS: Distribuição de Templates
 // =====================================================
