@@ -58,7 +58,7 @@ pelo Add-on. Existem três formas de adicionar professores à base do Whitebox:
 **Opção A — Onboarding Automático (Recomendado)**
 1. No `Dashboard.html`, clique em **"Gerar Link de Inscrição Segura"**.
 2. Defina o nome da leva e a data limite. O sistema criará um Google Form.
-3. Envie o formulário aos professores. O robô validará a permissão do Drive deles em background e fará o cadastro automático!
+3. Na confirmação que aparece abaixo do link, digite o e-mail do professor e clique em **📧 Sim, enviar** para o servidor mandar o convite, ou clique em **Não, só mostrar o link** e envie você mesmo. O robô validará a permissão do Drive deles em background e fará o cadastro automático!
 
 **Opção B — Via Função (Programático)**
 ```javascript

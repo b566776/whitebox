@@ -370,6 +370,16 @@
     <div id="levaResult" style="margin-top: 1rem; display: none; padding: 1rem; background: rgba(16, 185, 129, 0.1); border: 1px dashed var(--success); border-radius: 0.5rem; text-align: center; word-break: break-all;">
       <p style="color: var(--success); font-weight: bold; margin-bottom: 0.5rem;">Link Gerado com Sucesso!</p>
       <a id="levaLink" href="#" target="_blank" style="color: var(--text); text-decoration: none; font-family: monospace;"></a>
+      <div id="levaEmailConfirm" style="display: none; margin-top: 1rem; text-align: left; word-break: normal;">
+        <p style="font-weight: bold; margin-bottom: 0.5rem;">📧 Enviar este link por e-mail ao professor?</p>
+        <label for="levaEmail">E-mail do professor (separe vários por vírgula)</label>
+        <input type="text" id="levaEmail" placeholder="professor@escola.edu.br">
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap;">
+          <button id="btnEnviarLevaEmail" onclick="enviarLinkLevaPorEmail()" style="background: #8b5cf6;">📧 Sim, enviar</button>
+          <button onclick="recusarEnvioLevaEmail()" style="background: transparent; border: 1px solid var(--glass-border); color: var(--text-dim);">Não, só mostrar o link</button>
+        </div>
+      </div>
+      <p id="levaEmailStatus" style="display: none; margin-top: 0.75rem; font-size: 0.9rem; word-break: normal;"></p>
     </div>
   </div>
 
@@ -708,6 +718,8 @@
       .distribuirMestreParaProfessor(email, adminToken);
   }
 
+  let levaAtual = null; // { id, dataLimite } da última leva gerada
+
   function gerarLeva() {
     const nome = document.getElementById('levaName').value;
     const dataLimite = document.getElementById('levaDeadline').value;
@@ -727,6 +739,8 @@
           resLink.href = res.url;
           resLink.innerText = res.url;
           resDiv.style.display = 'block';
+          levaAtual = { id: res.id, dataLimite: dataLimite };
+          mostrarConfirmacaoEmailLeva();
         }
       })
       .withFailureHandler(err => {
@@ -734,6 +748,60 @@
         showToast('Erro ao criar Leva: ' + err, true);
       })
       .gerarLevaOnboarding(adminToken, nome, dataLimite);
+  }
+
+  // ── Onboarding: confirmação do envio do link por e-mail ───────────
+
+  function mostrarConfirmacaoEmailLeva() {
+    document.getElementById('levaEmail').value = '';
+    document.getElementById('btnEnviarLevaEmail').disabled = false;
+    document.getElementById('levaEmailStatus').style.display = 'none';
+    document.getElementById('levaEmailConfirm').style.display = 'block';
+    setTimeout(() => document.getElementById('levaEmail').focus(), 100);
+  }
+
+  function mostrarStatusEmailLeva(texto, isError) {
+    const st = document.getElementById('levaEmailStatus');
+    st.innerText = texto;
+    st.style.color = isError ? '#ef4444' : 'var(--success)';
+    st.style.display = 'block';
+  }
+
+  function recusarEnvioLevaEmail() {
+    document.getElementById('levaEmailConfirm').style.display = 'none';
+    mostrarStatusEmailLeva('Link não enviado por e-mail. Copie o link acima e envie ao professor.', false);
+  }
+
+  function enviarLinkLevaPorEmail() {
+    if (!levaAtual) return;
+    const destinatarios = document.getElementById('levaEmail').value.trim();
+    if (!destinatarios) {
+      return showToast('Informe o e-mail do professor', true);
+    }
+    const btn = document.getElementById('btnEnviarLevaEmail');
+    btn.disabled = true;
+    showLoader(true);
+    google.script.run
+      .withSuccessHandler(res => {
+        showLoader(false);
+        btn.disabled = false;
+        const falhas = (res.falhas || []).map(f => f.email + ' (' + f.erro + ')');
+        if (res.enviados && res.enviados.length) {
+          document.getElementById('levaEmailConfirm').style.display = 'none';
+          showToast('Link enviado por e-mail!');
+          mostrarStatusEmailLeva('✅ Link enviado para: ' + res.enviados.join(', ') +
+            (falhas.length ? '. Falhou para: ' + falhas.join(', ') : ''), falhas.length > 0);
+        } else {
+          mostrarStatusEmailLeva('❌ Nenhum e-mail enviado. ' + falhas.join(', '), true);
+        }
+      })
+      .withFailureHandler(err => {
+        showLoader(false);
+        btn.disabled = false;
+        showToast('Erro ao enviar e-mail: ' + err, true);
+        mostrarStatusEmailLeva('❌ ' + (err && err.message ? err.message : err), true);
+      })
+      .enviarLinkOnboardingPorEmail(adminToken, levaAtual.id, destinatarios, levaAtual.dataLimite);
   }
 
   // ── Zona de Perigo: Reset da Planilha Global ──────────────────────

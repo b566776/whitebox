@@ -182,6 +182,11 @@ const FORM_FIELD_NOME        = 'Seu Nome Completo';
 const FORM_FIELD_INSTITUICAO = 'Instituição / Escola';
 const FORM_FIELD_LINK_COFRE  = 'Link do arquivo de Cofre (Google Drive)';
 
+/** Início do nome no Drive dos formulários de leva criados por gerarLevaOnboarding(). */
+const ONBOARDING_FORM_PREFIXO      = 'Whitebox - Onboarding: ';
+/** Máximo de e-mails por envio do convite de onboarding (enviarLinkOnboardingPorEmail). */
+const ONBOARDING_MAX_DESTINATARIOS = 50;
+
 /**
  * Texto de ajuda da pergunta do Cofre. '{EMAIL_DEV}' é trocado pelo e-mail da conta que
  * executa o servidor (quem lê o arquivo). Formulários já criados são atualizados por
