@@ -59,7 +59,7 @@ const HEADERS_LEVAS = [
 
 /**
  * Retorna a lista de templates disponíveis no Drive do Admin.
- * Busca arquivos Google Docs na pasta "whitebox/templates".
+ * Busca arquivos Google Docs na pasta "WhiteBox/templates".
  *
  * Chamado via doPost com route = ROUTE_LISTAR_TEMPLATES.
  *
@@ -696,17 +696,11 @@ function _registrarLevasProfessor({ registro, templateDocId, templateNome,
 }
 
 /**
- * Retorna (ou cria) a pasta "whitebox/templates" no Drive do Admin.
+ * Retorna (ou cria) a pasta "WhiteBox/templates" no Drive do Admin.
  * @private
  */
 function getOrCreateTemplatesFolder() {
-  const rootFolders = DriveApp.getFoldersByName(DRIVE_ROOT_FOLDER_NAME);
-  let root;
-  if (rootFolders.hasNext()) {
-    root = rootFolders.next();
-  } else {
-    root = DriveApp.createFolder(DRIVE_ROOT_FOLDER_NAME);
-  }
+  const root = getOrCreateTargetFolder();
 
   const subFolders = root.getFoldersByName('templates');
   if (subFolders.hasNext()) {
@@ -716,22 +710,15 @@ function getOrCreateTemplatesFolder() {
 }
 
 /**
- * Retorna (ou cria) a pasta "whitebox/templates" no Drive do professor.
- * Se o professor não tiver a pasta, ela é criada no root do seu Drive.
+ * Retorna (ou cria) a pasta "WhiteBox/Distribucoes/<email>" no Drive do Admin,
+ * onde ficam as cópias do template de cada professor (compartilhadas com ele).
  * @private
  */
 function _getOrCreatePastaProfessor(email) {
-  // Tentamos colocar na pasta root "whitebox" — a execução é feita como Admin
-  // então DriveApp.createFolder cria na raiz do Drive do Admin.
+  // A execução é feita como Admin, então a pasta fica no Drive do Admin.
   // O arquivo é compartilhado com o professor via addEditor().
   // Esta é a limitação do Apps Script: não é possível criar no Drive de outro usuário.
-  const rootFolders = DriveApp.getFoldersByName(DRIVE_ROOT_FOLDER_NAME);
-  let root;
-  if (rootFolders.hasNext()) {
-    root = rootFolders.next();
-  } else {
-    root = DriveApp.createFolder(DRIVE_ROOT_FOLDER_NAME);
-  }
+  const root = getOrCreateTargetFolder();
 
   const nomePasta    = 'Distribucoes';
   const subFolders   = root.getFoldersByName(nomePasta);

@@ -1225,6 +1225,7 @@ function garantirPlanilhaProfessor(email, adminSheet, rowIndex, spreadsheetCol) 
   // Criar nova planilha
   const nomePlanilha = 'Whitebox - ' + email;
   const ss = SpreadsheetApp.create(nomePlanilha);
+  DriveApp.getFileById(ss.getId()).moveTo(getOrCreateTargetFolder());
   inicializarPlanilhaProfessor(ss);
 
   // Salvar ID na planilha global

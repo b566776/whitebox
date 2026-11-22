@@ -104,7 +104,7 @@ graph TD
 
 ### 1. Servidor (whitebox-server)
 O servidor centraliza a lógica de IA, o armazenamento de logs e o gerenciamento de licenças. O provedor de IA é configurável (Gemini, Claude ou Ollama) pelas Propriedades do Script; veja "Configurar a IA" em [whitebox-server/DEPLOY.md](whitebox-server/DEPLOY.md).
-Vá até a pasta Classroom e crie a pasta WhiteBox Admin. Crie um novo Script Google Apps. Vá até Configurações e copie o 'Código do script' e cole no clasp.json do whitebox-server. Execute o comnado  clasp push -f para transferir o codigo fonte para o script google . 
+Crie um novo Script Google Apps (guarde-o em `WhiteBox/Scripts` no Drive; `organizarPastasWhitebox()` move os projetos do servidor e da biblioteca para lá). Vá até Configurações e copie o 'Código do script' e cole no clasp.json do whitebox-server. Execute o comnado  clasp push -f para transferir o codigo fonte para o script google . 
 
 3.  **Deploy**: No editor do Apps Script, realize uma "Nova Implantação" como **Web App**.
     *   **Executar como**: Eu (seu e-mail de administrador).

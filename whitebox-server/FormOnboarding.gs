@@ -20,8 +20,8 @@ function setupFormularioSemente() {
   // Itens obrigatórios
   form.addTextItem().setTitle('Seu Nome Completo').setRequired(true);
   form.addTextItem().setTitle('Instituição / Escola').setRequired(true);
-  form.addTextItem().setTitle('Link do arquivo de Cofre (Google Drive)')
-      .setHelpText('Crie um arquivo de texto no seu Drive com sua Chave API, compartilhe como "Leitor" e cole o link aqui. Se preferir usar a Chave Global da escola, deixe em branco.')
+  form.addTextItem().setTitle(FORM_FIELD_LINK_COFRE)
+      .setHelpText(textoAjudaCofre())
       .setRequired(false);
 
   // Forçar o Google a processar o formulário
@@ -64,6 +64,46 @@ function setupFormularioSemente() {
 }
 
 /**
+ * Texto de ajuda da pergunta do Cofre, com o e-mail da conta que executa o servidor
+ * (é ela que precisa ler o arquivo .txt do professor).
+ */
+function textoAjudaCofre() {
+  const emailDev = Session.getEffectiveUser().getEmail() || 'a conta do desenvolvedor do Whitebox';
+  return FORM_HELP_LINK_COFRE.replace('{EMAIL_DEV}', emailDev);
+}
+
+/**
+ * O Google Forms não atualiza formulários já criados quando o código muda.
+ * Reaplica o texto de ajuda atual na pergunta do Cofre de todos os formulários de
+ * onboarding desta conta (semente e levas). Executar no editor após mudar o texto;
+ * organizarPastasWhitebox() também chama esta função.
+ * @returns {number} quantidade de formulários atualizados
+ */
+function atualizarAjudaFormulariosOnboarding() {
+  const ajuda = textoAjudaCofre();
+  const files = DriveApp.searchFiles(
+    "mimeType = 'application/vnd.google-apps.form' and title contains 'Whitebox - Onboarding' " +
+    "and 'me' in owners and trashed = false");
+  let total = 0;
+  while (files.hasNext()) {
+    const file = files.next();
+    try {
+      const itens = FormApp.openById(file.getId()).getItems(FormApp.ItemType.TEXT);
+      for (let i = 0; i < itens.length; i++) {
+        if (itens[i].getTitle() === FORM_FIELD_LINK_COFRE) {
+          itens[i].setHelpText(ajuda);
+          total++;
+        }
+      }
+    } catch (err) {
+      Logger.log('[Onboarding] Não foi possível atualizar o formulário ' + file.getId() + ': ' + err);
+    }
+  }
+  Logger.log('[Onboarding] Ajuda do Cofre atualizada em ' + total + ' formulário(s).');
+  return total;
+}
+
+/**
  * Função executada via Dashboard para gerar uma nova Leva (Criação Direta)
  * @param {string} token Token do Admin
  * @param {string} nomeLeva Nome da Leva (ex: Turma 2026/1)
@@ -85,8 +125,8 @@ function gerarLevaOnboarding(token, nomeLeva, dataLimite) {
   // Itens do formulário
   novoForm.addTextItem().setTitle('Seu Nome Completo').setRequired(true);
   novoForm.addTextItem().setTitle('Instituição / Escola').setRequired(true);
-  novoForm.addTextItem().setTitle('Link do arquivo de Cofre (Google Drive)')
-          .setHelpText('Crie um arquivo de texto no seu Drive com sua Chave API, compartilhe como "Leitor" e cole o link aqui. Se preferir usar a Chave Global da escola, deixe em branco.')
+  novoForm.addTextItem().setTitle(FORM_FIELD_LINK_COFRE)
+          .setHelpText(textoAjudaCofre())
           .setRequired(false);
 
   const formId = novoForm.getId();
@@ -282,7 +322,7 @@ function onProfessorFormSubmit(e) {
     MailApp.sendEmail({
       to: email,
       subject: '❌ Erro de Cadastro - Permissão do Cofre Drive (Whitebox)',
-      body: 'Olá!\n\nRecebemos sua inscrição no Whitebox, porém NÃO conseguimos acessar a Chave de API através do Link do Cofre fornecido.\n\nPor favor, verifique se:\n1. O link está correto.\n2. O arquivo está compartilhado conosco com permissão de "Leitor".\n3. O arquivo contém apenas a sua chave de API (Gemini: iniciada com AIza...; Claude: iniciada com sk-ant-...).\n\nCorrija as permissões no Drive e preencha o formulário novamente para ativar sua conta.'
+      body: 'Olá!\n\nRecebemos sua inscrição no Whitebox, porém NÃO conseguimos acessar a Chave de API através do Link do Cofre fornecido.\n\nPor favor, verifique se:\n1. O link está correto.\n2. O arquivo está compartilhado conosco com permissão de "Leitor".\n3. É um arquivo de texto .txt enviado ao Drive (um Google Docs não funciona) e contém apenas a sua chave de API (Gemini: iniciada com AIza...; Claude: iniciada com sk-ant-...).\n\nCorrija as permissões no Drive e preencha o formulário novamente para ativar sua conta.'
     });
   }
 }
