@@ -14,7 +14,7 @@ Use **um perfil de navegador para cada conta** (desenvolvedor, professor de test
 | :--- | :--- | :--- | :--- |
 | Servidor | `whitebox-server` | `1UzE7vx3UH3MQjvsVcKuIQajLBGYC-kbzTp4is14DLSQ-ff-J6rqQF5cR` | Web App que recebe as chamadas do painel, chama a IA, grava os logs e serve a página **WHITEBOX ADMIN**. |
 | Biblioteca | `whitebox-lib` | `1I-W1uY1EjP6i0cyKF-nfXcLC989yUIKirmmAb44aPbVFLkwMR8uz5Yt8` | `WhiteboxLib`: o painel lateral do documento e a lógica do cliente. |
-| Cliente | `whitebox-client` | `1bH0c1Qb6rtfGGhMGqWlB1iJXIN9OKQaLLh17VgR58XQyz5B7Dy0bOYKW` | Script vinculado ao documento modelo; só repassa para a biblioteca. |
+| Cliente | `whitebox-client` | `16k8PGCi2FqMLYJw4o1dfOclAZTOO_MkT9uqwrps7VE7mMfoMw_SJ5Oel` | Script vinculado ao documento modelo; repassa para a biblioteca e cuida da abertura automática do painel. |
 
 O documento modelo (Doc Semente) é `1tkjZZ7B3dWsLjgxUBuBF5Y--K9w0T4MkqWQ88naiEDs`.
 
@@ -107,7 +107,7 @@ No card **Professores & Licenças B2B**, clique em **Distribuir Template** na li
 Antes de publicar, rode os testes locais:
 
 ```powershell
-node --test whitebox-server/tests/*.test.js whitebox-lib/tests/*.test.js
+node --test whitebox-server/tests/*.test.js whitebox-lib/tests/*.test.js whitebox-client/tests/*.test.js
 ```
 
 No editor do servidor, `runAllTests()` (em `TestRunner.gs`) deve terminar sem falhas.
@@ -122,11 +122,14 @@ O Web App executa **como o proprietário**, com acesso **"Qualquer pessoa"**. A 
 
 **Biblioteca.** `clasp push -f` em `whitebox-lib` e crie uma nova versão (**Implantar** > **Gerenciar versões** no editor, ou `clasp create-version`). A biblioteca precisa estar compartilhada como **Leitor** ("Qualquer pessoa com o link: Leitor"), nunca como Editor; sem isso o painel não abre para ninguém.
 
-**Cliente.** Só muda quando a biblioteca muda de versão: no editor do documento modelo, em **Bibliotecas**, aponte `WhiteboxLib` para a nova versão. Documentos já distribuídos levam o cliente da época em que foram copiados.
+**Cliente.** Muda quando a biblioteca muda de versão (no editor do documento modelo, em **Bibliotecas**, aponte `WhiteboxLib` para a nova versão) ou quando o próprio `Código.gs` muda. Para enviar o código, rode `clasp push` em `whitebox-client` (sem `-f`; o `.claspignore` deixa `tests/` de fora). Se o `clasp push` pedir para confirmar o manifesto, pare e confira o `appsscript.json` remoto antes: o do repositório pode apontar para uma versão antiga da biblioteca. Documentos já distribuídos levam o cliente da época em que foram copiados.
+
+**Abertura automática do painel.** O `onOpen` simples só cria o menu: ele roda sem autorização e não pode abrir a sidebar. Quando um aluno abre o painel numa cópia distribuída, o `getContext` do cliente cria um gatilho instalável "ao abrir" em nome dele (`garantirAberturaAutomatica`, sem duplicar). O handler `abrirPainelAutomaticamente` fica no cliente, porque é o script do documento que recebe o gatilho, e só abre o painel quando quem abriu (`Session.getActiveUser`) é quem criou o gatilho (`Session.getEffectiveUser`). Assim o professor que abre a cópia do aluno não ganha o painel nem tem a escrita registrada como do aluno. Erros são engolidos, porque falha em gatilho instalável manda e-mail para o aluno. Os gatilhos ficam em **Acionadores** do script de cada cópia, em nome do aluno.
 
 ## 8. Onde olhar quando algo falha
 
 - **Painel não abre para professor ou aluno**: a biblioteca não está compartilhada como Leitor, ou o cliente aponta para uma versão que não existe.
+- **Painel não abre sozinho para o aluno**: a cópia foi feita antes do cliente com a abertura automática, ou o aluno ainda não abriu o painel pelo menu nenhuma vez. Confira em **Execuções** do script da cópia se `abrirPainelAutomaticamente` rodou.
 - **`UNAUTHORIZED` / `PROXY_INVALID_RESPONSE`**: abra a página **WHITEBOX ADMIN** e autorize de novo; confira o acesso "Qualquer pessoa" do Web App.
 - **Professor cai na visão de aluno, ou `PROFESSOR_NAO_CADASTRADO` / `PROFESSOR_INATIVO`**: confira o e-mail e o `Status` em `Assinaturas`.
 - **`SpreadsheetId` vazio depois do formulário**: confira se está olhando a planilha certa (ID igual a `ADMIN_SPREADSHEET_ID` em **Propriedades do script**). Se sim, procure o erro de `onProfessorFormSubmit` em **Execuções**; o professor pode clicar em **💾 Salvar Chave API** para criar a planilha.

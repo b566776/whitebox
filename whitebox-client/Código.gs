@@ -58,7 +58,14 @@ function callLibrary(funcName, args) {
 //  Encaminha chamadas antigas da Sidebar para a Lib.
 //  Novos componentes devem usar callLibrary diretamente.
 // =====================================================
-function getContext() { return callLibrary('getContext', []); }
+function getContext() {
+  var ctx = callLibrary('getContext', []);
+  // Aluno numa cópia distribuída: liga a abertura automática do painel nas próximas aberturas.
+  if (ctx && ctx.initialRole === 'student' && ctx.debugInfo && ctx.debugInfo.hasDesignation) {
+    garantirAberturaAutomatica();
+  }
+  return ctx;
+}
 function getDocumentStats() { return callLibrary('getDocumentStats', []); }
 function getSelectedTextInfo() { return callLibrary('getSelectedTextInfo', []); }
 function sendToBackend(p) { return callLibrary('sendToBackend', [p]); }
@@ -79,6 +86,51 @@ function updatePasteMap(idx) { return callLibrary('updatePasteMap', [idx]); }
 function submitFinalQuiz(q, o) { return callLibrary('submitFinalQuiz', [q, o]); }
 function getStudentEmail() { return callLibrary('getStudentEmail', []); }
 function getProcessReport() { return callLibrary('getProcessReport', []); }
+
+// =====================================================
+//  ABERTURA AUTOMÁTICA DO PAINEL (Aluno)
+//  O onOpen simples não pode abrir a sidebar (roda sem autorização). Depois que o aluno
+//  autoriza e abre o painel pela primeira vez, getContext cria um gatilho instalável
+//  "ao abrir" em nome dele. O handler precisa estar aqui no cliente: é o script do documento
+//  que recebe o gatilho, não a biblioteca.
+// =====================================================
+
+var HANDLER_ABERTURA_AUTOMATICA = 'abrirPainelAutomaticamente';
+
+/** Cria o gatilho onOpen deste usuário neste documento, se ainda não existir. Nunca lança. */
+function garantirAberturaAutomatica() {
+  try {
+    var doc = DocumentApp.getActiveDocument();
+    var existentes = ScriptApp.getUserTriggers(doc);
+    for (var i = 0; i < existentes.length; i++) {
+      if (existentes[i].getHandlerFunction() === HANDLER_ABERTURA_AUTOMATICA) return false;
+    }
+    ScriptApp.newTrigger(HANDLER_ABERTURA_AUTOMATICA).forDocument(doc).onOpen().create();
+    return true;
+  } catch (err) {
+    Logger.log('[Whitebox-Wrapper] Não foi possível criar a abertura automática: ' + err);
+    return false;
+  }
+}
+
+/**
+ * Handler do gatilho instalável. Ele roda em nome de quem o criou (o aluno), mas dispara para
+ * qualquer editor que abra o documento, inclusive o professor corrigindo a cópia. Só abre o
+ * painel quando quem abriu é o próprio aluno: para outra pessoa, getActiveUser() vem vazio
+ * ou com outro e-mail. Nunca lança, porque falha em gatilho gera e-mail de erro para o aluno.
+ */
+function abrirPainelAutomaticamente(e) {
+  try {
+    var quemAbriu = (Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+    var dono      = (Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+    if (!quemAbriu || quemAbriu !== dono) return false;
+    showSidebar();
+    return true;
+  } catch (err) {
+    Logger.log('[Whitebox-Wrapper] Abertura automática falhou: ' + err);
+    return false;
+  }
+}
 
 // =====================================================
 //  FALLBACKS (Resiliência Offline)

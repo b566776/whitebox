@@ -22,10 +22,10 @@ Ao rastrear metadados como  tempo de foco, rítmo de digitação e comportamento
 1. Como **Professor(a)**, ao abrir o documento entregue por um **Aluno(a)**, o WhiteBox reconhecerá automaticamente a qual turma e estudante aquele texto pertence. Com isso, o painel lateral exibirá para você um resumo comportamental exclusivo daquela entrega, focando sempre em ilustrar perfeitamente para você o nível de esforço e originalidade daquele Aluno na produção do conteúdo. 
 2. Se o Professor dispor de uma chave_API, a IA atestará (ex: *"Mudança brusca de estilo e complexidade detectada"* ou *"80% das palavras foram produto de colagens massivas do teclado"*). E na própria tela da ferramenta, lhe oferecerá dicas _"sócraticas"_ de quais os próximos passos pedagógicos você pode engajar com o aluno específico na devolutiva.
 
-**4. ⚠️ A Regra de Ouro Pedagógica (Ativação Passiva)**
-Por bloqueios rigorosos de privacidade e antivírus do sistema web do Google, nenhum rastreador de conteúdo no formato _Add-on_ consegue rodar e "vigiá-lo" oculto assim que o documento é aberto. Ou seja, você precisará firmar um contrato pedagógico com a sua turma.
+**4. ⚠️ A Regra de Ouro Pedagógica (Primeira Ativação)**
+O Google não deixa nenhum script rodar no documento antes de o aluno autorizar. Por isso a **primeira** abertura do painel é sempre manual. Depois dela, o painel abre sozinho cada vez que o aluno abre a cópia dele. O Whitebox só registra com o painel aberto: se o aluno fechar o painel, nada é registrado até ele abrir de novo.
 Sempre instrua a sua sala no envio da atividade:
-* *"Turma, ao abrirem a nossa Redação pelo Classroom, vão imediatamente no menu **Extensões > WhiteBox > Abrir Painel** para disparar o modo prova. Na primeira vez, aparecerá o pop-up de permissão de segurança da sua conta, clique em 'Permitir'. Se o painel da ferramenta não estiver aberto enquanto vocês digitam, seu processo não gerará pontuação/evidência de esforço. Lições entregues sem métricas geradas no painel não serão pontuadas. O WhiteBox é uma ferramenta de proteção ao mérito do aluno. O WhiteBox só funciona em computadores, não em celulares. O Whitebox respeita a privacidade do aluno e não coleta dados pessoais.
+* *"Turma, na primeira vez que abrirem a nossa Redação pelo Classroom, vão no menu **Whitebox > Abrir Painel Whitebox** e cliquem em 'Permitir' no pop-up de permissão da sua conta. Das próximas vezes, o painel abre sozinho. Não fechem o painel enquanto escrevem: com ele fechado, seu processo não gera evidência de esforço, e lições entregues sem métricas geradas no painel não serão pontuadas. O WhiteBox é uma ferramenta de proteção ao mérito do aluno. O WhiteBox só funciona em computadores, não em celulares. O Whitebox respeita a privacidade do aluno e não coleta dados pessoais."*
 
 ---
 
@@ -36,7 +36,7 @@ Sempre instrua a sua sala no envio da atividade:
 2. O "WhiteBox " opera de forma protetiva registrando o seu verdadeiro processo construtivo.
 
 **2. Apoiando a Produção Limpa**
-1. O Aluno pode abrir o painel lateral do nosso Add-on clicando no ícone dentro do Docs para checar seus pômordos.
+1. Na primeira vez, o Aluno abre o painel lateral pelo menu **Whitebox > Abrir Painel Whitebox** e autoriza. Depois disso, o painel abre sozinho ao abrir o documento, e o Aluno pode acompanhar ali os seus números.
 2. De tempos em tempos (se o Aluno efetivamente estiver teclando e criando novos conteudos), o sistema calcula matematicamente a sua biometria de teclado. Não é o texto gravado pronto no final que importará apenas, é o tempo gasto de foco contínuo — criando uma comprovação genuína contra IAs automatizadoras de que você efetivamente redigiu sua obra do zero.
 
 ---

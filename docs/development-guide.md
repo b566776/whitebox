@@ -69,6 +69,7 @@ O Whitebox inclui um framework de testes customizado e leve em `TestRunner.gs`.
 - **Execução**: Execute a função `runAllTests()` a partir da IDE do Apps Script.
 - **Cobertura**: Inclui validação de e-mail, parsing de JSON, lógica de limite de taxa (rate limit) e integridade de esquema.
 - **Biblioteca fora do Apps Script** (Node 20+): `node --test whitebox-lib/tests/context.test.js` carrega `Constants.gs`, `Utils.gs` e `Logic.gs` com stubs dos serviços Google e cobre papel (`getContext`), `driveAccess`, telemetria sem Drive, o aviso da Sidebar e os manifestos. A pasta `tests/` fica fora do `clasp push` (`.claspignore`).
+- **Cliente fora do Apps Script**: `node --test whitebox-client/tests/abertura-automatica.test.js` cobre a criação do gatilho de abertura automática e a checagem de quem abriu o documento.
 
 ### 3.2. Testes de Fumaça Manuais
 1.  **Auto-Provisionamento**: Visite a URL do Web App do servidor pela primeira vez (*); ele deve criar a Planilha Admin Global e mostrar o token.
