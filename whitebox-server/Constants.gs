@@ -182,6 +182,23 @@ const FORM_FIELD_NOME        = 'Seu Nome Completo';
 const FORM_FIELD_INSTITUICAO = 'Instituição / Escola';
 const FORM_FIELD_LINK_COFRE  = 'Link do arquivo de Cofre (Google Drive)';
 
+/**
+ * Texto de ajuda da pergunta do Cofre. '{EMAIL_DEV}' é trocado pelo e-mail da conta que
+ * executa o servidor (quem lê o arquivo). Formulários já criados são atualizados por
+ * atualizarAjudaFormulariosOnboarding() (FormOnboarding.gs).
+ */
+const FORM_HELP_LINK_COFRE   =
+  'Opcional. Serve para ativar a análise por IA com a sua própria chave.\n' +
+  '1. Gere uma chave de IA: Gemini (começa com AIza) em https://aistudio.google.com/app/apikey ' +
+  'ou Claude (começa com sk-ant-) em https://console.anthropic.com\n' +
+  '2. No computador, salve só a chave num arquivo de texto .txt (Bloco de Notas) e envie esse ' +
+  'arquivo ao seu Google Drive. Um documento Google Docs não funciona.\n' +
+  '3. No Drive, compartilhe o arquivo como Leitor com {EMAIL_DEV} ou com ' +
+  '"Qualquer pessoa com o link".\n' +
+  '4. Copie o link do arquivo e cole aqui.\n' +
+  'Se deixar em branco, o cadastro é feito sem IA. ' +
+  'Você pode colar a chave depois no painel do Whitebox: aba ⚙️ Config > 💾 Salvar Chave API.';
+
 // =====================================================
 //  NOMES DE FORMULÁRIOS E PLANILHAS (Criação dinâmica)
 // =====================================================
@@ -195,8 +212,17 @@ const FORM_LEVA_PREFIX          = 'Whitebox - Onboarding: ';
 /** Prefixo para planilhas individuais de professor */
 const SPREADSHEET_PROF_PREFIX   = 'Whitebox - ';
 
-/** Pasta raiz no Google Drive onde tudo é armazenado */
-const DRIVE_ROOT_FOLDER_NAME    = 'whitebox';
+/** Pasta na raiz do Meu Drive onde fica tudo que o Whitebox cria */
+const DRIVE_ROOT_FOLDER_NAME    = 'WhiteBox';
+
+/** Subpasta de DRIVE_ROOT_FOLDER_NAME com os projetos de script */
+const DRIVE_SCRIPTS_FOLDER_NAME = 'Scripts';
+
+/** Caminho antigo (a partir do Meu Drive) da pasta do Whitebox, migrado por organizarPastasWhitebox() */
+const DRIVE_PASTA_ANTIGA        = ['GDrive Meus Documentos', 'Projetos', 'whitebox'];
+
+/** Projeto de script standalone da biblioteca WhiteboxLib (o do servidor vem de ScriptApp.getScriptId()) */
+const WHITEBOX_LIB_SCRIPT_ID    = '1I-W1uY1EjP6i0cyKF-nfXcLC989yUIKirmmAb44aPbVFLkwMR8uz5Yt8';
 
 // =====================================================
 //  CACHE: Chaves do CacheService

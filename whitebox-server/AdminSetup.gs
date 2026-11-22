@@ -201,27 +201,143 @@ function configurarChaveGlobal(email, usar) {
 }
 
 /**
- * Utilitário: Garante a criação ou navegação para a pasta raiz do projeto.
- * Caminho: Meu Drive → GDrive Meus Documentos → Projetos → whitebox
- *
- * [LOW-01 FIX] Substituída iteração manual O(n) por getFoldersByName(),
- * que usa a API de busca do Drive internamente — muito mais eficiente
- * em drives com muitas pastas.
+ * Pasta "WhiteBox" na raiz do Meu Drive de quem executa o servidor. Tudo que o
+ * Whitebox cria (planilha global, planilhas de logs, formulários, documentos) fica nela.
  */
 function getOrCreateTargetFolder() {
-  const path = ['GDrive Meus Documentos', 'Projetos', 'whitebox'];
-  let folder = DriveApp.getRootFolder();
+  return _getOrCreateSubpasta(DriveApp.getRootFolder(), DRIVE_ROOT_FOLDER_NAME);
+}
 
-  for (let i = 0; i < path.length; i++) {
-    const name    = path[i];
-    const results = folder.getFoldersByName(name);
+/** Subpasta "WhiteBox/Scripts", com os projetos de script do servidor e da biblioteca. */
+function getOrCreateScriptsFolder() {
+  return _getOrCreateSubpasta(getOrCreateTargetFolder(), DRIVE_SCRIPTS_FOLDER_NAME);
+}
 
-    if (results.hasNext()) {
-      folder = results.next(); // Pasta encontrada diretamente
+/**
+ * Subpasta de `pai` com exatamente esse nome, ou null. A busca do Drive não
+ * diferencia maiúsculas, então "whitebox" e "WhiteBox" precisam ser filtradas aqui.
+ * @private
+ */
+function _subpastaExata(pai, nome) {
+  const it = pai.getFoldersByName(nome);
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getName() === nome) return f;
+  }
+  return null;
+}
+
+/** @private */
+function _getOrCreateSubpasta(pai, nome) {
+  const existente = _subpastaExata(pai, nome);
+  if (existente) return existente;
+  Logger.log('[AdminSetup] Pasta criada: ' + nome);
+  return pai.createFolder(nome);
+}
+
+/**
+ * Migração única: põe sob "WhiteBox" o que o Whitebox criou antes desta organização.
+ * Executar no editor do servidor. Pode ser repetida sem efeito colateral.
+ *  - conteúdo da pasta antiga (DRIVE_PASTA_ANTIGA) e de pastas "whitebox" soltas na raiz;
+ *  - planilha global, planilhas de logs dos professores, formulário e documento semente;
+ *  - formulários de onboarding e documentos "Modelo Mestre" desta conta;
+ *  - projetos de script do servidor e da biblioteca, em "WhiteBox/Scripts".
+ * Também reaplica o texto de ajuda nos formulários de onboarding.
+ * Nada é apagado: pastas antigas vazias ficam onde estão.
+ * @returns {{movidos: string[], formulariosAtualizados: number}}
+ */
+function organizarPastasWhitebox() {
+  const root    = getOrCreateTargetFolder();
+  const scripts = getOrCreateScriptsFolder();
+  const movidos = [];
+
+  const mover = function(id, destino) {
+    if (!id) return;
+    try {
+      const file = DriveApp.getFileById(id);
+      const pais = file.getParents();
+      while (pais.hasNext()) {
+        if (pais.next().getId() === destino.getId()) return; // já está no lugar
+      }
+      file.moveTo(destino);
+      movidos.push(file.getName());
+    } catch (err) {
+      Logger.log('[AdminSetup] Não foi possível mover ' + id + ': ' + err);
+    }
+  };
+
+  // 1. Pastas antigas: o caminho aninhado e pastas "whitebox" soltas na raiz
+  const antigas = [];
+  let pasta = DriveApp.getRootFolder();
+  for (let i = 0; i < DRIVE_PASTA_ANTIGA.length && pasta; i++) {
+    pasta = _subpastaExata(pasta, DRIVE_PASTA_ANTIGA[i]);
+  }
+  if (pasta) antigas.push(pasta);
+  const naRaiz = DriveApp.getRootFolder().getFoldersByName(DRIVE_ROOT_FOLDER_NAME);
+  while (naRaiz.hasNext()) {
+    const f = naRaiz.next();
+    if (f.getId() !== root.getId()) antigas.push(f);
+  }
+  antigas.forEach(function(antiga) { _mesclarPasta(antiga, root, movidos); });
+
+  // 2. Arquivos conhecidos pelo ID
+  const cfg = getConfig();
+  mover(cfg.adminSpreadsheetId, root);
+  try {
+    const data = getPlanilhaGlobal(cfg.adminSpreadsheetId).getDataRange().getValues();
+    const col  = data[0].indexOf('SpreadsheetId');
+    for (let r = 1; col >= 0 && r < data.length; r++) mover(String(data[r][col] || '').trim(), root);
+    const configTab = SpreadsheetApp.openById(cfg.adminSpreadsheetId).getSheetByName('Config');
+    const conf = configTab ? configTab.getDataRange().getValues() : [];
+    for (let r = 1; r < conf.length; r++) {
+      if (conf[r][0] === 'seed_form_id' || conf[r][0] === 'seed_document_id') {
+        mover(String(conf[r][1] || '').trim(), root);
+      }
+    }
+  } catch (err) {
+    Logger.log('[AdminSetup] Planilha global indisponível para a migração: ' + err);
+  }
+
+  // 3. Arquivos achados pelo nome (formulários de onboarding, modelos mestre, logs antigos)
+  ["mimeType = 'application/vnd.google-apps.form' and title contains 'Whitebox - Onboarding'",
+   "title contains 'Whitebox - Modelo Mestre'",
+   "title contains 'Whitebox - Log Professor'"
+  ].forEach(function(q) {
+    const it = DriveApp.searchFiles(q + " and 'me' in owners and trashed = false");
+    while (it.hasNext()) mover(it.next().getId(), root);
+  });
+
+  // 4. Projetos de script standalone (o cliente é vinculado ao documento modelo e não é um arquivo à parte)
+  mover(ScriptApp.getScriptId(), scripts);
+  mover(WHITEBOX_LIB_SCRIPT_ID, scripts);
+
+  const formulariosAtualizados = atualizarAjudaFormulariosOnboarding();
+  Logger.log('[AdminSetup] Migração concluída. Movidos (' + movidos.length + '): ' + movidos.join(', ') +
+             ' | Formulários atualizados: ' + formulariosAtualizados);
+  return { movidos: movidos, formulariosAtualizados: formulariosAtualizados };
+}
+
+/**
+ * Move o conteúdo de `origem` para `destino`. Uma subpasta que já exista no destino
+ * com o mesmo nome é mesclada em vez de duplicada.
+ * @private
+ */
+function _mesclarPasta(origem, destino, movidos) {
+  const arquivos = origem.getFiles();
+  while (arquivos.hasNext()) {
+    const f = arquivos.next();
+    f.moveTo(destino);
+    movidos.push(f.getName());
+  }
+  const pastas = origem.getFolders();
+  while (pastas.hasNext()) {
+    const sub = pastas.next();
+    const existente = _subpastaExata(destino, sub.getName());
+    if (existente) {
+      _mesclarPasta(sub, existente, movidos);
     } else {
-      folder = folder.createFolder(name);
-      Logger.log('[AdminSetup] Pasta criada: ' + name);
+      sub.moveTo(destino);
+      movidos.push(sub.getName() + '/');
     }
   }
-  return folder;
 }

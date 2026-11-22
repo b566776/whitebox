@@ -34,7 +34,7 @@ function testarInjecaoMetadados() {
     Logger.log('🔍 Verificação de Leitura: OK!');
 
     // 3. Verificação na cópia (simula o STUDENT_COPY do Classroom)
-    copia = DriveApp.getFileById(TEST_DOC_ID).makeCopy('Whitebox - teste de cópia (pode apagar)');
+    copia = DriveApp.getFileById(TEST_DOC_ID).makeCopy('Whitebox - teste de cópia (pode apagar)', getOrCreateTargetFolder());
     const naCopia = lerConfig(copia.getId());
     if (naCopia.length !== 1 || naCopia[0] !== esperado) {
       throw new Error('A configuração NÃO sobreviveu à cópia: ' + JSON.stringify(naCopia));

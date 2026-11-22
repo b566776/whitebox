@@ -167,7 +167,7 @@ function test_getOrCreateTargetFolder_naoLancaErro() {
   const folder = getOrCreateTargetFolder();
   assert(folder !== null && folder !== undefined, 'getOrCreateTargetFolder deve retornar um objeto Folder');
   assert(typeof folder.getName === 'function', 'Objeto retornado deve ser um Folder do Drive');
-  assertEquals(folder.getName(), 'whitebox', 'Pasta retornada deve se chamar whitebox');
+  assertEquals(folder.getName(), 'WhiteBox', 'Pasta retornada deve se chamar WhiteBox');
 }
 
 // =====================================================
