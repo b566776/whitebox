@@ -1,0 +1,3 @@
+tests/**
+**/*.test.js
+code_debug.txt
