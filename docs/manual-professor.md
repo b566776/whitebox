@@ -61,6 +61,8 @@ Antes, crie a turma no Google Classroom e convide os alunos.
 3. Selecione a turma e clique em **📤 Distribuir Levas**. A barra de progresso chega ao fim.
 4. No Classroom, a atividade aparece na turma. Cada aluno recebe a própria cópia do documento.
 
+**O que o aluno faz.** Na primeira vez, o aluno abre o painel pelo menu **Whitebox > Abrir Painel Whitebox** e aceita a autorização. Depois disso, o painel abre sozinho a cada vez que ele abre a cópia dele. O Whitebox só registra com o painel aberto: se o aluno fechar o painel, nada é registrado até ele abrir de novo. Quando **você** abre a cópia de um aluno, o painel não abre sozinho, para que a sua escrita não seja registrada como dele. Cópias distribuídas antes dessa função continuam abrindo só pelo menu, e no celular não há painel.
+
 ## 5. Acompanhar e auditar (aba 🔍 Auditoria)
 
 1. Abra a **cópia de um aluno** (pelo Classroom ou pelo Drive) e abra o painel. Ele abre na visão **👩‍🏫 Professor**, porque a cópia sabe quem é o professor dela.

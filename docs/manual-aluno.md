@@ -16,11 +16,13 @@ Você não precisa de cadastro: entra pela turma do Google Classroom do seu prof
 4. Aceite a autorização. Ela é pedida uma vez.
 5. O painel abre na visão **🧑‍🎓 Aluno**, com o card **🧑‍🎓 Suas Evidências**.
 
+Só a primeira vez é pelo menu. Depois dela, o painel abre sozinho sempre que você abrir a sua cópia, alguns segundos depois de o documento carregar.
+
 ## 2. Escrever
 
-- Escreva normalmente com o painel aberto. Os contadores ao vivo (palavras, minutos e outros) mudam enquanto você digita.
+- O Whitebox só registra enquanto o painel está aberto. Escreva normalmente com ele aberto. Os contadores ao vivo (palavras, minutos e outros) mudam enquanto você digita.
 - De tempos em tempos o painel envia as métricas: o indicador fica verde e aparece "Métricas salvas e enviadas.".
-- Você pode fechar o painel e voltar outro dia. Cada volta conta como uma nova sessão, e os minutos ativos continuam somando, mesmo que os contadores ao vivo comecem do zero.
+- Se você fechar o painel, nada é registrado até ele abrir de novo (pelo menu ou recarregando a página). Você pode voltar outro dia. Cada volta conta como uma nova sessão, e os minutos ativos continuam somando, mesmo que os contadores ao vivo comecem do zero.
 
 ## 3. Ver o seu relatório
 
@@ -38,4 +40,5 @@ Quando terminar, clique em **Finalizar Trabalho**. Aparece o aviso "Trabalho Ent
 
 - **O menu Whitebox não aparece**: recarregue a página do documento e espere alguns segundos.
 - **O painel não abre ou mostra erro de autorização**: feche o painel, abra de novo e aceite a autorização. Confira se o navegador está na conta certa (canto superior direito).
+- **O painel não abriu sozinho**: espere alguns segundos ou use **Whitebox > Abrir Painel Whitebox**. Na primeira vez, e em cópias criadas antes dessa função, ele só abre pelo menu. No celular não há painel.
 - **O relatório não mostra a sua atividade**: confira se está na **sua cópia** do documento, e não no documento do professor.
