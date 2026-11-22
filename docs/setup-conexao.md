@@ -1,6 +1,6 @@
 # ⚙️ Conexão com o Servidor — Whitebox
 
-O Add-on não precisa ser configurado em cada documento. A URL do servidor (BrainProxy) é **fixa no código da biblioteca**, e nenhum professor ou aluno consegue alterá-la.
+O Add-on não precisa ser configurado em cada documento. 
 
 ---
 

@@ -17,7 +17,7 @@ A URL do proxy é a constante `BRAIN_PROXY_URL` em `whitebox-lib/Constants.gs`. 
 O cliente se autentica com o OAuth token do usuário. O `SHARED_TOKEN` fica apenas nas Script Properties do **servidor** e serve só ao Dashboard Admin; para trocá-lo, execute `rotacionarSharedToken()` no editor do `whitebox-server`.
 
 ### Provedor de IA
-A IA da análise socrática é configurável nas Script Properties do **servidor**: `IA_PROVIDER` (`gemini`, `claude` ou `ollama`), `IA_MODEL`, `IA_BASE_URL` e `IA_GLOBAL_KEY`. Vale para os professores com `UsaChaveGlobal = Sim`; os demais usam a própria chave, e o formato dela define o provedor. Tabela de valores e exemplos em [DEPLOY.md](../whitebox-server/DEPLOY.md), seção "Configurar a IA".
+A IA da análise socrática é configurável nas Script Properties do **servidor**: `IA_PROVIDER` (`gemini`, `claude` ou `ollama`), `IA_MODEL`, `IA_BASE_URL` e `IA_GLOBAL_KEY`. Vale para os professores com `UsaChaveGlobal = Sim`; os demais usam a própria chave, e o formato dela define o provedor. Tabela de valores e exemplos em [DEPLOY.md](../whitebox-server/DEPLOY.md), seção "Configurar a IA". Cada professor usa a própria chave, do Gemini (começa com AIza…) ou do Claude (começa com sk-ant-…). Ele pode informá-la no formulário de cadastro, no campo do Cofre, ou depois no painel do documento, na aba ⚙️ Config, clicando em 💾 Salvar Chave API. Se não informar nenhuma, o cadastro funciona, mas sem a análise por IA. 
 
 ### Mapas de Calor (Dashboard)
 O card **Inteligência & Mapas de Calor** tem quatro visões, do geral ao particular. Todas usam as mesmas regras:

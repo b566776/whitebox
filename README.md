@@ -25,7 +25,7 @@ Ao rastrear metadados como  tempo de foco, rítmo de digitação e comportamento
 **4. ⚠️ A Regra de Ouro Pedagógica (Primeira Ativação)**
 O Google não deixa nenhum script rodar no documento antes de o aluno autorizar. Por isso a **primeira** abertura do painel é sempre manual. Depois dela, o painel abre sozinho cada vez que o aluno abre a cópia dele. O Whitebox só registra com o painel aberto: se o aluno fechar o painel, nada é registrado até ele abrir de novo.
 Sempre instrua a sua sala no envio da atividade:
-* *"Turma, na primeira vez que abrirem a nossa Redação pelo Classroom, vão no menu **Whitebox > Abrir Painel Whitebox** e cliquem em 'Permitir' no pop-up de permissão da sua conta. Das próximas vezes, o painel abre sozinho. Não fechem o painel enquanto escrevem: com ele fechado, seu processo não gera evidência de esforço, e lições entregues sem métricas geradas no painel não serão pontuadas. O WhiteBox é uma ferramenta de proteção ao mérito do aluno. O WhiteBox só funciona em computadores, não em celulares. O Whitebox respeita a privacidade do aluno e não coleta dados pessoais."*
+* *"Turma, na primeira vez que abrirem a nossa Redação pelo Classroom, vão no menu **Whitebox > Abrir Painel Whitebox** e cliquem em 'Permitir' no pop-up de permissão da sua conta. Das próximas vezes, o painel abre sozinho. Não fechem o painel enquanto escrevem: com ele fechado, seu processo não gera evidência de esforço, e lições entregues sem métricas geradas no painel não serão pontuadas. O WhiteBox é uma ferramenta de proteção ao mérito do aluno. O WhiteBox só funciona em computadores, não em celulares ou tablets. O Whitebox respeita a privacidade do aluno e não coleta dados pessoais."*
 
 ---
 

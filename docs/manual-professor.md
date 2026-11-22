@@ -1,6 +1,6 @@
 # Manual do professor do Whitebox
 
-O Whitebox acompanha como cada aluno escreve o próprio texto no Google Docs (tempo ativo, sessões, colagens, ritmo de digitação) e ajuda você a conversar com ele sobre o processo, com perguntas socráticas geradas por IA. Ele não dá veredito de plágio: mostra evidências do processo.
+O Whitebox acompanha como cada aluno escreve o próprio texto no Google Docs (tempo ativo, sessões, colagens, ritmo de digitação) e ajuda você a conversar com ele sobre o processo, com perguntas socráticas geradas por IA. Ele não dá veredito de plágio: mostra evidências do processo. Cada professor usa a própria chave, do Gemini (começa com AIza…) ou do Claude (começa com sk-ant-…). Ele pode informá-la no formulário de cadastro, no campo do Cofre, ou depois no painel do documento, na aba ⚙️ Config, clicando em 💾 Salvar Chave API. Se não informar nenhuma, o cadastro funciona, mas sem a análise por IA
 
 Os nomes em **negrito** são os rótulos exatos que aparecem na tela.
 
