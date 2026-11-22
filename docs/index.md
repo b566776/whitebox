@@ -2,6 +2,11 @@
 
 Bem-vindo à Base de Conhecimento Whitebox. Esta suíte de documentação fornece uma visão abrangente do sistema autônomo de auditoria pedagógica.
 
+## 📘 Manuais passo a passo (por tipo de usuário)
+- [Manual do desenvolvedor](manual-desenvolvedor.md): provisionar o servidor, página WHITEBOX ADMIN, cadastrar professores, pastas no Drive e publicar.
+- [Manual do professor](manual-professor.md): cadastro e chave de IA, documento mestre, distribuição e auditoria.
+- [Manual do aluno](manual-aluno.md): abrir o painel, escrever, ver o relatório e entregar.
+
 ## 🚀 Guia de Início Rápido
 Documentação voltada para os usuários finais e administradores do sistema.
 - [Manual do Professor](Teacher.md): Como gerenciar turmas, distribuir atividades e auditar.
