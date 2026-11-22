@@ -158,6 +158,18 @@ test('organizarPastasWhitebox move o que já existe para WhiteBox e WhiteBox/Scr
   assert.equal(ctx.organizarPastasWhitebox().movidos.length, 0);
 });
 
+test('organizarPastasWhitebox segue pastas repetidas no caminho antigo (dois "Projetos")', () => {
+  const drive = criarDrive();
+  const gdrive = drive.pasta('GDrive Meus Documentos');
+  const a = drive.pasta('whitebox', drive.pasta('Projetos', gdrive));
+  const b = drive.pasta('whitebox', drive.pasta('Projetos', gdrive));
+  drive.arquivo('Whitebox - Onboarding: Leva 1', a, { id: 'F1', mime: FORM_MIME });
+  drive.arquivo('Whitebox - Painel Global Admin', b, { id: 'G1' });
+  montar(drive).organizarPastasWhitebox();
+  assert.equal(drive.caminho('F1'), 'WhiteBox/Whitebox - Onboarding: Leva 1');
+  assert.equal(drive.caminho('G1'), 'WhiteBox/Whitebox - Painel Global Admin');
+});
+
 test('Ajuda do Cofre explica a chave de IA, o .txt, o compartilhamento e o campo em branco', () => {
   const ajuda = montar(criarDrive()).textoAjudaCofre();
   assert.match(ajuda, /AIza/);

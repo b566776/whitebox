@@ -266,13 +266,20 @@ function organizarPastasWhitebox() {
     }
   };
 
-  // 1. Pastas antigas: o caminho aninhado e pastas "whitebox" soltas na raiz
-  const antigas = [];
-  let pasta = DriveApp.getRootFolder();
-  for (let i = 0; i < DRIVE_PASTA_ANTIGA.length && pasta; i++) {
-    pasta = _subpastaExata(pasta, DRIVE_PASTA_ANTIGA[i]);
-  }
-  if (pasta) antigas.push(pasta);
+  // 1. Pastas antigas: o caminho aninhado (pode haver pastas repetidas com o mesmo
+  //    nome em cada nível, então seguimos todas) e pastas "whitebox" soltas na raiz
+  let antigas = [DriveApp.getRootFolder()];
+  DRIVE_PASTA_ANTIGA.forEach(function(nome) {
+    const proximas = [];
+    antigas.forEach(function(pai) {
+      const it = pai.getFoldersByName(nome);
+      while (it.hasNext()) {
+        const f = it.next();
+        if (f.getName() === nome) proximas.push(f);
+      }
+    });
+    antigas = proximas;
+  });
   const naRaiz = DriveApp.getRootFolder().getFoldersByName(DRIVE_ROOT_FOLDER_NAME);
   while (naRaiz.hasNext()) {
     const f = naRaiz.next();
