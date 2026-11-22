@@ -113,7 +113,7 @@ function gerarLevaOnboarding(token, nomeLeva, dataLimite) {
   validateAdminAccess(token);
   
   // 1. Criar um NOVO Formulário do zero (Bypassa o erro de clonagem do Google)
-  const novoForm = FormApp.create('Whitebox - Onboarding: ' + nomeLeva);
+  const novoForm = FormApp.create(ONBOARDING_FORM_PREFIXO + nomeLeva);
   
   novoForm.setTitle('Cadastro de Professor - ' + nomeLeva)
           .setDescription('Seja bem-vindo ao ecossistema Whitebox. Preencha os dados abaixo para provisionar seu ambiente de auditoria pedagógica.')
@@ -159,6 +159,118 @@ function gerarLevaOnboarding(token, nomeLeva, dataLimite) {
     success: true,
     url: formUrl,
     id: formId
+  };
+}
+
+/**
+ * Enviado pelo Dashboard depois de gerar uma leva, quando o DEV confirma o envio.
+ * Manda o link do formulário de onboarding por e-mail a um ou mais professores.
+ * O link é lido do próprio formulário (pelo ID), nunca do navegador, e só formulários
+ * de onboarding do Whitebox abertos para respostas são aceitos.
+ * @param {string} token Token do Admin
+ * @param {string} formId ID do formulário devolvido por gerarLevaOnboarding()
+ * @param {string} destinatarios E-mails separados por vírgula, ponto e vírgula, espaço ou linha
+ * @param {string} [dataLimite] Data limite no formato 'YYYY-MM-DDTHH:mm' (só para o texto do e-mail)
+ * @returns {{success: boolean, url: string, enviados: string[], falhas: {email: string, erro: string}[]}}
+ */
+function enviarLinkOnboardingPorEmail(token, formId, destinatarios, dataLimite) {
+  validateAdminAccess(token);
+
+  const emails = normalizarDestinatariosOnboarding(destinatarios);
+  if (emails.invalidos.length) {
+    throw new Error('E-mail inválido: ' + emails.invalidos.join(', '));
+  }
+  if (!emails.validos.length) {
+    throw new Error('Informe o e-mail do professor.');
+  }
+  if (emails.validos.length > ONBOARDING_MAX_DESTINATARIOS) {
+    throw new Error('Envie para no máximo ' + ONBOARDING_MAX_DESTINATARIOS + ' e-mails por vez.');
+  }
+
+  if (!formId) throw new Error('Formulário não informado.');
+  const nomeArquivo = DriveApp.getFileById(formId).getName();
+  if (nomeArquivo.indexOf(ONBOARDING_FORM_PREFIXO) !== 0) {
+    throw new Error('Este formulário não é um onboarding do Whitebox.');
+  }
+  const form = FormApp.openById(formId);
+  if (!form.isAcceptingResponses()) {
+    throw new Error('Este formulário está fechado para respostas.');
+  }
+  const url = form.getPublishedUrl();
+  const nomeLeva = nomeArquivo.substring(ONBOARDING_FORM_PREFIXO.length).trim();
+
+  const quota = MailApp.getRemainingDailyQuota();
+  if (quota < emails.validos.length) {
+    throw new Error('Cota diária de e-mails insuficiente (restam ' + quota + ').');
+  }
+
+  const mensagem = montarEmailConviteOnboarding(nomeLeva, url, dataLimite);
+  const enviados = [];
+  const falhas = [];
+  for (let i = 0; i < emails.validos.length; i++) {
+    const email = emails.validos[i];
+    try {
+      MailApp.sendEmail({ to: email, subject: mensagem.subject, body: mensagem.body });
+      enviados.push(email);
+    } catch (err) {
+      Logger.log('[Onboarding] Falha ao enviar convite para ' + email + ': ' + err);
+      falhas.push({ email: email, erro: String(err && err.message || err) });
+    }
+  }
+  Logger.log('[Onboarding] Convite da leva "' + nomeLeva + '" enviado para ' + enviados.length +
+             ' e-mail(s); falhas: ' + falhas.length);
+
+  return { success: enviados.length > 0, url: url, enviados: enviados, falhas: falhas };
+}
+
+/**
+ * Separa a lista de e-mails digitada pelo DEV, sem repetidos (ignora maiúsculas).
+ * @param {string} texto
+ * @returns {{validos: string[], invalidos: string[]}}
+ */
+function normalizarDestinatariosOnboarding(texto) {
+  const partes = String(texto || '').split(/[\s,;]+/);
+  const vistos = {};
+  const validos = [];
+  const invalidos = [];
+  for (let i = 0; i < partes.length; i++) {
+    const email = partes[i].trim().toLowerCase();
+    if (!email || vistos[email]) continue;
+    vistos[email] = true;
+    if (/^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[a-z]{2,}$/i.test(email)) {
+      validos.push(email);
+    } else {
+      invalidos.push(email);
+    }
+  }
+  return { validos: validos, invalidos: invalidos };
+}
+
+/**
+ * Assunto e corpo do e-mail de convite.
+ * @param {string} nomeLeva
+ * @param {string} url Link publicado do formulário
+ * @param {string} [dataLimite] 'YYYY-MM-DDTHH:mm'
+ */
+function montarEmailConviteOnboarding(nomeLeva, url, dataLimite) {
+  let prazo = '';
+  const m = String(dataLimite || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+  if (m) {
+    prazo = m[3] + '/' + m[2] + '/' + m[1] + (m[4] ? ' às ' + m[4] + ':' + m[5] : '');
+  }
+  const body =
+    'Olá!\n\n' +
+    'Você foi convidado(a) a se cadastrar como professor(a) no Whitebox' +
+    (nomeLeva ? ' (leva "' + nomeLeva + '")' : '') + '.\n\n' +
+    'Preencha o formulário de cadastro neste link:\n' + url + '\n\n' +
+    'Abra o link com a conta Google que você vai usar no Whitebox: o cadastro fica no e-mail ' +
+    'da conta que responder o formulário.\n' +
+    (prazo ? 'O formulário fica aberto até ' + prazo + '.\n' : '') +
+    '\nAo enviar, você recebe outro e-mail com o link da sua planilha individual.\n\n' +
+    'Equipe Whitebox';
+  return {
+    subject: '📝 Convite para cadastro no Whitebox' + (nomeLeva ? ' - ' + nomeLeva : ''),
+    body: body
   };
 }
 

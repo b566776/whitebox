@@ -79,7 +79,11 @@ Só e-mails na aba `Assinaturas` da planilha global, com `Status` = `Ativo`, tê
 **Pelo formulário (recomendado)**
 
 1. No card **🚀 Gerar Onboarding de Professores**, preencha **Nome da Leva** e **Data Limite (Expiração do Link)** e clique em **🔗 Gerar Link de Inscrição Segura**. O formulário "Whitebox - Onboarding: <leva>" é criado em `WhiteBox/` e fecha sozinho na data limite.
-2. Envie o link ao professor. **Não abra o link no seu perfil**: o servidor registra o e-mail de quem responde.
+2. Logo abaixo do link aparece **📧 Enviar este link por e-mail ao professor?**
+   - Para enviar: digite em **E-mail do professor** um ou mais e-mails (separe por vírgula, ponto e vírgula ou espaço) e clique em **📧 Sim, enviar**. A sua conta manda a cada professor o e-mail "📝 Convite para cadastro no Whitebox - <leva>", com o link, a data limite e o aviso de abrir o link na conta Google que ele vai usar no Whitebox. O card mostra **✅ Link enviado para: …** e, se algum endereço falhar, para quem falhou.
+   - Para não enviar: clique em **Não, só mostrar o link**. O link continua na tela para você copiar e mandar por outro meio.
+
+   O envio aceita até 50 e-mails por vez, só para formulários de onboarding abertos, e é recusado se a cota diária de e-mails do Apps Script não bastar. **Não abra o link no seu perfil**: o servidor registra o e-mail de quem responde.
 3. Quando o professor envia, o servidor grava a linha em `Assinaturas` (`Ativo`), cria a planilha "Whitebox - <email>" em `WhiteBox/` e manda ao professor o e-mail "✅ Cadastro Aprovado - Whitebox".
 
 A pergunta **Link do arquivo de Cofre (Google Drive)** é opcional e explica ao professor como enviar a chave de IA dele: um arquivo **.txt** com a chave (Gemini `AIza…` ou Claude `sk-ant-…`), compartilhado como Leitor com a sua conta ou com "Qualquer pessoa com o link". Se ficar em branco, o cadastro entra **sem IA** (`UsaChaveGlobal` = `Não`) e o professor pode colar a chave depois no painel. Se o link não puder ser lido, o professor recebe "❌ Erro de Cadastro - Permissão do Cofre Drive (Whitebox)" e o cadastro não é feito.
