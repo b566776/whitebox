@@ -1311,8 +1311,11 @@ function logarNaPlanilhaProfessor(params) {
   const logSheet = ss.getSheetByName('Logs') || ss.insertSheet('Logs');
 
   // [AUTO-REPAIR] Garantir que a aba Visual_Heatmap existe (para planilhas legadas)
-  if (!ss.getSheetByName('Visual_Heatmap')) {
-    const heatSheet = ss.insertSheet('Visual_Heatmap');
+  // e que ela é da versão por estados (a antiga lia notas 0–100 e o primeiro registro).
+  const heatSheet = ss.getSheetByName('Visual_Heatmap');
+  if (!heatSheet) {
+    setupVisualHeatmapTab(ss.insertSheet('Visual_Heatmap'));
+  } else if (heatSheet.getRange('A7').getValue() !== LEGENDA_VISUAL_HEATMAP) {
     setupVisualHeatmapTab(heatSheet);
   }
 
@@ -1378,54 +1381,49 @@ function atualizarTurma(ss, turma) {
   sheet.appendRow([turma, 1, new Date().toISOString()]);
 }
 
+/** Primeira linha da legenda da aba Visual_Heatmap (também marca a versão da aba). */
+const LEGENDA_VISUAL_HEATMAP = 'Legenda (um código por parágrafo do aluno, do início ao fim):';
+
 /**
- * [HEATMAP-03] Configura a aba Visual_Heatmap com fórmulas e formatação condicional.
+ * [HEATMAP-03] Configura a aba Visual_Heatmap. Mostra o último registro do documento
+ * (Heatmap_Scores, coluna U de Logs): um código por parágrafo do aluno, os mesmos do
+ * Radar de Esforço do painel (RADAR_ESTADO_* em whitebox-lib/Constants.gs).
  */
 function setupVisualHeatmapTab(sheet) {
   sheet.clear();
-  sheet.getRange('A1').setValue('AUDITORIA VISUAL (HEATMAP)').setFontWeight('bold').setFontSize(14);
-  
-  sheet.getRange('A3').setValue('1. Selecione o Aluno (Email):');
-  sheet.getRange('A4').setValue('2. Selecione o Trabalho (DocId):');
-  
-  sheet.getRange('A6').setValue('RADAR DE ESFORÇO (MAPA DE CALOR)').setFontWeight('bold');
-  sheet.getRange('A7').setValue('Legenda: Verde (>70) | Amarelo (40-70) | Vermelho (<40)');
+  sheet.clearConditionalFormatRules();
+  sheet.getRange('A1').setValue('AUDITORIA VISUAL (RADAR DE ESFORÇO)').setFontWeight('bold').setFontSize(14);
 
-  // Instrução de uso das fórmulas
-  sheet.getRange('C3').setValue('<- Cole o email do aluno aqui');
+  sheet.getRange('A4').setValue('Trabalho (DocId):');
   sheet.getRange('C4').setValue('<- Cole o ID do documento aqui');
-  
-  // Fórmula principal para desmembrar o heatmap (Assume coluna C para Email e D para DocId em Logs)
-  // Nota: Heatmap_Scores é a coluna 21 (U)
-  const formula = '=IFERROR(TRANSPOSE(SPLIT(VLOOKUP(B4, Logs!C:U, 19, FALSE), ",")), "Dados não encontrados")';
+
+  sheet.getRange('A6').setValue('RADAR DE ESFORÇO (ÚLTIMO REGISTRO)').setFontWeight('bold');
+  sheet.getRange('A7:A12').setValues([
+    [LEGENDA_VISUAL_HEATMAP],
+    ['C = colagem detectada'],
+    ['E = colado e depois editado'],
+    ['N = escrito com o painel fechado (não observado)'],
+    ['L = alerta antigo (confira o trecho)'],
+    ['S = sem alerta (não prova autoria)']
+  ]);
+
+  // Último registro com Heatmap_Scores do documento (Logs: C = DocId, U = Heatmap_Scores).
+  const ultimo = 'FILTER(Logs!U:U, Logs!C:C=B4, Logs!U:U<>"")';
+  const formula = '=IFERROR(TRANSPOSE(SPLIT(INDEX(' + ultimo + ', ROWS(' + ultimo + ')), ",")), "Dados não encontrados")';
   sheet.getRange('B7').setFormula(formula);
 
-  // Formatação Condicional para a coluna B (Heatmap)
-  const range = sheet.getRange('B7:B500');
-  
-  const ruleRed = SpreadsheetApp.newConditionalFormatRule()
-    .whenNumberLessThanOrEqualTo(40)
-    .setBackground('#F8D7DA')
-    .setFontColor('#721C24')
-    .setRanges([range])
-    .build();
-
-  const ruleYellow = SpreadsheetApp.newConditionalFormatRule()
-    .whenNumberBetween(41, 70)
-    .setBackground('#FFF3CD')
-    .setFontColor('#856404')
-    .setRanges([range])
-    .build();
-
-  const ruleGreen = SpreadsheetApp.newConditionalFormatRule()
-    .whenNumberGreaterThan(70)
-    .setBackground('#D4EDDA')
-    .setFontColor('#155724')
-    .setRanges([range])
-    .build();
-
-  sheet.setConditionalFormatRules([ruleRed, ruleYellow, ruleGreen]);
-  sheet.setColumnWidth(2, 150); // Largura da barra de calor
+  const range = sheet.getRange('B7:B1000');
+  const regra = (codigo, fundo, fonte) => SpreadsheetApp.newConditionalFormatRule()
+    .whenTextEqualTo(codigo).setBackground(fundo).setFontColor(fonte).setRanges([range]).build();
+  sheet.setConditionalFormatRules([
+    regra('C', '#FDBA74', '#7C2D12'),
+    regra('E', '#FED7AA', '#7C2D12'),
+    regra('N', '#CBD5E1', '#1E293B'),
+    regra('L', '#FDE68A', '#713F12'),
+    regra('S', '#BFDBFE', '#1E3A8A')
+  ]);
+  sheet.setColumnWidth(1, 330);
+  sheet.setColumnWidth(2, 60);
 }
 
 // jsonResponse() → ver Utils.gs

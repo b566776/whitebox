@@ -586,7 +586,9 @@ function _prepararTextoDoModelo(doc) {
   const instrucaoTrocada = body.getText() !== antes;
 
   const alvo = _normalizarMarcador(MARCADOR_INICIO_ALUNO);
-  const temMarcador = body.getParagraphs().some(p => _normalizarMarcador(p.getText()).indexOf(alvo) !== -1);
+  // Igualdade, não "contém": a instrução trocada acima cita a frase do marcador e, com
+  // "contém", o modelo parecia já ter a linha e ela nunca era incluída.
+  const temMarcador = body.getParagraphs().some(p => _normalizarMarcador(p.getText()) === alvo);
   if (!temMarcador) {
     const linha = body.appendParagraph(TEXTO_LINHA_MARCADOR);
     linha.setHeading(DocumentApp.ParagraphHeading.NORMAL)

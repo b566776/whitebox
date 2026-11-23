@@ -64,12 +64,12 @@ test('Com a linha do marcador, Palavras Escritas conta só o que está abaixo de
 
 test('Documento mestre (tudo acima da linha): Radar de Esforço vazio', () => {
   const { ctx } = montar({ paragrafos: [AVISO, 'Enunciado da atividade.', MARCADOR, ''] });
-  assert.deepEqual(Array.from(ctx.getDocumentAuraMap()), []);
+  assert.deepEqual(Array.from(ctx.getDocumentAuraMap().segmentos), []);
 });
 
 test('Radar mostra só os parágrafos do aluno, com índice do documento', () => {
   const { ctx } = montar({ paragrafos: [AVISO, MARCADOR, 'Parágrafo do aluno com algum conteúdo.'] });
-  const mapa = ctx.getDocumentAuraMap();
+  const mapa = ctx.getDocumentAuraMap().segmentos;
   assert.equal(mapa.length, 1);
   assert.equal(mapa[0].index, 2);
 });
@@ -125,7 +125,9 @@ test('Restaurar versão: parágrafos que já existiam não são colagem nem cara
   const stats = ctx.getDocumentStats();
   assert.deepEqual(Array.from(stats.knownParagraphs), [true, true, true]);
   assert.equal(stats.restoredChars, longo1.trim().length + longo2.trim().length);
-  assert.equal(store.WHITEBOX_PASTE_MAP || '{}', '{}', 'nenhum parágrafo marcado como colagem');
+  const mapa = JSON.parse(store.WHITEBOX_PASTE_MAP || '{"v":2,"a":{}}');
+  const colagens = Object.values(mapa.a).filter(it => it.e === 'C' || it.e === 'E');
+  assert.equal(colagens.length, 0, 'nenhum parágrafo marcado como colagem');
 });
 
 test('Colagem nova continua sendo detectada', () => {
@@ -135,7 +137,9 @@ test('Colagem nova continua sendo detectada', () => {
   const stats = ctx.getDocumentStats();
   assert.equal(stats.knownParagraphs[2], false);
   assert.equal(stats.restoredChars, 0);
-  assert.ok(JSON.parse(store.WHITEBOX_PASTE_MAP)['2'], 'parágrafo 2 marcado');
+  assert.equal(stats.colagensNovas, 1);
+  assert.deepEqual(Object.values(JSON.parse(store.WHITEBOX_PASTE_MAP).a).map(it => it.e), ['C'], 'parágrafo colado marcado');
+  assert.equal(stats.radarEstados, 'S,C');
 });
 
 test('Texto do modelo não é marcado como colagem pela detecção de anomalia', () => {

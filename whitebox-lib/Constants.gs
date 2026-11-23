@@ -175,3 +175,47 @@ const QUIZ_DISPONIVEL       = 'AVAILABLE';
 
 /** Indicador de que nenhum quiz foi gerado (risco abaixo do threshold) */
 const QUIZ_NONE             = 'NONE';
+
+// =====================================================
+//  RADAR DE ESFORÇO: estados por evidência
+// =====================================================
+
+/**
+ * Estados de um parágrafo no Radar de Esforço. A cor mostra só evidência de processo,
+ * nunca o tamanho do parágrafo. O código de uma letra vai para o log (Heatmap_Scores).
+ */
+const RADAR_ESTADO_SEM_ALERTA      = 'S'; // nenhuma evidência contra (não prova autoria)
+const RADAR_ESTADO_COLAGEM         = 'C'; // entrou de uma vez, rápido demais para digitação
+const RADAR_ESTADO_COLAGEM_EDITADA = 'E'; // começou como colagem e depois foi alterado
+const RADAR_ESTADO_NAO_OBSERVADO   = 'N'; // apareceu enquanto o painel estava fechado
+const RADAR_ESTADO_LEGADO          = 'L'; // alerta gravado pela versão antiga (por posição)
+
+/** Crescimento mínimo (caracteres) entre duas medições para ser avaliado. */
+const RADAR_CRESCIMENTO_MIN = 80;
+
+/** Crescimento mínimo de um parágrafo para receber o alerta da medição. */
+const RADAR_CRESCIMENTO_MIN_PARAGRAFO = 40;
+
+/**
+ * Ritmo acima do qual a entrada não é digitação (caracteres por segundo). 8/s = 480 por
+ * minuto, perto de 100 palavras por minuto: digitação muito rápida e contínua.
+ */
+const RADAR_CPS_COLAGEM = 8;
+
+/**
+ * Intervalo máximo entre duas medições para o painel ter "visto" a escrita. Acima disso
+ * (painel fechado, professor abrindo dias depois), o que cresceu é "não observado".
+ */
+const RADAR_JANELA_OBSERVADA_MS = 90 * 1000;
+
+/** Hora (ms) da última medição de parágrafos (WHITEBOX_PARA_SNAPSHOT). */
+const DOC_PROP_SNAPSHOT_TS = 'WHITEBOX_PARA_SNAPSHOT_TS';
+
+/** De onde veio a linha de base: 'revisao' (1ª revisão do Drive) ou 'abertura' (1ª abertura). */
+const DOC_PROP_BASELINE_FONTE = 'WHITEBOX_BASELINE_FONTE';
+
+/** Teto de alertas guardados no mapa (cabe nos 9 KB de uma propriedade). */
+const RADAR_MAPA_MAX = 70;
+
+/** Quantos caracteres normalizados do início do parágrafo identificam uma colagem editada. */
+const RADAR_PREFIXO = 40;
