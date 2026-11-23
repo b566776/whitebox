@@ -69,7 +69,23 @@ function montar(o) {
     console,
     DocumentApp: { getActiveDocument: () => doc, Attribute: { PAGE_BREAK_BEFORE: 'PB' } },
     PropertiesService: { getDocumentProperties: () => props, getScriptProperties: () => props },
-    CacheService: { getDocumentCache: () => ({ get: () => null, put: () => {} }) },
+    CacheService: {
+      getDocumentCache: () => ({ get: () => null, put: () => {} }),
+      // Cache do usuário em memória (fila de medições do Radar).
+      getUserCache: () => {
+        const c = estado.cache = estado.cache || {};
+        return {
+          get: k => (k in c ? c[k] : null),
+          put: (k, v) => {
+            if (String(v).length > 100000) throw new Error('valor grande demais para o cache');
+            c[k] = String(v);
+          },
+          getAll: ks => Object.fromEntries(ks.filter(k => k in c).map(k => [k, c[k]])),
+          remove: k => { delete c[k]; },
+          removeAll: ks => ks.forEach(k => { delete c[k]; })
+        };
+      }
+    },
     Logger: { log: () => {} },
     ScriptApp: { getOAuthToken: () => 'tok' },
     Session: { getActiveUser: () => ({ getEmail: () => 'aluno@x.com' }), getEffectiveUser: () => ({ getEmail: () => 'aluno@x.com' }) },
@@ -353,16 +369,29 @@ test('Radar do professor usa o histórico do servidor, mesmo com o documento lim
 });
 
 test('Sem histórico no servidor, o radar avisa que usa os dados do documento', () => {
-  // O painel do aluno rodou aqui (há snapshot local), mas o servidor não tem medições.
+  // O painel do aluno rodou aqui (atividade começada antes do histórico no servidor), mas o
+  // servidor não tem medições: não é "nunca observado".
   const m = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ alunos: [] }) });
   m.ctx.getDocumentStats();
   const r = m.ctx.getDocumentAuraMap();
-  assert.match(r.avisos.join(' '), /nunca registrou/, 'servidor respondeu sem histórico: nunca observado');
+  assert.doesNotMatch(r.avisos.join(' '), /nunca registrou/);
+  assert.match(r.avisos.join(' '), /ainda não tem medições deste documento/);
+  assert.equal(r.segmentos[0].estado, 'S');
   const m2 = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ error: 'PROFESSOR_INATIVO', message: 'Licença inativa' }) });
   m2.ctx.getDocumentStats();
   const r2 = m2.ctx.getDocumentAuraMap();
   assert.match(r2.avisos.join(' '), /Licença inativa/);
   assert.equal(r2.segmentos[0].estado, 'S', 'painel local rodou e o servidor falhou: usa o local');
+});
+
+test('O radar do professor não conta a própria medição como "o painel do aluno rodou"', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ alunos: [] }) });
+  assert.equal(m.ctx.getDocumentAuraMap().segmentos[0].estado, 'N');
+  // Segunda abertura do radar: o snapshot que existe agora é o do professor.
+  assert.equal(m.ctx.getDocumentAuraMap().segmentos[0].estado, 'N');
+  // O aluno abre o painel e mede (versão antiga, sem a marca): o radar percebe pelo snapshot.
+  m.medir(Date.now() + 60 * SEG);
+  assert.equal(m.ctx.getDocumentAuraMap().segmentos[0].estado, 'S');
 });
 
 test('Painel do aluno nunca aberto: todo o texto aparece como não observado, não como sem alerta', () => {
@@ -407,19 +436,32 @@ test('Documento mestre não consulta o servidor', () => {
   assert.equal(m.estado.pedidos, undefined);
 });
 
-test('Medições vão ao servidor pela rota registrar_medicoes, sem o texto', () => {
-  const m = montar({ paragrafos: [MARCADOR, 'Segredo do aluno'], servidor: () => ({ success: true, aceitas: 1 }) });
+test('Medições vão ao servidor pela rota registrar_medicoes, sem o texto e sem passar pelo navegador', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Segredo do aluno'], servidor: () => ({ success: true, aceitas: 2 }) });
   const stats = m.ctx.getDocumentStats();
-  assert.ok(!JSON.stringify(stats.medicao).includes('Segredo'));
-  const r = m.ctx.sendToBackend({ medicoes: [stats.medicao] });
-  assert.equal(r.aceitas, 1);
+  assert.equal(stats.medicao, undefined, 'a medição não volta ao navegador');
+  m.estado.paragrafos.push('Mais um parágrafo do aluno');
+  m.ctx.getDocumentStats();
+  m.ctx.getDocumentStats();                                   // igual: vira pulso "igual"
+  const r = m.ctx.enviarMedicoesPendentes(false);
+  assert.equal(r.aceitas, 2);
   const pedido = m.estado.pedidos[0];
   assert.equal(pedido.route, 'registrar_medicoes');
   assert.equal(pedido.professorEmail, 'prof@x.com');
+  assert.equal(pedido.medicoes.length, 3);
+  assert.equal(pedido.medicoes[2].igual, true);
   assert.ok(!JSON.stringify(pedido).includes('Segredo'));
+  assert.ok(m.store.WHITEBOX_PAINEL_ALUNO_TS, 'marca que o painel do aluno mediu');
+  // Fila vazia depois do envio
+  assert.equal(m.ctx.enviarMedicoesPendentes(true).vazio, true);
 });
 
-// ---- Etapa 3: compartilhar a cópia com o servidor ------------------------------------
+test('sendToBackend recusa medições vindas do navegador (console)', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Texto'], servidor: () => ({ success: true, aceitas: 1 }) });
+  const r = m.ctx.sendToBackend({ medicoes: [{ ts: 1, h: ['x'], l: [999] }] });
+  assert.equal(r.error, 'MEDICOES_SO_PELO_APPS_SCRIPT');
+  assert.equal(m.estado.pedidos, undefined, 'nada vai ao servidor');
+});
 
 /** Servidor simulado: ping devolve a conta (conferência ligada) ou '' (desligada). */
 const servidorComConta = (conta, extra) => pedido =>
@@ -451,6 +493,36 @@ test('compartilharComServidor não lança quando o domínio bloqueia', () => {
   const r = m.ctx.compartilharComServidor();
   assert.equal(r.ok, false);
   assert.match(r.erro, /bloqueado/);
+});
+
+test('Só pulsos "igual" esperam a próxima mudança; servidor ocupado devolve o lote à fila', () => {
+  let resposta = { error: 'OCUPADO' };
+  const m = montar({ paragrafos: [MARCADOR, 'Texto'], servidor: () => resposta });
+  m.ctx.getDocumentStats();
+  assert.equal(m.ctx.enviarMedicoesPendentes(false).error, 'OCUPADO');
+  resposta = { success: true, aceitas: 1 };
+  m.ctx.getDocumentStats();                                   // igual
+  const r = m.ctx.enviarMedicoesPendentes(false);
+  assert.equal(r.aceitas, 1);
+  assert.equal(m.estado.pedidos[1].medicoes.length, 2, 'lote devolvido + pulso igual');
+  m.ctx.getDocumentStats();
+  assert.equal(m.ctx.enviarMedicoesPendentes(false).vazio, true, 'só igual: espera');
+  assert.equal(m.ctx.enviarMedicoesPendentes(true).aceitas, 1, 'forçado: envia');
+});
+
+test('Envio de medições pede acesso: a biblioteca compartilha daqui, avisa o aluno, e não insiste depois de removido', () => {
+  let resp = { success: true, aceitas: 1, precisaAcesso: true, jaTeveAcesso: false };
+  const m = montar({ paragrafos: [MARCADOR, 'Texto'], servidor: servidorComConta('s@x.com', () => resp) });
+  m.ctx.getDocumentStats();
+  const r = m.ctx.enviarMedicoesPendentes(true);
+  assert.equal(r.compartilhou.ok, true);
+  assert.equal(r.compartilhou.novo, true, 'o painel avisa o aluno');
+  assert.deepEqual(m.estado.leitores, ['s@x.com']);
+  m.estado.leitores = [];
+  resp = { success: true, aceitas: 1, precisaAcesso: true, jaTeveAcesso: true };
+  m.ctx.getDocumentStats();
+  assert.equal(m.ctx.enviarMedicoesPendentes(true).compartilhou, undefined);
+  assert.deepEqual(m.estado.leitores, []);
 });
 
 test('Radar do professor: mostra a conferência das revisões e nunca compartilha a cópia', () => {
