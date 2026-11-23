@@ -69,22 +69,31 @@ function validateAdminAccess(token) {
 // =====================================================
 
 /**
- * Verifica um OAuth access token junto ao Google e retorna o email do dono.
+ * Verifica um OAuth access token junto ao Google e retorna o dono e o cliente OAuth.
  * Resultado cacheado até a expiração do token (máx. 30 min).
  *
- * @param {string} oauthToken - Enviado pelo callProxy do add-on
- * @returns {string|null} Email em lowercase, ou null se o token for inválido
+ * clientId (azp, ou aud) é o ID de cliente OAuth do projeto que pediu o token: o do
+ * add-on publicado é fixo; o de um script vinculado copiado com o documento é outro. É o
+ * que permite ao servidor aceitar medições só do add-on (ver Escolas.gs).
+ *
+ * @param {string} oauthToken - Enviado pelo callProxy da biblioteca
+ * @returns {{ email: string, clientId: string }|null} null se o token for inválido
  */
-function verificarEmailOAuth(oauthToken) {
+function verificarTokenOAuth(oauthToken) {
   if (!oauthToken) return null;
 
   // Chave = hash do token: tokens excedem o limite de 250 chars das chaves de cache.
   const cache    = CacheService.getScriptCache();
-  const cacheKey = 'OAUTH_' + Utilities.base64EncodeWebSafe(
+  const cacheKey = 'OAUTH2_' + Utilities.base64EncodeWebSafe(
     Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, oauthToken)
   );
   const cached = cache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    try {
+      const c = JSON.parse(cached);
+      if (c && c.email) return c;
+    } catch (e) { /* cache antigo ou corrompido: consulta de novo */ }
+  }
 
   try {
     const response = UrlFetchApp.fetch(
@@ -92,18 +101,36 @@ function verificarEmailOAuth(oauthToken) {
       { muteHttpExceptions: true }
     );
     if (response.getResponseCode() !== 200) return null;
-
-    const info = JSON.parse(response.getContentText());
-    if (!info.email) return null;
-
-    const email = String(info.email).toLowerCase();
-    const ttl   = Math.min(1800, parseInt(info.expires_in, 10) || 0);
-    if (ttl > 0) cache.put(cacheKey, email, ttl);
-    return email;
+    const res = interpretarTokenInfo(JSON.parse(response.getContentText()));
+    if (!res) return null;
+    const ttl = Math.min(1800, parseInt(res.expiraEm, 10) || 0);
+    const dados = { email: res.email, clientId: res.clientId };
+    if (ttl > 0) cache.put(cacheKey, JSON.stringify(dados), ttl);
+    return dados;
   } catch (authErr) {
     Logger.log('[Utils] Erro na validação OAuth: ' + authErr);
     return null;
   }
+}
+
+/**
+ * Resposta do tokeninfo → { email, clientId, expiraEm } (puro, testável).
+ * Exige e-mail verificado quando o campo vem na resposta.
+ */
+function interpretarTokenInfo(info) {
+  if (!info || !info.email) return null;
+  if (info.email_verified !== undefined && String(info.email_verified) !== 'true') return null;
+  return {
+    email:    String(info.email).toLowerCase(),
+    clientId: String(info.azp || info.aud || info.issued_to || ''),
+    expiraEm: info.expires_in
+  };
+}
+
+/** Compatibilidade: só o e-mail verificado do token. */
+function verificarEmailOAuth(oauthToken) {
+  const r = verificarTokenOAuth(oauthToken);
+  return r ? r.email : null;
 }
 
 // =====================================================

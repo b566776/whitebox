@@ -30,7 +30,7 @@ function montar(o) {
     getId: () => 'DOC123',
     getTabs: () => [{ asDocumentTab: () => ({ getNamedRanges: () => ranges }) }],
     getNamedRanges: () => ranges,
-    getBody: () => ({ getParagraphs: () => [] })
+    getBody: () => ({ getParagraphs: () => (o.paragrafos || []).map(t => ({ getText: () => t })) })
   };
   const file = {
     getOwner: () => ({ getEmail: () => o.ownerEmail || '' }),
@@ -60,7 +60,7 @@ function montar(o) {
     Utilities: { sleep: () => {} }
   };
   vm.createContext(ctx);
-  for (const f of ['Constants.gs', 'Utils.gs', 'Logic.gs']) {
+  for (const f of ['Constants.gs', 'RadarCore.gs', 'Utils.gs', 'Logic.gs']) {
     vm.runInContext(fs.readFileSync(path.join(LIB, f), 'utf8'), ctx, { filename: f });
   }
   // Substitui as chamadas ao servidor: licença e proxy.
@@ -89,7 +89,26 @@ test('Drive negado: item3 degrada com driveAccess=false e sem erro', () => {
   assert.equal(item3.gradeLevel, 'NAO_IDENTIFICADO');
   assert.equal(item3.professorEmail, 'NAO_IDENTIFICADO');
   assert.equal(item3.revisionsCount, 0);
-  assert.equal(item3.institutionId, 'IES_EDU_BR');
+  // A escola vem do cadastro no servidor, nunca do domínio do e-mail (@gmail não diz a escola).
+  assert.equal(item3.institutionId, 'NAO_IDENTIFICADO');
+});
+
+test('Add-on num documento sem designação: aluno recebe o papel fora', () => {
+  const { ctx } = montar({ driveOk: false, userEmail: 'aluno@ies.edu.br', designados: [] });
+  assert.equal(ctx.getContext({ addon: true }).initialRole, 'fora');
+  assert.equal(ctx.getContext().initialRole, 'student', 'script vinculado: o documento é sempre do Whitebox');
+});
+
+test('Add-on: professor cadastrado no mestre continua teacher; aluno na cópia designada continua student', () => {
+  const p = montar({ driveOk: false, userEmail: 'prof@ies.edu.br', designados: [], licenca: 'ATIVO',
+                     paragrafos: ['Instruções', 'ESCREVA O SEU TRABALHO ABAIXO DESTA LINHA', ''] });
+  assert.equal(p.ctx.getContext({ addon: true }).initialRole, 'teacher');
+  // Documento pessoal do professor (sem a linha marcador): o add-on fica fora.
+  const pessoal = montar({ driveOk: false, userEmail: 'prof@ies.edu.br', designados: [], licenca: 'ATIVO', paragrafos: ['Minha lista de compras'] });
+  assert.equal(pessoal.ctx.getContext({ addon: true }).initialRole, 'fora');
+  assert.equal(pessoal.ctx.getContext().initialRole, 'teacher', 'no script vinculado nada muda');
+  const a = montar({ driveOk: false, userEmail: 'aluno@ies.edu.br', designados: ['prof@ies.edu.br'] });
+  assert.equal(a.ctx.getContext({ addon: true }).initialRole, 'student');
 });
 
 test('Professor cadastrado em documento sem designação e sem Drive é teacher', () => {

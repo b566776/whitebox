@@ -175,3 +175,45 @@ const QUIZ_DISPONIVEL       = 'AVAILABLE';
 
 /** Indicador de que nenhum quiz foi gerado (risco abaixo do threshold) */
 const QUIZ_NONE             = 'NONE';
+
+// =====================================================
+//  RADAR DE ESFORÇO (estados e limiares em RadarCore.gs)
+// =====================================================
+
+/** Hora (ms) da última medição de parágrafos (WHITEBOX_PARA_SNAPSHOT). */
+const DOC_PROP_SNAPSHOT_TS = 'WHITEBOX_PARA_SNAPSHOT_TS';
+
+/** De onde veio a linha de base: 'revisao' (1ª revisão do Drive) ou 'abertura' (1ª abertura). */
+const DOC_PROP_BASELINE_FONTE = 'WHITEBOX_BASELINE_FONTE';
+
+/** Rota do servidor que guarda as medições do Radar (histórico fora do alcance do aluno). */
+const ROUTE_REGISTRAR_MEDICOES = 'registrar_medicoes';
+
+/** Rota do servidor que devolve o Radar calculado com esse histórico (só o professor). */
+const ROUTE_RADAR_DOCUMENTO = 'radar_documento';
+
+/** A partir desta porcentagem de texto não observado (estado N), o radar avisa o professor. */
+const RADAR_AVISO_NAO_OBSERVADO_PCT = 25;
+
+/** Conta do servidor com quem esta cópia já foi compartilhada como leitora (etapa 3 do Radar). */
+const DOC_PROP_SERVIDOR_COMPARTILHADO = 'WHITEBOX_SERVIDOR_COMPARTILHADO';
+
+/**
+ * Hora (ms) em que o painel do ALUNO mediu este documento pela última vez. Só o aluno grava
+ * (enviarMedicoesPendentes); o radar do professor também mede e não pode contar como
+ * "o painel do aluno rodou".
+ */
+const DOC_PROP_PAINEL_ALUNO_TS = 'WHITEBOX_PAINEL_ALUNO_TS';
+
+/** Valor de WHITEBOX_PARA_SNAPSHOT_TS deixado pela última medição do radar do professor. */
+const DOC_PROP_SNAPSHOT_PROFESSOR_TS = 'WHITEBOX_SNAPSHOT_PROFESSOR_TS';
+
+/**
+ * Fila de medições do Radar no cache do usuário, por documento. A medição é feita e
+ * enfileirada no Apps Script (getDocumentStats), com o relógio do Google, e enviada também
+ * pelo Apps Script (enviarMedicoesPendentes): nunca passa pelo navegador, onde o aluno
+ * poderia trocá-la pelo console.
+ */
+const RADAR_FILA_PREFIXO = 'WB_RADAR_FILA_';
+const RADAR_FILA_MAX     = 40;
+const RADAR_FILA_TTL_S   = 6 * 60 * 60;

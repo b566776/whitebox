@@ -1,0 +1,548 @@
+// Testes do Radar de Esforço: estados por evidência (não por tamanho), alertas presos ao
+// texto (não à posição), detecção de colagem com tempo, marcador e linha de base do modelo,
+// histórico de revisões e escape do texto do aluno no painel.
+// Rodar: node --test whitebox-lib/tests/radar.test.js
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+const LIB = path.join(__dirname, '..');
+const MARCADOR = '✍️ ESCREVA O SEU TRABALHO ABAIXO DESTA LINHA ✍️';
+const AVISO = 'Antes de começar: não apague este texto: escreva o seu trabalho abaixo da linha ' +
+              '"ESCREVA O SEU TRABALHO ABAIXO DESTA LINHA". ' + 'Texto longo do aviso. '.repeat(10);
+const SEG = 1000;
+
+/** Frase de n caracteres (aprox.) com conteúdo distinto por semente. */
+function frase(semente, n) {
+  let s = '';
+  let i = 0;
+  while (s.length < n) s += semente + ' palavra' + (i++) + ' ';
+  return s.substring(0, n).trim();
+}
+
+/**
+ * @param {object} o
+ * @param {string[]} o.paragrafos
+ * @param {object} [o.props]
+ * @param {Array<{texto: string, quando: string}>} [o.revisoes] revisões do Drive (sem = sem acesso)
+ */
+function montar(o) {
+  const estado = { paragrafos: o.paragrafos.slice(), cursor: null, selecao: 0 };
+  const paragrafo = (t, i) => ({
+    getText: () => t,
+    getAttributes: () => ({}),
+    getNumChildren: () => 1,
+    getChild: () => ({ idx: i })
+  });
+  const body = {
+    getText: () => estado.paragrafos.join('\n'),
+    getParagraphs: () => estado.paragrafos.map(paragrafo)
+  };
+  const doc = {
+    getId: () => 'DOC1',
+    getBody: () => body,
+    getTabs: () => [{ asDocumentTab: () => ({ getNamedRanges: () => [] }) }],
+    newPosition: (el, off) => ({ el, off }),
+    setCursor: pos => { estado.cursor = pos; },
+    setSelection: () => { estado.selecao++; },
+    // Compartilhamento (etapa 3): o.leitores = e-mails já leitores; o.bloqueiaCompartilhar
+    getViewers: () => (estado.leitores || []).map(e => ({ getEmail: () => e })),
+    getEditors: () => [],
+    addViewer: e => {
+      if (o.bloqueiaCompartilhar) throw new Error('Compartilhamento externo bloqueado pelo domínio');
+      (estado.leitores = estado.leitores || []).push(e);
+    }
+  };
+  const store = Object.assign({}, o.props || {});
+  const props = {
+    getProperty: k => (k in store ? store[k] : null),
+    setProperty: (k, v) => {
+      if (String(v).length > 9000) throw new Error('propriedade grande demais');
+      store[k] = v;
+    }
+  };
+  const revs = o.revisoes || null;
+  const ctx = {
+    console,
+    DocumentApp: { getActiveDocument: () => doc, Attribute: { PAGE_BREAK_BEFORE: 'PB' } },
+    PropertiesService: { getDocumentProperties: () => props, getScriptProperties: () => props },
+    CacheService: {
+      getDocumentCache: () => ({ get: () => null, put: () => {} }),
+      // Cache do usuário em memória (fila de medições do Radar).
+      getUserCache: () => {
+        const c = estado.cache = estado.cache || {};
+        return {
+          get: k => (k in c ? c[k] : null),
+          put: (k, v) => {
+            if (String(v).length > 100000) throw new Error('valor grande demais para o cache');
+            c[k] = String(v);
+          },
+          getAll: ks => Object.fromEntries(ks.filter(k => k in c).map(k => [k, c[k]])),
+          remove: k => { delete c[k]; },
+          removeAll: ks => ks.forEach(k => { delete c[k]; })
+        };
+      }
+    },
+    Logger: { log: () => {} },
+    ScriptApp: { getOAuthToken: () => 'tok' },
+    Session: { getActiveUser: () => ({ getEmail: () => 'aluno@x.com' }), getEffectiveUser: () => ({ getEmail: () => 'aluno@x.com' }) },
+    Drive: {
+      Revisions: {
+        list: () => {
+          if (!revs) throw new Error('drive.file não cobre este arquivo');
+          return { revisions: revs.map((r, i) => ({ id: String(i), modifiedTime: r.quando, exportLinks: { 'text/plain': 'rev:' + i } })) };
+        }
+      }
+    },
+    UrlFetchApp: {
+      fetch: (url, opts) => {
+        if (/^https:/.test(url)) {
+          if (!o.servidor) throw new Error('sem rede no teste');
+          const pedido = JSON.parse(opts.payload);
+          (estado.pedidos = estado.pedidos || []).push(pedido);
+          return { getContentText: () => JSON.stringify(o.servidor(pedido)) };
+        }
+        const r = revs[Number(String(url).split(':')[1])];
+        return { getResponseCode: () => 200, getContentText: () => r.texto };
+      },
+      fetchAll: reqs => reqs.map(q => ctx.UrlFetchApp.fetch(q.url))
+    }
+  };
+  vm.createContext(ctx);
+  for (const f of ['Constants.gs', 'RadarCore.gs', 'Utils.gs', 'Logic.gs']) {
+    vm.runInContext(fs.readFileSync(path.join(LIB, f), 'utf8'), ctx, { filename: f });
+  }
+  if (o.servidor) {
+    ctx.getContext = () => ({ initialRole: 'student' });
+    ctx.getAdvancedItem3Data = () => ({ professorEmail: 'prof@x.com' });
+    ctx.Utilities = { formatDate: d => d.toISOString().substring(5, 16) };
+    ctx.Session.getScriptTimeZone = () => 'America/Sao_Paulo';
+  }
+  /** Mede no instante t (ms), como o pulso do painel. */
+  const medir = t => ctx._checkAndUpdatePasteSnapshot(body.getParagraphs(), null, t);
+  const estados = () => {
+    const textos = estado.paragrafos.map(t => t.trim());
+    const mapa = ctx._lerMapaRadar(props, textos);
+    return Array.from(ctx._estadosDoRadar(textos, ctx._mascaraDoModelo(textos), mapa))
+      .filter(Boolean).map(e => e.estado).join('');
+  };
+  return { ctx, estado, store, medir, estados };
+}
+
+test('Tamanho do parágrafo não muda a cor: longo e curto digitados ficam sem alerta', () => {
+  const m = montar({ paragrafos: [MARCADOR, '', ''] });
+  m.medir(0);
+  // Digita 40 caracteres a cada 15 s (160/min): um parágrafo curto e um bem longo.
+  const curto = frase('curto', 60), longo = frase('longo', 1200);
+  let t = 0;
+  for (let n = 40; n < longo.length + 40; n += 40) {
+    t += 15 * SEG;
+    m.estado.paragrafos = [MARCADOR, curto.substring(0, Math.min(n, curto.length)), longo.substring(0, n)];
+    m.medir(t);
+  }
+  assert.equal(m.estados(), 'SS');
+});
+
+test('Digitação rápida (300/min) não é colagem; 400 caracteres de uma vez é', () => {
+  const m = montar({ paragrafos: [MARCADOR, ''] });
+  m.medir(0);
+  const texto = frase('rapido', 600);
+  let t = 0;
+  for (let n = 75; n <= 600; n += 75) { // 75 caracteres a cada 15 s
+    t += 15 * SEG;
+    m.estado.paragrafos = [MARCADOR, texto.substring(0, n)];
+    assert.equal(m.medir(t).colagensNovas, 0);
+  }
+  m.estado.paragrafos.push(frase('colado', 400));
+  t += 15 * SEG;
+  const r = m.medir(t);
+  assert.equal(r.colagensNovas, 1);
+  assert.ok(r.charsColados >= 390);
+  assert.equal(m.estados(), 'SC');
+});
+
+test('Várias colagens médias na mesma medição somam e são detectadas', () => {
+  const m = montar({ paragrafos: [MARCADOR, ''] });
+  m.medir(0);
+  m.estado.paragrafos = [MARCADOR, frase('a', 70), frase('b', 70)];
+  assert.equal(m.medir(10 * SEG).colagensNovas, 2);
+});
+
+test('Escrita com o painel fechado é "não observado", nunca colagem', () => {
+  const m = montar({ paragrafos: [MARCADOR, ''] });
+  m.medir(0);
+  m.estado.paragrafos = [MARCADOR, frase('casa', 900), 'curto'];
+  const r = m.medir(2 * 3600 * SEG);
+  assert.equal(r.colagensNovas, 0);
+  assert.equal(m.estados(), 'NS');
+});
+
+test('Primeira medição (texto já existente) é "não observado"', () => {
+  const m = montar({ paragrafos: [MARCADOR, frase('velho', 300)] });
+  m.medir(0);
+  assert.equal(m.estados(), 'N');
+});
+
+test('Inserir linhas acima não move alertas nem cria alertas em cascata', () => {
+  const a = frase('alfa', 150), b = frase('beta', 400), c = frase('gama', 90);
+  const m = montar({ paragrafos: [MARCADOR, a] });
+  m.medir(0);
+  m.estado.paragrafos = [MARCADOR, a, b, c];          // b e c colados
+  m.medir(10 * SEG);
+  assert.equal(m.estados(), 'NCC');
+  // Aluno insere uma linha vazia e uma frase curta no topo do texto
+  m.estado.paragrafos = [MARCADOR, '', 'Introdução', a, b, c];
+  const r = m.medir(25 * SEG);
+  assert.equal(r.colagensNovas, 0);
+  assert.equal(m.estados(), 'SNCC', 'os alertas seguem o texto');
+  // E apagar uma linha acima também não
+  m.estado.paragrafos = [MARCADOR, a, b, c];
+  m.medir(40 * SEG);
+  assert.equal(m.estados(), 'NCC');
+});
+
+test('Colagem editada depois continua sinalizada (E)', () => {
+  const m = montar({ paragrafos: [MARCADOR, ''] });
+  m.medir(0);
+  const colado = frase('origem', 300);
+  m.estado.paragrafos = [MARCADOR, colado];
+  m.medir(10 * SEG);
+  m.estado.paragrafos = [MARCADOR, colado + ' e mais umas palavras minhas'];
+  m.medir(25 * SEG);
+  assert.equal(m.estados(), 'E');
+});
+
+test('Restaurar versão não gera colagem', () => {
+  const a = frase('primeiro', 400), b = frase('segundo', 400);
+  const m = montar({ paragrafos: [MARCADOR, a] });
+  m.medir(0);
+  for (let n = 1; n <= 10; n++) { m.estado.paragrafos = [MARCADOR, a, b.substring(0, n * 40)]; m.medir(n * 15 * SEG); }
+  m.estado.paragrafos = [MARCADOR, ''];
+  m.medir(200 * SEG);
+  m.estado.paragrafos = [MARCADOR, a, b];
+  assert.equal(m.medir(215 * SEG).colagensNovas, 0);
+});
+
+test('Mapa antigo (por índice) vira "alerta antigo" preso ao texto daquela posição', () => {
+  const t = frase('antigo', 200);
+  const m = montar({ paragrafos: [MARCADOR, 'curto', t], props: { WHITEBOX_PASTE_MAP: '{"2":"snapshot"}' } });
+  assert.equal(m.estados(), 'SL');
+  m.medir(0); // a medição grava a conversão
+  assert.equal(JSON.parse(m.store.WHITEBOX_PASTE_MAP).v, 2);
+  m.estado.paragrafos = [MARCADOR, '', 'curto', t];
+  assert.equal(m.estados(), 'SL');
+});
+
+test('Mapa de alertas respeita o teto e descarta primeiro os não observados', () => {
+  const m = montar({ paragrafos: [MARCADOR] });
+  const mapa = { v: 2, a: {} };
+  for (let i = 0; i < 60; i++) m.ctx._registrarAlerta(mapa, frase('c' + i, 100), 'C', 'medicao', i);
+  for (let i = 0; i < 40; i++) m.ctx._registrarAlerta(mapa, frase('n' + i, 100), 'N', 'painel_fechado', 1000 + i);
+  m.ctx._gravarMapaRadar(m.ctx.PropertiesService.getDocumentProperties(), mapa);
+  const salvo = JSON.parse(m.store.WHITEBOX_PASTE_MAP).a;
+  const estados = Object.values(salvo).map(it => it.e);
+  assert.equal(estados.length, 70);
+  assert.equal(estados.filter(e => e === 'C').length, 60, 'todas as colagens ficam');
+});
+
+test('Alinhamento por texto: linha inserida no topo não desloca os tamanhos', () => {
+  const m = montar({ paragrafos: [] });
+  const r = Array.from(m.ctx.radarAlinharAnteriores(['a', 'b', 'c'], [10, 20, 30], ['x', 'a', 'b', 'c']));
+  assert.deepEqual(r, [0, 10, 20, 30]);
+  const r2 = Array.from(m.ctx.radarAlinharAnteriores(['a', 'b1', 'c'], [10, 20, 30], ['a', 'b2', 'c']));
+  assert.deepEqual(r2, [10, 20, 30], 'parágrafo editado é pareado com a versão anterior');
+});
+
+// ---- PR 9: marcador e linha de base -------------------------------------------------
+
+test('Frase do marcador repetida no fim não esconde o texto do aluno', () => {
+  const texto = 'Meu texto com cinco palavras.';
+  const m = montar({ paragrafos: [AVISO, MARCADOR, texto, MARCADOR] });
+  assert.equal(m.ctx.getDocumentStats().wordCount, 5);
+  const radar = m.ctx.getDocumentAuraMap();
+  assert.equal(radar.segmentos.length, 1);
+  assert.match(radar.avisos.join(' '), /aparece 2 vezes/);
+});
+
+test('O aviso que cita a frase do marcador não é tomado como marcador', () => {
+  const m = montar({ paragrafos: [AVISO, 'Enunciado da atividade.', MARCADOR, 'Oi mundo'] });
+  assert.equal(m.ctx.getDocumentStats().wordCount, 2);
+});
+
+test('Linha de base vem da 1ª revisão: texto colado antes de abrir o painel conta', () => {
+  const colado = frase('colado antes', 500);
+  const m = montar({
+    paragrafos: [AVISO, 'Enunciado.', colado, MARCADOR, 'Depois.'],
+    revisoes: [{ texto: [AVISO, 'Enunciado.', MARCADOR, ''].join('\n'), quando: '2026-11-20T10:00:00Z' }]
+  });
+  assert.equal(m.ctx.garantirLinhaDeBase(), true);
+  assert.equal(m.store.WHITEBOX_BASELINE_FONTE, 'revisao');
+  const mascara = Array.from(m.ctx._mascaraDoModelo(m.estado.paragrafos));
+  assert.deepEqual(mascara, [true, true, false, true, false]);
+  const radar = m.ctx.getDocumentAuraMap();
+  assert.deepEqual(radar.segmentos.map(s => s.index), [2, 4]);
+  assert.equal(radar.avisos.filter(a => !/servidor|nunca registrou/.test(a)).length, 0);
+});
+
+test('Sem Drive, a linha de base da abertura avisa o professor', () => {
+  const m = montar({ paragrafos: [AVISO, MARCADOR, ''] });
+  assert.equal(m.ctx.garantirLinhaDeBase(), true);
+  assert.equal(m.store.WHITEBOX_BASELINE_FONTE, 'abertura');
+  m.estado.paragrafos = [AVISO, MARCADOR, 'Texto do aluno aqui.'];
+  assert.match(m.ctx.getDocumentAuraMap().avisos.join(' '), /primeira vez que o aluno abriu o painel/);
+});
+
+test('Com linha de base, texto novo acima do marcador conta como do aluno', () => {
+  const m = montar({ paragrafos: [AVISO, MARCADOR, ''] });
+  m.ctx.garantirLinhaDeBase();
+  m.estado.paragrafos = [AVISO, 'Escondi isto aqui em cima.', MARCADOR, ''];
+  assert.equal(m.ctx.getDocumentStats().wordCount, 5);
+});
+
+// ---- Revisões do Drive ---------------------------------------------------------------
+
+test('Revisões: salto rápido marca colagem; intervalo longo e restauração não', () => {
+  const base = [MARCADOR, ''].join('\n');
+  const colado = frase('internet', 500);
+  const digitado = frase('meu', 500);
+  const m = montar({
+    paragrafos: [MARCADOR, colado, digitado],
+    revisoes: [
+      { texto: base, quando: '2026-11-20T10:00:00Z' },
+      { texto: [MARCADOR, colado].join('\n'), quando: '2026-11-20T10:00:30Z' },            // +500 em 30 s
+      { texto: [MARCADOR, colado, digitado].join('\n'), quando: '2026-11-20T12:00:00Z' }    // +500 em 2 h
+    ]
+  });
+  m.ctx.getDocumentAuraMap();
+  const porTexto = {};
+  Object.values(JSON.parse(m.store.WHITEBOX_PASTE_MAP).a).forEach(it => { porTexto[it.p] = it; });
+  const pc = m.ctx.radarHashPrefixo(colado), pd = m.ctx.radarHashPrefixo(digitado);
+  assert.equal(porTexto[pc].e, 'C');
+  assert.equal(porTexto[pc].f, 'revisao');
+  assert.notEqual((porTexto[pd] || {}).e, 'C');
+});
+
+// ---- Painel ------------------------------------------------------------------------------
+
+test('Sidebar: texto do aluno nunca entra em innerHTML no Radar', () => {
+  const html = fs.readFileSync(path.join(LIB, 'Sidebar.html'), 'utf8');
+  html.split('\n').forEach((linha, i) => {
+    if (/innerHTML/.test(linha)) {
+      assert.doesNotMatch(linha, /preview|seg\.|pasteSource|src\.url|src\.message/, 'linha ' + (i + 1));
+    }
+  });
+  assert.doesNotMatch(html, /setSelection/);
+});
+
+test('scrollToParagraph posiciona o cursor sem selecionar', () => {
+  const m = montar({ paragrafos: ['a', 'b'] });
+  assert.equal(m.ctx.scrollToParagraph(1), true);
+  assert.equal(m.estado.cursor.el.idx, 1);
+  assert.equal(m.estado.selecao, 0);
+  assert.equal(m.ctx.scrollToParagraph(9), false);
+});
+
+// ---- Histórico no servidor -----------------------------------------------------------
+
+test('Radar do professor usa o histórico do servidor, mesmo com o documento limpo pelo aluno', () => {
+  const colado = frase('servidor', 300), meu = 'Parágrafo meu, curto.';
+  const mapaServidor = { v: 2, a: {} };
+  const m = montar({
+    paragrafos: [MARCADOR, meu, colado],
+    servidor: pedido => {
+      if (pedido.route !== 'radar_documento') return { error: 'ROTA' };
+      return { alunos: [{ email: 'aluno@x.com', medicoes: 42, inconsistencias: 1,
+                          primeira: '2026-11-23T10:00:00Z', ultima: '2026-11-23T11:00:00Z', mapa: mapaServidor }] };
+    }
+  });
+  m.ctx.radarRegistrarAlerta(mapaServidor, m.ctx.radarHash(colado), m.ctx.radarHashPrefixo(colado), 'C', 'medicao', 1);
+  // O aluno apagou o mapa local (WHITEBOX_PASTE_MAP vazio)
+  const radar = m.ctx.getDocumentAuraMap();
+  assert.equal(radar.segmentos.map(s => s.estado).join(''), 'SC');
+  const aviso = radar.avisos.join(' ');
+  assert.match(aviso, /Histórico do servidor: 42 medição/);
+  assert.match(aviso, /1 medição\(ões\) descartada/);
+  assert.equal(m.estado.pedidos[0].docId, 'DOC1');
+});
+
+test('Sem histórico no servidor, o radar avisa que usa os dados do documento', () => {
+  // O painel do aluno rodou aqui (atividade começada antes do histórico no servidor), mas o
+  // servidor não tem medições: não é "nunca observado".
+  const m = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ alunos: [] }) });
+  m.ctx.getDocumentStats();
+  const r = m.ctx.getDocumentAuraMap();
+  assert.doesNotMatch(r.avisos.join(' '), /nunca registrou/);
+  assert.match(r.avisos.join(' '), /ainda não tem medições deste documento/);
+  assert.equal(r.segmentos[0].estado, 'S');
+  const m2 = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ error: 'PROFESSOR_INATIVO', message: 'Licença inativa' }) });
+  m2.ctx.getDocumentStats();
+  const r2 = m2.ctx.getDocumentAuraMap();
+  assert.match(r2.avisos.join(' '), /Licença inativa/);
+  assert.equal(r2.segmentos[0].estado, 'S', 'painel local rodou e o servidor falhou: usa o local');
+});
+
+test('O radar do professor não conta a própria medição como "o painel do aluno rodou"', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ alunos: [] }) });
+  assert.equal(m.ctx.getDocumentAuraMap().segmentos[0].estado, 'N');
+  // Segunda abertura do radar: o snapshot que existe agora é o do professor.
+  assert.equal(m.ctx.getDocumentAuraMap().segmentos[0].estado, 'N');
+  // O aluno abre o painel e mede (versão antiga, sem a marca): o radar percebe pelo snapshot.
+  m.medir(Date.now() + 60 * SEG);
+  assert.equal(m.ctx.getDocumentAuraMap().segmentos[0].estado, 'S');
+});
+
+test('Painel do aluno nunca aberto: todo o texto aparece como não observado, não como sem alerta', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Primeiro parágrafo.', frase('segundo', 300)], servidor: () => ({ alunos: [] }) });
+  const r = m.ctx.getDocumentAuraMap();
+  assert.equal(r.segmentos.map(s => s.estado).join(''), 'NN');
+  assert.equal(r.segmentos[0].fonte, 'nunca_observado');
+  assert.equal(r.resumo.naoObservadoPct, 100);
+  assert.equal(r.avisos.filter(a => /nunca registrou/.test(a)).length, 1);
+  assert.equal(r.avisos.filter(a => /sem o painel observar/.test(a)).length, 0, 'sem aviso duplicado');
+  // Sem servidor (falha de rede) e sem painel local: também não observado
+  const m2 = montar({ paragrafos: [MARCADOR, 'Texto.'] });
+  assert.equal(m2.ctx.getDocumentAuraMap().segmentos[0].estado, 'N');
+});
+
+test('Porcentagem de texto não observado entra no resumo e avisa a partir de 25%', () => {
+  const visto = frase('visto', 300), fechado = frase('fechado', 200);
+  const mapa = { v: 2, a: {} };
+  const m = montar({
+    paragrafos: [MARCADOR, visto, fechado],
+    servidor: () => ({ alunos: [{ email: 'aluno@x.com', medicoes: 5, inconsistencias: 0, origem: 'addon', mapa: mapa }] })
+  });
+  m.ctx.radarRegistrarAlerta(mapa, m.ctx.radarHash(fechado), m.ctx.radarHashPrefixo(fechado), 'N', 'painel_fechado', 1);
+  const r = m.ctx.getDocumentAuraMap();
+  assert.equal(r.resumo.naoObservadoPct, 40);
+  assert.match(r.avisos.join(' '), /40% do texto do aluno apareceu sem o painel observar/);
+  assert.match(r.avisos.join(' '), /add-on do Whitebox, que o aluno não edita/);
+});
+
+test('Aviso diz quando as medições vieram do script que o aluno pode editar', () => {
+  const m = montar({
+    paragrafos: [MARCADOR, 'Texto.'],
+    servidor: () => ({ alunos: [{ email: 'aluno@x.com', medicoes: 5, inconsistencias: 0, origem: 'script_vinculado', mapa: { v: 2, a: {} } }] })
+  });
+  assert.match(m.ctx.getDocumentAuraMap().avisos.join(' '), /script copiado com o documento, que o aluno pode editar/);
+});
+
+test('Documento mestre não consulta o servidor', () => {
+  const m = montar({ paragrafos: [AVISO, MARCADOR, ''], servidor: () => { throw new Error('não devia chamar'); } });
+  const radar = m.ctx.getDocumentAuraMap();
+  assert.equal(radar.segmentos.length, 0);
+  assert.equal(m.estado.pedidos, undefined);
+});
+
+test('Medições vão ao servidor pela rota registrar_medicoes, sem o texto e sem passar pelo navegador', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Segredo do aluno'], servidor: () => ({ success: true, aceitas: 2 }) });
+  const stats = m.ctx.getDocumentStats();
+  assert.equal(stats.medicao, undefined, 'a medição não volta ao navegador');
+  m.estado.paragrafos.push('Mais um parágrafo do aluno');
+  m.ctx.getDocumentStats();
+  m.ctx.getDocumentStats();                                   // igual: vira pulso "igual"
+  const r = m.ctx.enviarMedicoesPendentes(false);
+  assert.equal(r.aceitas, 2);
+  const pedido = m.estado.pedidos[0];
+  assert.equal(pedido.route, 'registrar_medicoes');
+  assert.equal(pedido.professorEmail, 'prof@x.com');
+  assert.equal(pedido.medicoes.length, 3);
+  assert.equal(pedido.medicoes[2].igual, true);
+  assert.ok(!JSON.stringify(pedido).includes('Segredo'));
+  assert.ok(m.store.WHITEBOX_PAINEL_ALUNO_TS, 'marca que o painel do aluno mediu');
+  // Fila vazia depois do envio
+  assert.equal(m.ctx.enviarMedicoesPendentes(true).vazio, true);
+});
+
+test('sendToBackend recusa medições vindas do navegador (console)', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Texto'], servidor: () => ({ success: true, aceitas: 1 }) });
+  const r = m.ctx.sendToBackend({ medicoes: [{ ts: 1, h: ['x'], l: [999] }] });
+  assert.equal(r.error, 'MEDICOES_SO_PELO_APPS_SCRIPT');
+  assert.equal(m.estado.pedidos, undefined, 'nada vai ao servidor');
+});
+
+/** Servidor simulado: ping devolve a conta (conferência ligada) ou '' (desligada). */
+const servidorComConta = (conta, extra) => pedido =>
+  pedido.route === 'ping' ? { ok: true, contaServidor: conta } : (extra ? extra(pedido) : {});
+
+test('compartilharComServidor usa a conta que o servidor informa, uma vez só, e avisa só na primeira', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: servidorComConta('Servidor@X.com') });
+  const r = m.ctx.compartilharComServidor('qualquer@intruso.com');   // argumento ignorado
+  assert.equal(r.ok, true);
+  assert.equal(r.novo, true);
+  assert.deepEqual(m.estado.leitores, ['servidor@x.com']);
+  assert.equal(m.store.WHITEBOX_SERVIDOR_COMPARTILHADO, 'servidor@x.com');
+  const de2 = m.ctx.compartilharComServidor();
+  assert.equal(de2.jaTinha, true);
+  assert.equal(de2.novo, false, 'o aviso ao aluno aparece só na primeira vez');
+  assert.equal(m.estado.leitores.length, 1);
+});
+
+test('compartilharComServidor não faz nada com a conferência desligada nem com conta inválida', () => {
+  const desl = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: servidorComConta('') });
+  assert.equal(desl.ctx.compartilharComServidor().erro, 'CONFERENCIA_DESLIGADA');
+  assert.equal(desl.estado.leitores, undefined);
+  const inval = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: servidorComConta('não é e-mail') });
+  assert.equal(inval.ctx.compartilharComServidor().erro, 'CONTA_INVALIDA');
+});
+
+test('compartilharComServidor não lança quando o domínio bloqueia', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Texto.'], bloqueiaCompartilhar: true, servidor: servidorComConta('s@x.com') });
+  const r = m.ctx.compartilharComServidor();
+  assert.equal(r.ok, false);
+  assert.match(r.erro, /bloqueado/);
+});
+
+test('Só pulsos "igual" esperam a próxima mudança; servidor ocupado devolve o lote à fila', () => {
+  let resposta = { error: 'OCUPADO' };
+  const m = montar({ paragrafos: [MARCADOR, 'Texto'], servidor: () => resposta });
+  m.ctx.getDocumentStats();
+  assert.equal(m.ctx.enviarMedicoesPendentes(false).error, 'OCUPADO');
+  resposta = { success: true, aceitas: 1 };
+  m.ctx.getDocumentStats();                                   // igual
+  const r = m.ctx.enviarMedicoesPendentes(false);
+  assert.equal(r.aceitas, 1);
+  assert.equal(m.estado.pedidos[1].medicoes.length, 2, 'lote devolvido + pulso igual');
+  m.ctx.getDocumentStats();
+  assert.equal(m.ctx.enviarMedicoesPendentes(false).vazio, true, 'só igual: espera');
+  assert.equal(m.ctx.enviarMedicoesPendentes(true).aceitas, 1, 'forçado: envia');
+});
+
+test('Envio de medições pede acesso: a biblioteca compartilha daqui, avisa o aluno, e não insiste depois de removido', () => {
+  let resp = { success: true, aceitas: 1, precisaAcesso: true, jaTeveAcesso: false };
+  const m = montar({ paragrafos: [MARCADOR, 'Texto'], servidor: servidorComConta('s@x.com', () => resp) });
+  m.ctx.getDocumentStats();
+  const r = m.ctx.enviarMedicoesPendentes(true);
+  assert.equal(r.compartilhou.ok, true);
+  assert.equal(r.compartilhou.novo, true, 'o painel avisa o aluno');
+  assert.deepEqual(m.estado.leitores, ['s@x.com']);
+  m.estado.leitores = [];
+  resp = { success: true, aceitas: 1, precisaAcesso: true, jaTeveAcesso: true };
+  m.ctx.getDocumentStats();
+  assert.equal(m.ctx.enviarMedicoesPendentes(true).compartilhou, undefined);
+  assert.deepEqual(m.estado.leitores, []);
+});
+
+test('Radar do professor: mostra a conferência das revisões e nunca compartilha a cópia', () => {
+  const base = { email: 'aluno@x.com', medicoes: 5, inconsistencias: 0, mapa: { v: 2, a: {} } };
+  const radar = (revisoes) => montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: servidorComConta('s@x.com', () => ({
+    contaServidor: 's@x.com', alunos: [Object.assign({ revisoes: revisoes }, base)] })) });
+
+  const ok = radar({ lidas: 12, divergencias: 2, suprimidas: 1, acesso: 'ok', em: '2026-11-23T12:00:00Z' });
+  const av = ok.ctx.getDocumentAuraMap().avisos.join(' ');
+  assert.match(av, /1 parágrafo\(s\) aparecem nas revisões do Drive com o painel aberto/);
+  assert.match(av, /conferiu 12 revisão\(ões\) do Drive/);
+  assert.match(av, /2 divergência\(s\)/);
+  assert.equal(ok.estado.leitores, undefined);
+
+  const sem = radar({ lidas: 0, divergencias: 0, acesso: 'sem_acesso' });
+  const avSem = sem.ctx.getDocumentAuraMap().avisos.join(' ');
+  assert.match(avSem, /não consegue ler as revisões[\s\S]*s@x\.com[\s\S]*administrador da escola/);
+  assert.doesNotMatch(avSem, /DEPLOY\.md/, 'o professor não tem o repositório');
+  assert.equal(sem.estado.leitores, undefined, 'o painel do professor não compartilha');
+
+  assert.match(radar(null).ctx.getDocumentAuraMap().avisos.join(' '), /ainda não foram conferidas/);
+  assert.doesNotMatch(radar({ acesso: 'desligada' }).ctx.getDocumentAuraMap().avisos.join(' '), /revisões do Drive/);
+});

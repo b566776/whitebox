@@ -43,6 +43,12 @@ const SHEET_TURMAS             = 'Turmas';
 /** Aba de dashboard individual do professor (futuro) */
 const SHEET_DASHBOARD          = 'Dashboard_Professor';
 
+/** Estado do Radar de Esforço por documento e aluno (planilha do professor). */
+const SHEET_RADAR_ESTADO       = 'Radar_Estado';
+
+/** Alertas do Radar registrados pelo servidor, um por linha (planilha do professor). */
+const SHEET_RADAR_EVENTOS      = 'Radar_Eventos';
+
 // =====================================================
 //  PLANILHA GLOBAL: Cabeçalhos / Colunas
 // =====================================================
@@ -167,6 +173,16 @@ const ROUTE_STATUS_LICENCA          = 'status_licenca';
 
 /** Rota para o resumo da telemetria de um documento (aluno vê só as próprias linhas) */
 const ROUTE_RESUMO_PROCESSO         = 'resumo_processo';
+
+/**
+ * Medições do Radar de Esforço enviadas pelo painel do aluno (hashes e tamanhos dos
+ * parágrafos, sem o texto). O servidor guarda o histórico na planilha do professor,
+ * fora do alcance do aluno. DEVE ser igual ao de whitebox-lib/Constants.gs.
+ */
+const ROUTE_REGISTRAR_MEDICOES      = 'registrar_medicoes';
+
+/** Radar de um documento calculado com o histórico do servidor (só o professor). */
+const ROUTE_RADAR_DOCUMENTO         = 'radar_documento';
 
 // =====================================================
 //  ROTAS: Distribuição de Templates
@@ -311,8 +327,10 @@ const TOKEN_PREFIX              = 'WBX-';
  * Histórico:
  *   v1 - Schema base (Assinaturas, Config, Tarefas_Globais, Ranking_Instituicao)
  *   v2 - Adicionado DataCadastro na aba Assinaturas
+ *   v3 - Aba Historico_Templates
+ *   v4 - Aba Escolas (Tipo_Conta e Modo_Painel por escola, ver Escolas.gs)
  */
-const SCHEMA_VERSION_ATUAL      = 2;
+const SCHEMA_VERSION_ATUAL      = 4;
 
 /** Chave da aba Config que armazena a versão do schema */
 const CONFIG_KEY_VERSAO_SCHEMA  = 'VersaoSchema';

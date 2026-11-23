@@ -75,6 +75,81 @@ adicionarProfessor("vip@escola.com.br", "Escola XYZ", true, ""); // Chave Global
 
 ---
 
+## Modo do painel por escola (aba Escolas)
+
+Cada escola tem uma linha na aba **Escolas** da Planilha Global (criada pela migração v4;
+depois de publicar o servidor, abra o editor do Apps Script do servidor e rode `migrarSchemaAgora`. Sem a aba, toda escola fica no modo de sempre, então isso só é preciso antes de configurar uma escola):
+
+| Coluna | Valores | Efeito |
+|---|---|---|
+| `Instituicao` | igual à coluna Instituicao da aba Assinaturas | liga professores à escola (nunca pelo domínio do e-mail) |
+| `Tipo_Conta` | `workspace` ou `gmail` | contas da escola ou contas pessoais |
+| `Modo_Painel` | `script_vinculado` ou `addon` | de onde vem o painel do aluno |
+
+Sem linha, a escola fica em `workspace` + `script_vinculado` (o modo de sempre).
+
+Script Properties do servidor ligadas a isso:
+
+- `ADDON_CLIENT_IDS`: IDs de cliente OAuth do add-on publicado, separados por vírgula.
+  Numa escola em modo `addon`, o servidor só aceita medições do Radar com um desses IDs no
+  token; sem a propriedade, recusa todas (`ADDON_NAO_CONFIGURADO`).
+- `GMAIL_ADDON_LIBERADO`: `sim` libera `gmail` + `addon`. Até lá essas escolas seguem no
+  modo `script_vinculado`. Ver as condições em `whitebox-addon/PUBLICACAO.md`.
+
+Trocar o modo de uma escola leva até 5 min para valer (cache). Para valer na hora, rode
+`migrarSchemaAgora` no editor do servidor: ela também limpa esse cache. O painel do
+professor (aba Configurações) mostra o modo da escola e, se `gmail` + `addon` estiver
+travado, o motivo.
+
+Na aba Config, `seed_document_id_addon` é o semente sem script vinculado usado nos mestres
+das escolas em modo `addon`.
+
+## Radar: conferência pelas revisões do Drive (etapa 3)
+
+O servidor confere as medições que o painel do aluno manda com o histórico de revisões do
+Drive da cópia, lido com a **conta do servidor** (a dona do Web App). Resultado: colunas
+`Revisoes_Conferidas_Em`, `Revisoes_Lidas`, `Divergencias` e `Acesso_Revisoes` da aba
+`Radar_Estado`; eventos com a coluna `Fonte` em `Radar_Eventos`; e um aviso no radar do
+professor. Três sinais:
+
+- **Colagem entre revisões** (`C`, fonte `revisao_servidor`): crescimento acima de 8
+  caracteres/s, parágrafo a parágrafo (um parágrafo só editado não é marcado; texto
+  restaurado não conta).
+- **Divergência** (`DIVERGENCIA`): o tamanho do texto de uma revisão fica fora da faixa das
+  medições feitas até 3 min antes **e** depois dela. Com o painel fechado logo depois, não
+  compara. Comentários do professor não entram na conta.
+- **Medição suprimida** (`N`, fonte `revisao_nao_medido`): um parágrafo igual em duas
+  revisões, nunca medido, e as medições do intervalo (com 2 min de folga para o relógio do
+  aluno) menores que a revisão em pelo menos 80% do tamanho dele. Lista numerada, tabela e
+  Shift+Enter não disparam, porque nesses casos os tamanhos batem.
+- `ACESSO_PERDIDO`: o servidor tinha acesso à cópia e perdeu (alguém tirou a conta dele do
+  compartilhamento).
+
+**Ligar:** Script Property `RADAR_REVISOES_ATIVO = sim`. Desligada (padrão), o servidor não
+confere, não pede compartilhamento e o painel não compartilha nada. Com acesso, o servidor
+lê o **texto** das revisões (não só hashes e tamanhos): ligue só com o servidor numa conta da
+organização e os termos de uso do aluno atualizados (`docs/Termos de Uso - Aluno.md`).
+
+- **Quando roda:** no envio de medições do aluno, no máximo a cada 60 min por cópia e só
+  se o texto mudou desde a última conferência; sempre na entrega do trabalho; e a cada 10 min
+  quando o professor abre o radar (só para o aluno que o radar mostra). Lê as revisões das
+  mais antigas para as mais novas, até 20 por vez; o resto (ou o que falhou na exportação)
+  fica para a próxima conferência, que então vem em 5 min.
+- **Cota:** cada conferência gasta 1 listagem mais 1 exportação por revisão, da mesma cota
+  diária de UrlFetch da IA (20 mil por dia numa conta pessoal). O servidor conta as chamadas
+  do dia e pausa a conferência em 10 mil, até o dia seguinte.
+- **Acesso:** o servidor precisa ser leitor da cópia. Quando o servidor pede acesso na
+  resposta das medições, a biblioteca (no Apps Script, sem passar pelo navegador) pergunta a
+  conta ao servidor (rota `ping`) e compartilha a cópia com ela (`Document.addViewer`, escopo
+  `documents.currentonly`, que o painel já tem), e o painel avisa o aluno na primeira vez. Se
+  o servidor já teve acesso e perdeu, o painel do aluno não compartilha de novo: fica o evento
+  `ACESSO_PERDIDO` para o professor. O painel do professor não compartilha nada. Nenhum escopo novo nem restrito para os usuários.
+- **Escolas com Workspace:** se o domínio bloquear compartilhar com contas de fora, a
+  conferência fica em `sem_acesso` e o professor vê o aviso com a conta a liberar.
+- *A confirmar no primeiro teste real:* que `addViewer` funciona com `documents.currentonly`
+  nas cópias do Classroom e não manda e-mail de aviso à conta do servidor; e o formato do
+  texto exportado (marcadores de lista, tabelas, comentários).
+
 ## Configurar a IA (Script Properties do Brain Proxy)
 
 A IA global atende os professores com `UsaChaveGlobal: Sim`. Configure em

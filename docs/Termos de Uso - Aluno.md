@@ -21,6 +21,7 @@ Fique tranquilo, seus dados estão seguros:
 *   **Transparência Total**: Você pode ver suas próprias métricas (tempo de escrita e progresso) na barra lateral do Whitebox a qualquer momento.
 *   **Só para a Escola**: Seus dados de escrita só podem ser vistos pelo seu professor e pela coordenação da escola.
 *   **Foco no Trabalho**: O Whitebox só funciona **dentro deste documento**. Ele não tem acesso às suas outras abas, redes sociais ou arquivos pessoais.
+*   **Histórico de versões**: Para conferir o seu processo de escrita, o painel pode compartilhar este documento, só para leitura, com a conta do Whitebox da escola. Você vê um aviso no painel quando isso acontece. O servidor lê o histórico de versões **apenas deste documento** e o resultado só aparece para o seu professor.
 *   **Segurança**: Tudo é protegido por criptografia, seguindo as regras da LGPD (Lei Geral de Proteção de Dados).
 
 ### 4. 🧠 O Desafio de Autonomia

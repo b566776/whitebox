@@ -34,6 +34,16 @@ function setupPlanilhaGlobal() {
   rankings.appendRow(['Instituicao', 'Total_Professores', 'Total_Alunos', 'Media_Autonomia_IA', 'Ultima_Atualizacao']);
   rankings.getRange('1:1').setFontWeight('bold').setBackground('#f59e0b').setFontColor('#ffffff');
 
+  // ---- Histórico de distribuições (v3; o TemplateService também cria se faltar) ----
+  let historico = ss.insertSheet('Historico_Templates');
+  historico.appendRow(SCHEMA_GLOBAL['Historico_Templates']);
+  historico.getRange('1:1').setFontWeight('bold');
+
+  // ---- Aba de Escolas: modo do painel por escola (Escolas.gs) ----
+  let escolas = ss.insertSheet('Escolas');
+  escolas.appendRow(['Instituicao', 'Tipo_Conta', 'Modo_Painel', 'Observacao']);
+  escolas.getRange('1:1').setFontWeight('bold').setBackground('#0f9d58').setFontColor('#ffffff');
+
   // ---- Aba de Configurações Globais ----
   let config = ss.getSheetByName('Config') || ss.insertSheet('Config');
   config.appendRow(['Parametro', 'Valor', 'Descricao']);
@@ -41,6 +51,7 @@ function setupPlanilhaGlobal() {
   config.appendRow(['VersaoSchema',    SCHEMA_VERSION_ATUAL,  'Versão do schema da Planilha Global (ARCH-05)']);
   config.appendRow(['versao_addon',    '2.1',                 'Versão com Integração Classroom']);
   config.appendRow(['seed_document_id', '',                   'Doc Semente Master']);
+  config.appendRow(['seed_document_id_addon', '',             'Doc Semente Master sem script vinculado (escolas em modo addon)']);
 
   return { id: ss.getId(), url: ss.getUrl() };
 }

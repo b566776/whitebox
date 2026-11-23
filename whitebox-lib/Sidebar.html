@@ -235,53 +235,67 @@
         transition: width 1s ease-in-out;
       }
 
-      /* Radar de Esforço (Heatmap) */
+      /* Radar de Esforço: estados por evidência. Cores seguras para daltonismo (azul,
+         laranja, cinza) e hachura nas colagens: o estado não depende só da cor. */
       .heatmap-section {
         margin-top: 20px;
         padding-top: 20px;
         border-top: 1px dashed var(--border-color);
       }
-      .heatmap-container {
-        display: flex;
-        flex-direction: column;
-        height: auto; /* Dinâmico */
-        max-height: 450px; /* Limite para não quebrar a UI */
-        min-height: 40px;
-        width: 60px;
-        background: #f1f5f9;
-        border-radius: 6px;
-        overflow-y: auto;
-        overflow-x: hidden;
-        margin: 10px 0;
-        border: 1px solid var(--border-color);
-        position: relative;
-        box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
-      }
-      .heatmap-segment {
-        flex-shrink: 0;
-        width: 100%;
-        min-height: 10px;
-        transition: all 0.2s;
-        cursor: pointer; /* Mudado de crosshair para pointer */
-        border-bottom: 1px solid rgba(255,255,255,0.1);
-      }
-      .heatmap-segment:hover {
-        filter: brightness(1.1);
-        transform: scaleX(1.1);
-        z-index: 5;
-      }
+      .radar-wrap { display: flex; align-items: stretch; gap: 10px; margin: 10px 0; }
       .heatmap-label {
         font-size: 10px;
         color: var(--text-muted);
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        align-self: stretch; /* Acompanha a altura do radar */
-        margin-right: 12px;
-        padding: 10px 0;
         text-align: right;
         min-width: 35px;
       }
+      .heatmap-container {
+        display: flex;
+        flex-direction: column;
+        height: 300px; /* minimapa: o documento inteiro cabe sem rolar */
+        width: 44px;
+        background: #f1f5f9;
+        border-radius: 6px;
+        overflow-x: hidden;
+        overflow-y: auto; /* só quando há parágrafos demais para 3 px cada */
+        border: 1px solid var(--border-color);
+        position: relative;
+      }
+      .heatmap-segment {
+        flex-shrink: 0;
+        width: 100%;
+        min-height: 3px;
+        padding: 0;
+        margin: 0;
+        border: 0;
+        border-bottom: 1px solid #ffffff;
+        cursor: pointer;
+        display: block;
+      }
+      .heatmap-segment:hover, .heatmap-segment:focus-visible {
+        outline: 2px solid #111827;
+        outline-offset: -2px;
+      }
+      .radar-S { background: #93c5fd; }
+      .radar-C { background: repeating-linear-gradient(45deg, #c2410c 0 4px, #fb923c 4px 8px); }
+      .radar-E { background: repeating-linear-gradient(45deg, #f97316 0 3px, #fed7aa 3px 8px); }
+      .radar-L { background: repeating-linear-gradient(-45deg, #a16207 0 3px, #fde68a 3px 8px); }
+      .radar-N { background: repeating-linear-gradient(90deg, #64748b 0 2px, #cbd5e1 2px 6px); }
+      .radar-legenda { list-style: none; padding: 0; margin: 0; font-size: 11px; flex: 1; }
+      .radar-legenda li { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; line-height: 1.3; }
+      .radar-chip { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.15); }
+      .radar-resumo { font-size: 12px; font-weight: 600; margin: 6px 0; }
+      .radar-aviso { font-size: 11px; background: #fef3c7; color: #78350f; border-radius: 4px; padding: 6px 8px; margin: 6px 0; }
+      .radar-lista { list-style: none; padding: 0; margin: 6px 0 0; font-size: 11px; }
+      .radar-lista button {
+        width: 100%; text-align: left; background: none; border: 1px solid var(--border-color);
+        border-radius: 4px; padding: 4px 6px; margin-bottom: 4px; cursor: pointer; font-size: 11px;
+        display: flex; gap: 6px; align-items: flex-start;
+      }
+      .radar-lista button:hover, .radar-lista button:focus-visible { background: #f1f5f9; }
       .heatmap-tooltip {
         position: fixed; /* Global para evitar cortes de scroll */
         background: #000000;
@@ -293,17 +307,9 @@
         z-index: 10000;
         display: none;
         box-shadow: 0 4px 15px rgba(0,0,0,0.4);
-        max-width: 180px;
+        max-width: 200px;
         line-height: 1.4;
-      }
-      .heatmap-tooltip::before {
-        content: "";
-        position: absolute;
-        right: 100%;
-        top: 12px;
-        border-width: 6px;
-        border-style: solid;
-        border-color: transparent #000 transparent transparent;
+        white-space: pre-line;
       }
       .btn-submit {
         background: var(--success-color);
@@ -599,8 +605,35 @@
       <button class="btn btn-outline" id="btn-switch-teacher" onclick="manualSwitchRole('teacher')" style="flex: 1; padding: 6px; font-weight: 600; margin: 0; font-size: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s;">👩‍🏫 Professor</button>
     </div>
 
+    <!-- Aviso de várias contas Google: o Apps Script pode rodar o painel com a conta padrão
+         do navegador em vez da conta que abriu o documento. Aparece quando o contexto falha. -->
+    <div id="multi-conta-aviso" class="alert alert-warning hidden" role="status">
+      <b>Não foi possível identificar sua conta.</b> Se mais de uma conta Google estiver conectada
+      neste navegador, o painel pode usar a conta errada. Abra o documento numa janela anônima
+      (ou num perfil do navegador) só com a conta da escola e recarregue.
+    </div>
+
+    <!-- VIEW: FORA (add-on aberto num documento que não é atividade do Whitebox) -->
+    <div id="fora-view" class="hidden">
+      <div class="card">
+        <h2>Este documento não é uma atividade do Whitebox</h2>
+        <p>O painel só registra o processo de escrita nas cópias distribuídas pelo professor.
+           Nada deste documento é medido ou enviado.</p>
+        <p>Se você é professor e ainda não tem cadastro, peça ao administrador do Whitebox da sua escola.</p>
+      </div>
+    </div>
+
     <!-- VIEW: STUDENT -->
     <div id="student-view" class="hidden">
+      <div id="origem-aviso" class="alert alert-warning hidden" role="status">
+        Sua escola usa o add-on do Whitebox. Feche este painel e abra pelo menu
+        <b>Extensões &gt; Whitebox &gt; Abrir painel</b>, senão sua escrita não fica registrada.
+      </div>
+      <div id="compartilhamento-aviso" class="alert alert-success hidden" role="status" style="font-size: 12px;">
+        Para conferir o seu processo de escrita com o histórico de versões do Google Docs, este
+        documento foi compartilhado, só para leitura, com a conta do Whitebox
+        (<span id="compartilhamento-conta"></span>). O resultado só aparece para o seu professor.
+      </div>
       <div class="card">
         <h2>🧑‍🎓 Suas Evidências
           <span class="dot" id="sync-dot"></span>
@@ -765,17 +798,28 @@
            <button class="btn-outline" style="width: auto; padding: 2px 8px; font-size: 10px;" onclick="refreshHeatmap()">Atualizar</button>
         </h2>
         <p style="font-size: 11px; color: var(--text-muted);">
-          Distribuição da biometria de autoria ao longo do documento (parágrafos).
+          Sinais de colagem por parágrafo do aluno, do início ao fim do texto. Clique numa faixa para ir ao parágrafo.
+          Não prova autoria: texto redigitado à mão, por exemplo, não é detectado.
         </p>
-        <div style="display: flex; align-items: center; justify-content: flex-start; padding-left: 5px;">
-          <div class="heatmap-label">
+        <div id="radar-resumo" class="radar-resumo" aria-live="polite"></div>
+        <div id="radar-avisos"></div>
+        <div class="radar-wrap">
+          <div class="heatmap-label" aria-hidden="true">
             <span>Início</span>
             <span>Fim</span>
           </div>
-          <div class="heatmap-container" id="aura-map">
+          <div class="heatmap-container" id="aura-map" role="list" aria-label="Parágrafos do aluno, do início ao fim">
              <div style="display:flex; align-items:center; justify-content:center; width:100%; color:var(--text-muted); font-size:10px;">Clique em atualizar</div>
           </div>
+          <ul class="radar-legenda" aria-label="Legenda">
+            <li><span class="radar-chip radar-C"></span>Colagem detectada</li>
+            <li><span class="radar-chip radar-E"></span>Colado e depois editado</li>
+            <li><span class="radar-chip radar-N"></span>Escrito com o painel fechado (não observado)</li>
+            <li><span class="radar-chip radar-L"></span>Alerta antigo (confira)</li>
+            <li><span class="radar-chip radar-S"></span>Sem alerta</li>
+          </ul>
         </div>
+        <ul id="radar-lista" class="radar-lista" aria-label="Parágrafos com alerta"></ul>
       </div>
 
       <div id="aura-tooltip" class="heatmap-tooltip"></div>
@@ -875,6 +919,7 @@
             <span id="ai-mode-icon">🔴</span>
             <span id="ai-mode-text">Modo Offline — sem análise de IA</span>
           </div>
+          <div id="modo-painel-info" class="hidden" style="font-size: 12px; color: var(--text-muted); margin: 6px 0;"></div>
 
           <div id="config-key-section">
             <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px 0;">
@@ -953,7 +998,8 @@
         // Fallback: garante UI mínima funcional se o backend demorar muito
         startupFallback = setTimeout(function() {
           if (document.getElementById('student-view').classList.contains('hidden') &&
-              document.getElementById('teacher-view').classList.contains('hidden')) {
+              document.getElementById('teacher-view').classList.contains('hidden') &&
+              document.getElementById('fora-view').classList.contains('hidden')) {
             // Mostra a visão do aluno, mas sem registrar: se quem abriu for o professor,
             // a telemetria sairia em nome dele. O rastreio começa quando o papel chegar.
             console.warn('[Whitebox] getContext() demorou demais. Mostrando a visão do aluno sem registrar ainda.');
@@ -965,7 +1011,21 @@
           .withSuccessHandler(function(ctx) {
             clearTimeout(startupFallback);
             console.log('[Whitebox] getContext result:', ctx);
+            if (!ctx || ctx.error) {
+              // A biblioteca falhou (comum com várias contas conectadas): mesmo caminho da falha.
+              falhaNoContexto(ctx && (ctx.message || ctx.error));
+              return;
+            }
             realRole = ctx.initialRole || 'student';
+
+            // Add-on num documento que não é atividade do Whitebox: só o aviso, sem registrar.
+            if (realRole === 'fora') {
+              if (window.WB_ABERTURA_AUTOMATICA) { google.script.host.close(); return; }
+              document.getElementById('student-view').classList.add('hidden');
+              document.getElementById('teacher-view').classList.add('hidden');
+              document.getElementById('fora-view').classList.remove('hidden');
+              return;
+            }
             currentRole = realRole;
 
             // Aberto pelo gatilho "ao abrir" do aluno, mas quem abriu não é aluno (ex.: o
@@ -1003,12 +1063,18 @@
           })
           .withFailureHandler(function(err) {
             clearTimeout(startupFallback);
-            console.error('[Whitebox] getContext() falhou:', err);
-            showErrorBanner('Erro ao carregar contexto. Usando modo offline.');
-            realRole = 'student';
-            manualSwitchRole('student');
+            falhaNoContexto(err);
           })
           .getContext();
+      }
+
+      /** O contexto não carregou: avisa (inclusive sobre várias contas) e mostra a visão do aluno. */
+      function falhaNoContexto(err) {
+        console.error('[Whitebox] getContext() falhou:', err);
+        document.getElementById('multi-conta-aviso').classList.remove('hidden');
+        showErrorBanner('Erro ao carregar contexto. Usando modo offline.');
+        realRole = 'student';
+        manualSwitchRole('student');
       }
 
       function manualSwitchRole(role) {
@@ -1158,6 +1224,43 @@
       // --- LOGICA DE ALUNO (Rastreio Prático Avançado - ITEM 2) ---
       
       let pollingIntervalMs = 15000;
+      // Log de métricas: no máximo um envio a cada 5 min (antes era um por pulso com mudança)
+      const LOG_INTERVALO_MS = 5 * 60 * 1000;
+      let ultimoEnvioMs = 0;
+      let envioPendente = false;
+
+      // Radar de Esforço: as medições (hashes e tamanhos dos parágrafos, sem o texto) são
+      // feitas e enfileiradas no Apps Script a cada getDocumentStats e enviadas também por
+      // ele (enviarMedicoesPendentes). O navegador só diz quando enviar: nada de medição
+      // passa por aqui, onde o aluno poderia trocá-la pelo console.
+      const RADAR_ENVIO_MS = 2 * 60 * 1000;
+      let ultimoEnvioMedicoesMs = 0;
+      let enviandoMedicoes = false;
+
+      function enviarMedicoes(forcar, final) {
+        if (enviandoMedicoes) return;
+        if (!forcar && Date.now() - ultimoEnvioMedicoesMs < RADAR_ENVIO_MS) return;
+        enviandoMedicoes = true;
+        ultimoEnvioMedicoesMs = Date.now();
+        google.script.run
+          .withSuccessHandler(function(res) {
+            enviandoMedicoes = false;
+            // Etapa 3: a biblioteca compartilhou a cópia com a conta do Whitebox agora: o aluno
+            // é avisado na primeira vez.
+            const c = res && res.compartilhou;
+            if (c && c.ok && c.novo) {
+              document.getElementById('compartilhamento-conta').textContent = c.conta;
+              document.getElementById('compartilhamento-aviso').classList.remove('hidden');
+            }
+            // Escola em modo add-on e o painel veio do script da cópia: o servidor recusa.
+            if (res && res.error === 'ORIGEM_NAO_AUTORIZADA') {
+              document.getElementById('origem-aviso').classList.remove('hidden');
+            }
+          })
+          .withFailureHandler(function() { enviandoMedicoes = false; })
+          // Via callLibrary: os scripts dos clientes já distribuídos não têm wrapper novo.
+          .callLibrary('enviarMedicoesPendentes', [!!forcar, !!final]);
+      }
       // [P-1] Flag de proteção contra dupla execução de trackingPulse
       let isTracking = false;
       
@@ -1200,25 +1303,14 @@
           if(!stats) return reschedulePulse();
           
           if(document.getElementById('stu-words')) document.getElementById('stu-words').innerText = stats.wordCount;
-          
-          // [FIX-PASTE-03] Per-paragraph paste detection: compare current vs previous
-          // paragraph lengths and mark any paragraph that grew >= 50 chars in the
-          // server-side WHITEBOX_PASTE_MAP. This catches pastes at every pulse,
-          // independent of server-side snapshot timing.
-          // Parágrafos do modelo ou que já existiam (restaurar versão, desfazer) não são colagem.
-          if (lastParagraphLengths.length > 0 && stats.paragraphLengths) {
-            var pasteIndices = [];
-            var conhecidos = stats.knownParagraphs || [];
-            stats.paragraphLengths.forEach(function(len, idx) {
-              if (conhecidos[idx]) return;
-              if (len - (lastParagraphLengths[idx] || 0) >= 50) {
-                pasteIndices.push(idx);
-              }
-            });
-            if (pasteIndices.length > 0) {
-              pasteData.count += pasteIndices.length;
-              google.script.run.updatePasteMap(pasteIndices);
-            }
+
+          enviarMedicoes(false);
+
+          // Colagens: detectadas no servidor (getDocumentStats), com o tempo entre as medições
+          // e alinhando os parágrafos pelo texto, não pela posição.
+          if (stats.colagensNovas > 0) {
+            pasteData.count += stats.colagensNovas;
+            pasteData.totalCharsPasted += (stats.charsColados || 0);
           }
           
           let hasChanged = false;
@@ -1233,13 +1325,11 @@
               
               if (sizeDiff > 0) {
                 behavioralMetrics.totalAdded += sizeDiff;
-                // [FIX-PASTE-03] Client-side per-paragraph detection moved above.
-                // The old block-level count is now redundant but kept for metrics.
-                if (sizeDiff >= 50) {
-                  pasteData.totalCharsPasted += sizeDiff;
-                } else {
-                  typingSpeedData.totalCharsTyped += sizeDiff;
-                  const charsPerMinuteThisPulse = (sizeDiff / (pollingIntervalMs / 1000)) * 60;
+                // O que o servidor classificou como colagem nesta medição não é digitação.
+                const digitado = Math.max(0, sizeDiff - (stats.charsColados || 0));
+                if (digitado > 0) {
+                  typingSpeedData.totalCharsTyped += digitado;
+                  const charsPerMinuteThisPulse = (digitado / (pollingIntervalMs / 1000)) * 60;
                   if (charsPerMinuteThisPulse > typingSpeedData.peakCpm) {
                     typingSpeedData.peakCpm = charsPerMinuteThisPulse;
                   }
@@ -1276,7 +1366,12 @@
             document.getElementById('stu-time').innerText = (activeFocusMs / 60000).toFixed(1) + " min";
           }
           
-          if (hasChanged) {
+          // Envia no máximo a cada LOG_INTERVALO_MS (a primeira mudança vai na hora); o que
+          // mudou depois fica pendente e sai no próximo pulso após o intervalo.
+          if (hasChanged) envioPendente = true;
+          if (envioPendente && (Date.now() - ultimoEnvioMs) >= LOG_INTERVALO_MS) {
+            envioPendente = false;
+            ultimoEnvioMs = Date.now();
             sendBackgroundData(stats);
           }
           
@@ -1324,6 +1419,7 @@
           setFinalizedState();
           // Envio final forçado
           google.script.run.withSuccessHandler(function(stats) {
+            enviarMedicoes(true, true);
             sendBackgroundData(stats, true); // Flag isFinal = true
           }).getDocumentStats();
         }).markAsSubmitted();
@@ -1359,55 +1455,53 @@
           document.getElementById('m-structure').innerText = behavioralMetrics.structureChanges;
         }
 
-        // [HEATMAP-01] Obter mapa de calor atual para logar na planilha
-        google.script.run.withSuccessHandler(function(auraMap) {
-          const payload = {
-            documentId: stats.docId,
-            timestamp: Date.now(),
-            studentContext: { 
-               studentId: currentRole === 'student' ? compositeStudentId : "professor_view",
-               rawEmail: currentRole === 'student' ? studentEmail : null
-            },
-            behavioralMetrics: {
-               wordCount: stats.wordCount || 0,
-               activeFocusTimeMinutes: activeFocusMinutes,
-               idleGapCount: behavioralMetrics.idleGapCount,
-               editRatio: editRatio,
-               structureChanges: behavioralMetrics.structureChanges,
-               charsAdded: behavioralMetrics.totalAdded,
-               charsDeleted: behavioralMetrics.totalDeleted,
-               pasteEvents: {
-                 count: pasteData.count,
-                 massiveInsertionsDetected: pasteData.count > 0,
-                 avgCharsPerPaste: avgCpp
-               },
-               typingSpeed: {
-                 avgCharsPerMinute: avgCpm,
-                 peakCharsPerMinute: Math.round(typingSpeedData.peakCpm)
-               },
-               isFinalSubmission: isFinal,
-               auraMapScores: auraMap.map(s => s.score).join(',') // [HEATMAP-02] Scores serializados
-            }
-          };
-          
-          google.script.run.withSuccessHandler(function(res) {
-            // O servidor pode ter recusado o log (metricsError) ou a chamada à biblioteca pode
-            // ter falhado (error): nos dois casos as métricas NÃO foram salvas.
-            const erro = (res && res.metricsError) ||
-                         (res && res.error ? { message: res.message || res.error } : null);
-            if (erro) {
-              showSyncFailure(erro.message);
-              return;
-            }
-            document.getElementById('sync-dot').style.backgroundColor = "var(--success-color)";
-            document.getElementById('stu-sync-msg').innerText = "Métricas salvas e enviadas.";
-            if (currentRole === 'student') loadProcessReport();
-          })
-          .withFailureHandler(function(err) {
-             showSyncFailure((err && err.message) || "Falha de comunicação com o servidor.");
-          })
-          .sendToBackend(payload);
-        }).getDocumentAuraMap();
+        // [HEATMAP-01] Estados do Radar (um código por parágrafo do aluno) vêm de getDocumentStats
+        const payload = {
+          documentId: stats.docId,
+          timestamp: Date.now(),
+          studentContext: { 
+             studentId: currentRole === 'student' ? compositeStudentId : "professor_view",
+             rawEmail: currentRole === 'student' ? studentEmail : null
+          },
+          behavioralMetrics: {
+             wordCount: stats.wordCount || 0,
+             activeFocusTimeMinutes: activeFocusMinutes,
+             idleGapCount: behavioralMetrics.idleGapCount,
+             editRatio: editRatio,
+             structureChanges: behavioralMetrics.structureChanges,
+             charsAdded: behavioralMetrics.totalAdded,
+             charsDeleted: behavioralMetrics.totalDeleted,
+             pasteEvents: {
+               count: pasteData.count,
+               massiveInsertionsDetected: pasteData.count > 0,
+               avgCharsPerPaste: avgCpp
+             },
+             typingSpeed: {
+               avgCharsPerMinute: avgCpm,
+               peakCharsPerMinute: Math.round(typingSpeedData.peakCpm)
+             },
+             isFinalSubmission: isFinal,
+             auraMapScores: (stats && stats.radarEstados) || '' // [HEATMAP-02] Códigos RADAR_ESTADO_* por parágrafo
+          }
+        };
+        
+        google.script.run.withSuccessHandler(function(res) {
+          // O servidor pode ter recusado o log (metricsError) ou a chamada à biblioteca pode
+          // ter falhado (error): nos dois casos as métricas NÃO foram salvas.
+          const erro = (res && res.metricsError) ||
+                       (res && res.error ? { message: res.message || res.error } : null);
+          if (erro) {
+            showSyncFailure(erro.message);
+            return;
+          }
+          document.getElementById('sync-dot').style.backgroundColor = "var(--success-color)";
+          document.getElementById('stu-sync-msg').innerText = "Métricas salvas e enviadas.";
+          if (currentRole === 'student') loadProcessReport();
+        })
+        .withFailureHandler(function(err) {
+           showSyncFailure((err && err.message) || "Falha de comunicação com o servidor.");
+        })
+        .sendToBackend(payload);
       }
 
       function showSyncFailure(motivo) {
@@ -1631,11 +1725,12 @@
         const evidence = res.riskEvidence || '';
         if (res.toneChangeDetected || evidence.includes('inserção massiva')) {
           alertBox.classList.add('alert-warning');
-          alertBox.innerHTML = "<strong>Alerta:</strong> " + (evidence || 'Indício de autoria não original detectado.');
+          // A evidência vem da IA e pode repetir texto do aluno: sempre escapada.
+          alertBox.innerHTML = "<strong>Alerta:</strong> " + escapeHtml(evidence || 'Indício de autoria não original detectado.');
           document.getElementById('coherence-bar').style.backgroundColor = "var(--warning-color)";
         } else {
           alertBox.classList.add('alert-success');
-          alertBox.innerHTML = "<strong>Genuíno:</strong> " + (evidence || res.modoIA ? evidence : 'Análise offline — configure sua API Key para habilitar a IA.');
+          alertBox.innerHTML = "<strong>Genuíno:</strong> " + escapeHtml(evidence || res.modoIA ? evidence : 'Análise offline — configure sua API Key para habilitar a IA.');
           document.getElementById('coherence-bar').style.backgroundColor = "var(--success-color)";
         }
         
@@ -1662,9 +1757,12 @@
             }
             
             div.className = `source-item ${typeClass}`;
+            // A URL vem do texto do aluno: escapada, e só http(s) vira link.
+            const url = String(src.url || '');
+            const href = /^https?:\/\//i.test(url) ? escapeHtml(url) : '#';
             div.innerHTML = `
-              <a href="${src.url}" target="_blank" class="source-link">${icon} ${src.url}</a>
-              <div class="source-msg">${src.message}</div>
+              <a href="${href}" target="_blank" rel="noopener noreferrer" class="source-link">${icon} ${escapeHtml(url)}</a>
+              <div class="source-msg">${escapeHtml(src.message || '')}</div>
             `;
             sourceList.appendChild(div);
           });
@@ -1686,74 +1784,126 @@
         }
       }
 
-      let hoverScrollTimer;
       let refreshHeatmapTimer;
+
+      // Rótulos dos estados do Radar (mesmos códigos de RADAR_ESTADO_* em Constants.gs)
+      const RADAR_ROTULOS = {
+        S: 'Sem alerta',
+        C: 'Colagem detectada',
+        E: 'Colado e depois editado',
+        N: 'Escrito com o painel fechado (não observado)',
+        L: 'Alerta antigo (confira o trecho)'
+      };
+      const RADAR_FONTES = {
+        medicao: 'visto pelo painel do aluno',
+        revisao: 'visto no histórico de revisões do Drive',
+        painel_fechado: 'apareceu entre duas aberturas do painel',
+        revisao_servidor: 'conferido pelo servidor nas revisões do Drive',
+        revisao_nao_medido: 'está nas revisões do Drive, mas o painel do aluno nunca o mediu',
+        nunca_observado: 'o painel do aluno nunca registrou este documento'
+      };
+
+      function radarDescricao(seg) {
+        const partes = ['Parágrafo ' + (seg.index + 1) + ': ' + (RADAR_ROTULOS[seg.estado] || seg.estado)];
+        if (seg.fonte && RADAR_FONTES[seg.fonte]) partes.push(RADAR_FONTES[seg.fonte]);
+        if (seg.ts) partes.push('em ' + formatarDataHora(new Date(seg.ts).toISOString()));
+        return partes.join(', ');
+      }
+
+      function radarMensagem(container, texto, cor) {
+        container.innerHTML = '';
+        const div = document.createElement('div');
+        div.style.cssText = 'display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:10px;text-align:center;' + (cor ? 'color:' + cor + ';' : '');
+        div.textContent = texto;
+        container.appendChild(div);
+      }
+
+      function irParaParagrafo(index) {
+        google.script.run.scrollToParagraph(index);
+      }
 
       function refreshHeatmap() {
         // Debounce [CR]: Evita chamadas excessivas em documentos grandes
         if (refreshHeatmapTimer) clearTimeout(refreshHeatmapTimer);
-        
+
         refreshHeatmapTimer = setTimeout(() => {
           const container = document.getElementById('aura-map');
-          container.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; width:100%; color:var(--text-muted); font-size:10px;"><span class="spinner"></span> Analisando...</div>';
-          
+          const resumoEl  = document.getElementById('radar-resumo');
+          const avisosEl  = document.getElementById('radar-avisos');
+          const listaEl   = document.getElementById('radar-lista');
+          container.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; width:100%; color:var(--text-muted); font-size:10px;"><span class="spinner"></span></div>';
+          resumoEl.textContent = 'Analisando...';
+          avisosEl.innerHTML = '';
+          listaEl.innerHTML = '';
+
           google.script.run.withSuccessHandler(function(data) {
-            container.innerHTML = '';
-            if (!data || data.length === 0) {
-              container.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; width:100%; font-size:10px;">Documento vazio</div>';
+            const segmentos = (data && data.segmentos) || [];
+            if (segmentos.length === 0) {
+              radarMensagem(container, 'Sem texto do aluno');
+              resumoEl.textContent = 'Nenhum parágrafo do aluno abaixo da linha do modelo.';
               return;
             }
-            
-            data.forEach(seg => {
+            const r = data.resumo || {};
+            const comAlerta = (r.C || 0) + (r.E || 0) + (r.L || 0);
+            resumoEl.textContent = comAlerta + ' de ' + r.total + ' parágrafo(s) com sinal de colagem' +
+              ((r.N || 0) > 0 ? ' · ' + r.N + ' não observado(s)' : '') + '.';
+
+            (data.avisos || []).forEach(function(aviso) {
               const div = document.createElement('div');
-              div.className = 'heatmap-segment';
-              div.style.backgroundColor = seg.color;
-              
-              // Altura proporcional ao TAMANHO REAL do texto
-              const calcHeight = Math.max(10, Math.round(seg.charCount / 10));
-              div.style.flexBasis = calcHeight + "px"; 
-              
-              div.onmouseenter = (e) => {
+              div.className = 'radar-aviso';
+              div.textContent = aviso;
+              avisosEl.appendChild(div);
+            });
+
+            container.innerHTML = '';
+            segmentos.forEach(seg => {
+              const desc = radarDescricao(seg);
+              const btn = document.createElement('button');
+              btn.type = 'button';
+              btn.className = 'heatmap-segment radar-' + seg.estado;
+              btn.setAttribute('role', 'listitem');
+              btn.setAttribute('aria-label', desc + '. Começa com: ' + seg.preview);
+              // Altura proporcional ao tamanho do parágrafo dentro do minimapa
+              btn.style.flexGrow = String(Math.max(1, seg.charCount));
+              btn.style.flexBasis = '0';
+
+              const mostrar = function() {
                 const tooltip = document.getElementById('aura-tooltip');
-                const rect = div.getBoundingClientRect();
-                var lines = [];
-                if (seg.isPasteDetected) {
-                  lines.push('<span style="color:#ef4444;font-weight:600;">⚠️ COLAGEM DETECTADA (' + seg.pasteSource + ')</span>');
-                }
-                lines.push('<strong>score: ' + seg.score + '</strong> | ratio: ' + seg.ratio + 'x');
-                if (seg.rawScore !== seg.score) {
-                  lines.push('rawScore: ' + seg.rawScore + ' | pasteFlag: ' + seg.isPasteDetected);
-                }
-                if (seg.lexicalPenalty > 0) {
-                  lines.push('lexicalPenalty: −' + seg.lexicalPenalty);
-                }
-                lines.push('<span style="color:#94a3b8;">' + seg.preview + '</span>');
-                tooltip.innerHTML = lines.join('<br>');
+                const rect = btn.getBoundingClientRect();
+                tooltip.textContent = desc + '\n“' + seg.preview + (seg.charCount > seg.preview.length ? '…' : '') + '”';
                 tooltip.style.display = 'block';
                 tooltip.style.top = rect.top + 'px';
                 tooltip.style.left = (rect.right + 10) + 'px';
-                
-                clearTimeout(hoverScrollTimer);
-                hoverScrollTimer = setTimeout(() => {
-                  google.script.run.scrollToParagraph(seg.index);
-                }, 400);
               };
-              
-              div.onmouseleave = () => {
-                document.getElementById('aura-tooltip').style.display = 'none';
-                clearTimeout(hoverScrollTimer);
-              };
-              
-              div.onclick = () => {
-                clearTimeout(hoverScrollTimer);
-                google.script.run.scrollToParagraph(seg.index);
-              };
-              
-              container.appendChild(div);
+              const esconder = function() { document.getElementById('aura-tooltip').style.display = 'none'; };
+              btn.onmouseenter = mostrar;
+              btn.onfocus = mostrar;
+              btn.onmouseleave = esconder;
+              btn.onblur = esconder;
+              btn.onclick = () => irParaParagrafo(seg.index);
+              container.appendChild(btn);
+
+              if (seg.estado !== 'S') {
+                const li = document.createElement('li');
+                const item = document.createElement('button');
+                item.type = 'button';
+                const chip = document.createElement('span');
+                chip.className = 'radar-chip radar-' + seg.estado;
+                const txt = document.createElement('span');
+                txt.textContent = desc + ' · “' + seg.preview + '”';
+                item.appendChild(chip);
+                item.appendChild(txt);
+                item.onclick = () => irParaParagrafo(seg.index);
+                li.appendChild(item);
+                listaEl.appendChild(li);
+              }
             });
+            // Parágrafos demais para o minimapa: cada faixa fica com 3 px e a caixa rola.
+            container.style.justifyContent = 'flex-start';
           })
           .withFailureHandler(function(err) {
-            container.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; width:100%; font-size:10px; color:var(--error-color);">Falha na análise</div>';
+            radarMensagem(container, 'Falha na análise', 'var(--error-color)');
+            resumoEl.textContent = 'Não foi possível montar o radar: ' + ((err && err.message) || err);
           })
           .getDocumentAuraMap();
         }, 500);
@@ -1804,6 +1954,16 @@
         // Status ATIVO
         badge.className = 'license-badge ativo';
         badge.textContent = '✅ Licença Ativa' + (result.escola ? ' — ' + result.escola : '');
+
+        // Modo do painel da escola (aba Escolas do servidor) e, se pedido e travado, o motivo.
+        const modoInfo = document.getElementById('modo-painel-info');
+        if (result.modoPainel) {
+          modoInfo.textContent = 'Painel dos alunos: ' +
+            (result.modoPainel === 'addon' ? 'add-on do Whitebox (o aluno não edita)' : 'script copiado com o documento') +
+            (result.tipoConta === 'gmail' ? ' · contas @gmail' : '') +
+            (result.modoTravado && result.motivoModo ? '. ' + result.motivoModo : '');
+          modoInfo.classList.remove('hidden');
+        }
 
         if (result.modoIA) {
           indicator.className = 'ai-mode-indicator on';

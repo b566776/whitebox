@@ -68,6 +68,15 @@ function saveTeacherApiKey(apiKey) {
 /**
  * Retorna o status atual de licença/configuração do professor
  */
+/**
+ * Conferência do add-on (passo 7 de whitebox-addon/PUBLICACAO.md): chama a rota ping e
+ * devolve o ID de cliente OAuth que o servidor viu no token e se ele está em
+ * ADDON_CLIENT_IDS. O servidor também registra no log.
+ */
+function conferirConexaoAddon() {
+  return callProxy('ping', {});
+}
+
 function getTeacherLicenseStatus() {
   const userEmail = Session.getActiveUser().getEmail();
   return callProxy(ROUTE_STATUS_LICENCA, { professorEmail: userEmail });
@@ -137,7 +146,13 @@ function getActiveDocInfo() {
 //  CONTEXTO E STATS
 // =====================================================
 
-function getContext() {
+/**
+ * @param {{ addon?: boolean }} [opcoes] addon = chamado pelo add-on publicado
+ *        (whitebox-addon), que aparece em qualquer documento. Nesse caso, num documento sem
+ *        designação, quem não é professor recebe o papel 'fora': o painel só mostra um aviso
+ *        e não mede nada. No script vinculado o documento é sempre do Whitebox.
+ */
+function getContext(opcoes) {
   const doc       = DocumentApp.getActiveDocument();
   let userEmail   = Session.getActiveUser().getEmail();
   if (!userEmail) {
@@ -191,9 +206,17 @@ function getContext() {
   // de rede ou licença force o professor a ver a UI de aluno.
   // O papel aqui só decide qual UI aparece: quem autoriza as rotas de professor
   // é o servidor (doPost exige cadastro Ativo para o e-mail verificado via OAuth).
-  const role = isDesignated ? 'teacher'
+  let role = isDesignated ? 'teacher'
     : (isRegisteredProfessor && (!hasDesignation || isOwner || isProfessor)) ? 'teacher'
     : 'student';
+  if (!hasDesignation && opcoes && opcoes.addon === true) {
+    // Add-on aparece em qualquer documento: sem designação, só é mestre do Whitebox o
+    // documento com a linha marcador. Os outros (documentos pessoais) ficam 'fora', também
+    // para o professor cadastrado.
+    const temMarcador = role === 'teacher' &&
+      _indiceDoMarcador(doc.getBody().getParagraphs().map(p => p.getText().trim())) !== -1;
+    if (!temMarcador) role = 'fora';
+  }
 
   // Cópia de aluno de um modelo sem a linha MARCADOR_INICIO_ALUNO: guarda o texto que veio
   // do modelo para não contá-lo como escrito pelo aluno.
@@ -223,11 +246,16 @@ function getContext() {
 /**
  * Métricas do documento para o pulso do painel do aluno.
  *
- * wordCount conta só o que o aluno escreveu: os parágrafos do modelo (até a linha
- * MARCADOR_INICIO_ALUNO, ou a linha de base gravada na primeira abertura) ficam de fora.
- * knownParagraphs marca, por índice, os parágrafos do modelo ou que já existiam antes
- * (restaurar versão, desfazer): a Sidebar não os conta como colagem. restoredChars soma
- * os caracteres que reapareceram desde a última medição, para não inflar Caracteres.
+ * wordCount conta só o que o aluno escreveu: os parágrafos do modelo (ver
+ * _mascaraDoModelo) ficam de fora. knownParagraphs marca, por índice, os parágrafos do
+ * modelo ou que já existiam antes (restaurar versão, desfazer). restoredChars soma os
+ * caracteres que reapareceram desde a última medição, para não inflar Caracteres.
+ * colagensNovas/charsColados vêm da detecção de colagem desta medição (com tempo, ver
+ * _checkAndUpdatePasteSnapshot), e radarEstados é o estado de cada parágrafo do aluno no
+ * Radar de Esforço (códigos RADAR_ESTADO_*, separados por vírgula) para o log.
+ * A medição do Radar (hashes e tamanhos, sem o texto) fica numa fila no cache do usuário,
+ * com o horário do Google, e vai ao servidor por enviarMedicoesPendentes: não volta ao
+ * navegador, onde o aluno poderia trocá-la pelo console.
  */
 function getDocumentStats() {
   const doc        = DocumentApp.getActiveDocument();
@@ -240,12 +268,25 @@ function getDocumentStats() {
     .filter(len => len > 0);
 
   const modelo = _mascaraDoModelo(textos);
-  const medida = _checkAndUpdatePasteSnapshot(paragraphs, modelo);
+  const medida = _comTrava(function() {
+    const m = _checkAndUpdatePasteSnapshot(paragraphs, modelo);
+    if (!m.ignorada) _radarEnfileirar_(doc.getId(), m.medicao);
+    return m;
+  });
 
   let palavras = 0;
   textos.forEach(function(t, i) {
     if (!modelo[i]) palavras += _contarPalavras(t);
   });
+
+  let radarEstados = '';
+  try {
+    const mapa = _lerMapaRadar(PropertiesService.getDocumentProperties(), textos);
+    radarEstados = _estadosDoRadar(textos, modelo, mapa)
+      .filter(Boolean).map(e => e.estado).join(',');
+  } catch (e) {
+    Logger.log('[Whitebox] radarEstados: ' + e);
+  }
 
   return {
     docId:              doc.getId(),
@@ -255,8 +296,167 @@ function getDocumentStats() {
     paragraphLengths:   textos.map(t => t.length),
     knownParagraphs:    medida.conhecidos,
     restoredChars:      medida.charsRestaurados,
+    colagensNovas:      medida.colagensNovas,
+    charsColados:       medida.charsColados,
+    radarEstados:       radarEstados,
     fullTextChunk:      text.substring(0, 1000)
   };
+}
+
+/**
+ * Executa fn com a trava do documento: o pulso do aluno e o "Atualizar" do professor
+ * leem e gravam o mesmo estado (snapshot e mapa do Radar). Sem trava em até 5 s, roda
+ * assim mesmo (melhor uma medição do que travar o painel).
+ * @private
+ */
+function _comTrava(fn) {
+  let lock = null;
+  let ok   = false;
+  try {
+    lock = (typeof LockService !== 'undefined') ? LockService.getDocumentLock() : null;
+    if (lock) ok = lock.tryLock(5000);
+  } catch (e) {
+    Logger.log('[Whitebox] Trava do documento indisponível: ' + e);
+  }
+  try {
+    return fn();
+  } finally {
+    if (ok) { try { lock.releaseLock(); } catch (e) {} }
+  }
+}
+
+// =====================================================
+//  RADAR: fila de medições (só no Apps Script)
+// =====================================================
+
+/** Índice da fila: { seq, itens: [{ k } | { ts, igual: true }], chave }. @private */
+function _radarFilaLer_(cache, docId) {
+  try {
+    const v = JSON.parse(cache.get(RADAR_FILA_PREFIXO + docId) || 'null');
+    if (v && Array.isArray(v.itens)) return v;
+  } catch (e) { /* fila corrompida: recomeça */ }
+  return { seq: 0, itens: [], chave: '' };
+}
+
+/** @private */
+function _radarFilaGravar_(cache, docId, fila) {
+  cache.put(RADAR_FILA_PREFIXO + docId, JSON.stringify(fila), RADAR_FILA_TTL_S);
+}
+
+/**
+ * Enfileira uma medição. Igual à anterior vira só um pulso "igual" com o horário (o
+ * servidor precisa saber que o painel estava olhando). Cada medição fica numa chave própria
+ * do cache (limite de 100 KB por chave). Chamar com a trava do documento. Nunca lança.
+ * O sublinhado no fim deixa a função fora do alcance de callLibrary. @private
+ */
+function _radarEnfileirar_(docId, med) {
+  try {
+    if (!med || !med.h) return;
+    const cache = CacheService.getUserCache();
+    const fila  = _radarFilaLer_(cache, docId);
+    const chave = med.h.join('|') + '#' + med.l.join(',');
+    if (chave === fila.chave) {
+      const ult = fila.itens[fila.itens.length - 1];
+      if (ult && ult.igual) ult.ts = med.ts; else fila.itens.push({ ts: med.ts, igual: true });
+    } else {
+      fila.seq++;
+      const k = RADAR_FILA_PREFIXO + docId + '_' + fila.seq;
+      cache.put(k, JSON.stringify(med), RADAR_FILA_TTL_S);
+      fila.chave = chave;
+      fila.itens.push({ k: k });
+    }
+    while (fila.itens.length > RADAR_FILA_MAX) {
+      const fora = fila.itens.shift();
+      if (fora.k) cache.remove(fora.k);
+    }
+    _radarFilaGravar_(cache, docId, fila);
+  } catch (e) {
+    Logger.log('[Whitebox] fila do Radar: ' + e);
+  }
+}
+
+/**
+ * Tira da fila as medições a enviar. Sem forcar, só pulsos "igual" esperam a próxima
+ * mudança. Uma medição que o cache já descartou some (para o servidor, vira um intervalo
+ * sem observação). Chamar com a trava do documento. @private
+ * @returns {{ lote: Array, chaves: string[] }}
+ */
+function _radarFilaRetirar_(docId, forcar) {
+  const cache = CacheService.getUserCache();
+  const fila  = _radarFilaLer_(cache, docId);
+  if (fila.itens.length === 0) return { lote: [], chaves: [] };
+  if (!forcar && fila.itens.every(it => it.igual)) return { lote: [], chaves: [] };
+  const chaves = fila.itens.filter(it => it.k).map(it => it.k);
+  const salvas = chaves.length > 0 ? cache.getAll(chaves) : {};
+  const lote = [];
+  fila.itens.forEach(function(it) {
+    if (it.igual) { lote.push({ ts: it.ts, igual: true }); return; }
+    try { const m = JSON.parse(salvas[it.k] || 'null'); if (m) lote.push(m); } catch (e) { /* descartada */ }
+  });
+  _radarFilaGravar_(cache, docId, { seq: fila.seq, itens: [], chave: fila.chave });
+  return { lote: lote, chaves: chaves };
+}
+
+/** Devolve à frente da fila um lote que o servidor não aceitou (ocupado, fora do ar). @private */
+function _radarFilaDevolver_(docId, lote) {
+  const cache = CacheService.getUserCache();
+  const fila  = _radarFilaLer_(cache, docId);
+  const itens = lote.map(function(m) {
+    if (m.igual) return { ts: m.ts, igual: true };
+    fila.seq++;
+    const k = RADAR_FILA_PREFIXO + docId + '_' + fila.seq;
+    cache.put(k, JSON.stringify(m), RADAR_FILA_TTL_S);
+    return { k: k };
+  });
+  fila.itens = itens.concat(fila.itens);
+  while (fila.itens.length > RADAR_FILA_MAX) {
+    const fora = fila.itens.shift();
+    if (fora.k) cache.remove(fora.k);
+  }
+  _radarFilaGravar_(cache, docId, fila);
+}
+
+/**
+ * Envia ao servidor (rota registrar_medicoes) as medições enfileiradas por getDocumentStats.
+ * Sem parâmetros de medição: o navegador só diz "pode enviar". Chamado pelo painel do aluno
+ * via callLibrary (nenhum wrapper novo no script do cliente).
+ * @param {boolean} [forcar] - envia mesmo se só houver pulsos "igual" (entrega, fechamento)
+ * @param {boolean} [final]  - entrega do trabalho: o servidor confere as revisões na hora
+ * @returns {{ success?: boolean, aceitas?: number, error?: string, message?: string,
+ *             vazio?: boolean, compartilhou?: object }}
+ */
+function enviarMedicoesPendentes(forcar, final) {
+  const docId = DocumentApp.getActiveDocument().getId();
+  const tirado = _comTrava(function() { return _radarFilaRetirar_(docId, !!forcar); });
+  if (tirado.lote.length === 0) return { success: true, aceitas: 0, vazio: true };
+  const userEmail = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+  const professorEmail = resolverProfessorDoDocumento(userEmail, { initialRole: 'student' }, getAdvancedItem3Data());
+  if (!professorEmail || professorEmail === 'NAO_IDENTIFICADO') {
+    _comTrava(function() { _radarFilaDevolver_(docId, tirado.lote); });
+    return { error: 'PROFESSOR_NAO_IDENTIFICADO', message: 'Não foi possível identificar o professor deste documento.' };
+  }
+
+  const r = callProxy(ROUTE_REGISTRAR_MEDICOES, {
+    professorEmail: professorEmail,
+    docId:          docId,
+    medicoes:       tirado.lote,
+    final:          final === true
+  }) || {};
+  try { CacheService.getUserCache().removeAll(tirado.chaves); } catch (e) { /* expiram sozinhas */ }
+  if (r.error === 'OCUPADO' || r.error === 'PROXY_INVALID_RESPONSE') {
+    _comTrava(function() { _radarFilaDevolver_(docId, tirado.lote); });
+  }
+  // Quem mede aqui é o aluno (o servidor ignora o professor): o radar do professor usa
+  // esta marca para não chamar de "nunca observado" um texto que o painel do aluno viu.
+  if (!r.error && !r.ignorado) {
+    try { PropertiesService.getDocumentProperties().setProperty(DOC_PROP_PAINEL_ALUNO_TS, String(Date.now())); } catch (e) {}
+  }
+  const res = { success: !r.error, aceitas: r.aceitas || 0, error: r.error, message: r.message };
+  // Etapa 3: o servidor ainda não lê as revisões desta cópia. Compartilha daqui, no Apps
+  // Script (nenhum wrapper novo no cliente); se o acesso já existiu e foi removido, não
+  // compartilha de novo em silêncio: o professor vê o evento ACESSO_PERDIDO.
+  if (r.precisaAcesso && !r.jaTeveAcesso) res.compartilhou = compartilharComServidor();
+  return res;
 }
 
 /** @private */
@@ -270,11 +470,7 @@ function _contarPalavras(texto) {
  * @private
  */
 function _normalizarComparacao(texto) {
-  return String(texto || '')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+  return radarNormalizar(texto);
 }
 
 /**
@@ -282,70 +478,127 @@ function _normalizarComparacao(texto) {
  * @private
  */
 function _hashParagrafo(texto) {
-  const norm = _normalizarComparacao(texto);
-  if (!norm) return '';
-  let h = 0x811c9dc5;
-  for (let i = 0; i < norm.length; i++) {
-    h ^= norm.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(36) + '.' + norm.length.toString(36);
+  return radarHash(texto);
 }
 
 /**
- * Índice da linha MARCADOR_INICIO_ALUNO (a última, se houver mais de uma), ou -1.
+ * Índice da PRIMEIRA linha que é exatamente o marcador (depois de normalizar), ou -1.
+ * Igualdade e não "contém": o aviso do modelo cita a frase do marcador, e uma cópia da
+ * frase digitada pelo aluno mais abaixo não pode esconder o texto dele.
  * @param {string[]} textos
  * @private
  */
 function _indiceDoMarcador(textos) {
   const alvo = _normalizarComparacao(MARCADOR_INICIO_ALUNO);
-  for (let i = textos.length - 1; i >= 0; i--) {
-    if (_normalizarComparacao(textos[i]).indexOf(alvo) !== -1) return i;
+  for (let i = 0; i < textos.length; i++) {
+    if (_normalizarComparacao(textos[i]) === alvo) return i;
   }
   return -1;
 }
 
+/** Quantas linhas são exatamente o marcador. @private */
+function _contarMarcadores(textos) {
+  const alvo = _normalizarComparacao(MARCADOR_INICIO_ALUNO);
+  return textos.filter(t => _normalizarComparacao(t) === alvo).length;
+}
+
+/**
+ * Linha de base gravada (hashes dos parágrafos do modelo), ou null.
+ * @returns {{ set: Object<string, boolean>, fonte: string }|null}
+ * @private
+ */
+function _lerLinhaDeBase() {
+  try {
+    const props = PropertiesService.getDocumentProperties();
+    const raw = props.getProperty(DOC_PROP_BASELINE);
+    if (!raw) return null;
+    const base = JSON.parse(raw);
+    if (!base || !base.length) return null;
+    const set = {};
+    base.forEach(function(h) { set[h] = true; });
+    return { set: set, fonte: props.getProperty(DOC_PROP_BASELINE_FONTE) || 'abertura' };
+  } catch (e) {
+    Logger.log('[Whitebox] Linha de base ilegível: ' + e);
+    return null;
+  }
+}
+
 /**
  * Para cada parágrafo, true se ele veio do modelo (não foi escrito pelo aluno):
- *   1. com a linha MARCADOR_INICIO_ALUNO: tudo até ela, inclusive;
- *   2. sem ela: os parágrafos cujo hash está na linha de base (DOC_PROP_BASELINE);
- *   3. sem nenhum dos dois: nada (conta o documento inteiro, como antes).
- * No documento mestre, o texto inteiro fica acima da linha: Radar vazio e 0 palavras.
+ *   1. com linha de base: o parágrafo está na base E fica acima do (primeiro) marcador,
+ *      quando há marcador. Texto novo acima do marcador conta como do aluno;
+ *   2. sem base e com marcador: tudo até o primeiro marcador, inclusive (documento mestre);
+ *   3. sem nenhum dos dois: nada (conta o documento inteiro).
+ * Linhas iguais ao marcador são sempre do modelo; só a primeira separa modelo e aluno.
  *
  * @param {string[]} textos - texto de cada parágrafo
  * @returns {boolean[]}
  */
 function _mascaraDoModelo(textos) {
   const marcador = _indiceDoMarcador(textos);
-  if (marcador !== -1) return textos.map((t, i) => i <= marcador);
-
-  let base = null;
-  try {
-    const raw = PropertiesService.getDocumentProperties().getProperty(DOC_PROP_BASELINE);
-    if (raw) base = JSON.parse(raw);
-  } catch (e) {
-    Logger.log('[Whitebox] Linha de base ilegível: ' + e);
+  const alvo = _normalizarComparacao(MARCADOR_INICIO_ALUNO);
+  const base = _lerLinhaDeBase();
+  if (base) {
+    return textos.map(function(t, i) {
+      if (i === marcador || _normalizarComparacao(t) === alvo) return true;
+      if (marcador !== -1 && i > marcador) return false;
+      const h = _hashParagrafo(t);
+      return !!h && !!base.set[h];
+    });
   }
-  if (!base || !base.length) return textos.map(() => false);
-  const set = {};
-  base.forEach(function(h) { set[h] = true; });
-  return textos.map(t => { const h = _hashParagrafo(t); return !!h && !!set[h]; });
+  // Linhas iguais ao marcador (inclusive cópias abaixo) nunca contam como texto do aluno.
+  if (marcador !== -1) return textos.map((t, i) => i <= marcador || _normalizarComparacao(t) === alvo);
+  return textos.map(() => false);
 }
 
 /**
- * Grava a linha de base (hashes dos parágrafos atuais) na primeira abertura do painel pelo
- * aluno, quando o documento não tem a linha MARCADOR_INICIO_ALUNO. Não grava se o painel já
- * rodou neste documento antes (há snapshot ou mapa de colagens): numa cópia em que o aluno
- * já escreveu, a base esconderia o texto dele. Nunca lança.
+ * Texto (um parágrafo por linha) da PRIMEIRA revisão do documento no Drive: na cópia do
+ * aluno, é o modelo como foi distribuído. null quando o Drive não deixa ler (escopo
+ * drive.file não cobre a cópia, sem revisões, sem rede).
+ * @private
+ */
+function _textosDaPrimeiraRevisao(docId) {
+  try {
+    const resp = Drive.Revisions.list(docId, { fields: 'revisions(id,modifiedTime,exportLinks)' });
+    const revs = resp && resp.revisions;
+    const link = revs && revs.length && revs[0].exportLinks && revs[0].exportLinks['text/plain'];
+    if (!link) return null;
+    const r = UrlFetchApp.fetch(link, {
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true
+    });
+    if (r.getResponseCode() !== 200) return null;
+    return r.getContentText().replace(/^﻿/, '').split(/\r?\n/).map(t => t.trim());
+  } catch (e) {
+    Logger.log('[Whitebox] Primeira revisão indisponível: ' + e);
+    return null;
+  }
+}
+
+/**
+ * Grava a linha de base (hashes dos parágrafos do modelo) da cópia do aluno.
+ *   - Fonte preferida: a primeira revisão do Drive (o modelo como foi copiado). Assim,
+ *     o que o aluno colou antes de abrir o painel não vira "modelo".
+ *   - Sem acesso ao Drive: o texto atual, na primeira abertura do painel, e só se o painel
+ *     nunca rodou neste documento. O Radar avisa o professor dessa fonte mais fraca.
+ * Com marcador, só entra na base o que está acima do primeiro marcador.
+ * Nunca lança.
  * @returns {boolean} true se gravou agora
  */
 function garantirLinhaDeBase() {
   try {
     const props = PropertiesService.getDocumentProperties();
     if (props.getProperty(DOC_PROP_BASELINE)) return false;
-    if (props.getProperty('WHITEBOX_PARA_SNAPSHOT') || props.getProperty(DOC_PROP_PASTE_MAP)) return false;
-    const textos = DocumentApp.getActiveDocument().getBody().getParagraphs().map(p => p.getText().trim());
-    if (_indiceDoMarcador(textos) !== -1) return false;
+    const doc = DocumentApp.getActiveDocument();
+    let textos = _textosDaPrimeiraRevisao(doc.getId());
+    let fonte = 'revisao';
+    if (!textos) {
+      if (props.getProperty('WHITEBOX_PARA_SNAPSHOT') || props.getProperty(DOC_PROP_PASTE_MAP)) return false;
+      textos = doc.getBody().getParagraphs().map(p => p.getText().trim());
+      fonte = 'abertura';
+    }
+    const marcador = _indiceDoMarcador(textos);
+    if (marcador !== -1) textos = textos.slice(0, marcador);
     const hashes = [];
     textos.forEach(function(t) {
       const h = _hashParagrafo(t);
@@ -356,6 +609,7 @@ function garantirLinhaDeBase() {
     let json = JSON.stringify(hashes);
     while (json.length > 8500 && hashes.length > 0) { hashes.pop(); json = JSON.stringify(hashes); }
     props.setProperty(DOC_PROP_BASELINE, json);
+    props.setProperty(DOC_PROP_BASELINE_FONTE, fonte);
     return true;
   } catch (e) {
     Logger.log('[Whitebox] garantirLinhaDeBase: ' + e);
@@ -363,140 +617,117 @@ function garantirLinhaDeBase() {
   }
 }
 
-/**
- * Compara comprimentos atuais dos parágrafos com o snapshot anterior
- * (armazenado em DocumentProperties). Parágrafos que cresceram >= 50 chars
- * desde a última checagem são marcados como paste no WHITEBOX_PASTE_MAP.
- * Atualiza o snapshot ao final para a próxima comparação.
- *
- * Chamada por getDocumentStats() (a cada 15s do sidebar do aluno) e por
- * getDocumentAuraMap() (quando o professor clica em Atualizar) — qualquer
- * verificação que vier primeiro captura a colagem, sem depender do outro.
- *
- * [FIX-PASTE-01] Além da comparação incremental, também detecta parágrafos
- * que são outliers extremos (>= 4x a mediana do documento E >= 400 chars).
- * Isto captura colagens que ocorreram ANTES do primeiro snapshot,
- * que o método incremental jamais detectaria.
- */
-function _checkAndUpdatePasteSnapshot(paragraphs, modelo) {
-  const props   = PropertiesService.getDocumentProperties();
-  const textos  = paragraphs.map(p => p.getText().trim());
-  const current = textos.map(t => t.length);
-  const hashes  = textos.map(_hashParagrafo);
-  modelo = modelo || _mascaraDoModelo(textos);
-
-  // Parágrafos já vistos antes desta medição: restaurar uma versão, desfazer ou mover texto
-  // traz de volta parágrafos iguais, que não são colagem.
-  let vistos = [];
-  let anteriores = null;
-  try { vistos = JSON.parse(props.getProperty(DOC_PROP_PARAGRAFOS_VISTOS) || '[]'); } catch (e) { vistos = []; }
-  try {
-    const rawAnt = props.getProperty(DOC_PROP_SNAPSHOT_HASHES);
-    if (rawAnt) anteriores = JSON.parse(rawAnt);
-  } catch (e) { anteriores = null; }
-  const vistoSet = {};
-  vistos.forEach(function(h) { vistoSet[h] = true; });
-  const antSet = {};
-  (anteriores || []).forEach(function(h) { antSet[h] = true; });
-
-  const conhecidos = hashes.map(function(h, i) { return !!modelo[i] || (!!h && !!vistoSet[h]); });
-  let charsRestaurados = 0;
-  if (anteriores) {
-    hashes.forEach(function(h, i) {
-      if (h && vistoSet[h] && !antSet[h]) charsRestaurados += current[i];
-    });
-  }
-
-  // Incremental diff: paragraph grew >= 80 chars since last check → paste
-  try {
-    const prevRaw = props.getProperty('WHITEBOX_PARA_SNAPSHOT');
-    if (prevRaw) {
-      const prev     = JSON.parse(prevRaw);
-      const mapRaw   = props.getProperty(DOC_PROP_PASTE_MAP) || '{}';
-      const pasteMap = JSON.parse(mapRaw);
-      let   dirty    = false;
-      current.forEach(function(len, idx) {
-        if (conhecidos[idx]) return;
-        if (len - (prev[idx] || 0) >= 80 && !pasteMap[String(idx)]) {
-          pasteMap[String(idx)] = 'snapshot';
-          dirty = true;
-        }
-      });
-      if (dirty) props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify(pasteMap));
-    }
-  } catch (e) {
-    Logger.log('[Whitebox] _checkAndUpdatePasteSnapshot: ' + e);
-  }
-
-  // Anomaly detection: >= 200 chars AND >= 2.5x median catches pre-snapshot pastes.
-  // Runs for ALL document sizes (no minimum paragraph count).
-  try {
-    // Mediana só do texto do aluno: o texto do modelo não é escrita dele.
-    const nonEmpty = current.filter(function(len, idx) { return len > 0 && !modelo[idx]; });
-    if (nonEmpty.length >= 1) {
-      const sorted = nonEmpty.slice().sort(function(a, b) { return a - b; });
-      const mid    = Math.floor(sorted.length / 2);
-      const median = (sorted.length % 2 !== 0)
-        ? sorted[mid]
-        : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
-      const minMedian = Math.max(1, median);
-
-      const mapRaw   = props.getProperty(DOC_PROP_PASTE_MAP) || '{}';
-      const pasteMap = JSON.parse(mapRaw);
-      let   dirty    = false;
-      current.forEach(function(len, idx) {
-        if (conhecidos[idx]) return;
-        if (len >= 200 && len >= minMedian * 2.5 && !pasteMap[String(idx)]) {
-          pasteMap[String(idx)] = 'anomaly';
-          dirty = true;
-        }
-      });
-      if (dirty) props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify(pasteMap));
-    }
-  } catch (e) {
-    Logger.log('[Whitebox] _checkAndUpdatePasteSnapshot anomaly: ' + e);
-  }
-
-  try {
-    props.setProperty('WHITEBOX_PARA_SNAPSHOT', JSON.stringify(current));
-    props.setProperty(DOC_PROP_SNAPSHOT_HASHES, JSON.stringify(hashes.filter(Boolean)));
-    props.setProperty(DOC_PROP_PARAGRAFOS_VISTOS, JSON.stringify(_atualizarVistos(vistos, hashes)));
-  } catch (e) {
-    Logger.log('[Whitebox] snapshot save: ' + e);
-  }
-
-  return { conhecidos: conhecidos, charsRestaurados: charsRestaurados };
-}
+// =====================================================
+//  RADAR: estado local (o cálculo fica em RadarCore.gs)
+// =====================================================
 
 /**
- * LRU dos hashes vistos: os atuais vão para o fim; os mais antigos saem acima do teto.
+ * Lê o mapa de alertas do Radar ({ v: 2, a: { <hash>: { e, f, ts, p } } }, ver RadarCore).
+ * O formato antigo (chave = índice do parágrafo) é convertido com o texto que está hoje
+ * naquela posição, como "alerta antigo" (L): a posição pode ter mudado desde então.
+ * Quando converteu, o retorno traz _migrado = true para quem grava persistir a conversão.
  * @private
  */
-function _atualizarVistos(vistos, hashes) {
-  const atuais = {};
-  hashes.forEach(function(h) { if (h) atuais[h] = true; });
-  const lista = vistos.filter(function(h) { return !atuais[h]; });
-  Object.keys(atuais).forEach(function(h) { lista.push(h); });
-  while (lista.length > PARAGRAFOS_VISTOS_MAX) lista.shift();
-  return lista;
+function _lerMapaRadar(props, textos) {
+  let raw = null;
+  try { raw = JSON.parse(props.getProperty(DOC_PROP_PASTE_MAP) || 'null'); } catch (e) { raw = null; }
+  if (raw && raw.v === 2 && raw.a && typeof raw.a === 'object') return raw;
+  const mapa = { v: 2, a: {} };
+  if (raw && typeof raw === 'object') {
+    Object.keys(raw).forEach(function(k) {
+      const t = textos && textos[Number(k)];
+      if (t) _registrarAlerta(mapa, t, RADAR_ESTADO_LEGADO, String(raw[k]), 0);
+    });
+    mapa._migrado = true;
+  }
+  return mapa;
+}
+
+/** radarRegistrarAlerta a partir do texto do parágrafo. @private */
+function _registrarAlerta(mapa, texto, estado, fonte, quando) {
+  return radarRegistrarAlerta(mapa, radarHash(texto), radarHashPrefixo(texto), estado, fonte, quando);
+}
+
+/** Grava o mapa, podado em RADAR_MAPA_MAX. @private */
+function _gravarMapaRadar(props, mapa) {
+  radarPodarMapa(mapa);
+  props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify({ v: 2, a: mapa.a }));
+}
+
+/** radarEstados a partir dos textos. @private */
+function _estadosDoRadar(textos, modelo, mapa) {
+  return radarEstados(textos.map(radarHash), textos.map(radarHashPrefixo), modelo, mapa);
 }
 
 /**
- * Marca os índices de parágrafo informados como "paste detectado" no DocumentProperty.
- * Chamado pelo sidebar quando sizeDiff >= 50 num parágrafo específico.
- * @param {number[]} paragraphIndices
+ * Mede os parágrafos, aplica a medição ao estado guardado em DocumentProperties
+ * (radarProcessarMedicao) e grava o resultado. Chamada por getDocumentStats() (pulso do
+ * aluno) e por getDocumentAuraMap() (professor), sempre dentro de _comTrava.
+ *
+ * @param {GoogleAppsScript.Document.Paragraph[]} paragraphs
+ * @param {boolean[]} [modelo]
+ * @param {number} [agora] - ms (para testes)
+ * @returns {{conhecidos: boolean[], charsRestaurados: number, colagensNovas: number,
+ *            charsColados: number, medicao: object}}
  */
-function updatePasteMap(paragraphIndices) {
-  if (!paragraphIndices || paragraphIndices.length === 0) return;
+function _checkAndUpdatePasteSnapshot(paragraphs, modelo, agora) {
+  const props  = PropertiesService.getDocumentProperties();
+  agora        = (typeof agora === 'number') ? agora : Date.now();
+  const textos = paragraphs.map(p => p.getText().trim());
+  modelo       = modelo || _mascaraDoModelo(textos);
+  const med    = radarMedicao(textos, modelo, agora);
+
+  const lerJson = function(chave, padrao) {
+    try { const v = JSON.parse(props.getProperty(chave) || 'null'); return v === null ? padrao : v; }
+    catch (e) { return padrao; }
+  };
+  const tsRaw  = props.getProperty(DOC_PROP_SNAPSHOT_TS);
+  const estado = {
+    antL:   lerJson('WHITEBOX_PARA_SNAPSHOT', null),
+    antH:   lerJson(DOC_PROP_SNAPSHOT_HASHES, null),
+    // Sem hora da medição anterior (primeira medição ou versão antiga): não observado.
+    ts:     (tsRaw === null || !isFinite(Number(tsRaw))) ? null : Number(tsRaw),
+    vistos: lerJson(DOC_PROP_PARAGRAFOS_VISTOS, []),
+    mapa:   _lerMapaRadar(props, textos)
+  };
+  const migrado = !!estado.mapa._migrado;
+  const r = radarProcessarMedicao(estado, med);
+
   try {
-    const props    = PropertiesService.getDocumentProperties();
-    const raw      = props.getProperty(DOC_PROP_PASTE_MAP) || '{}';
-    const pasteMap = JSON.parse(raw);
-    paragraphIndices.forEach(function(idx) { pasteMap[String(idx)] = true; });
-    props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify(pasteMap));
+    if (r.mapaMudou || migrado) _gravarMapaRadar(props, estado.mapa);
   } catch (e) {
-    Logger.log('[Whitebox] updatePasteMap erro: ' + e);
+    Logger.log('[Whitebox] mapa do Radar: ' + e);
   }
+  if (!r.ignorada) {
+    try {
+      props.setProperty('WHITEBOX_PARA_SNAPSHOT', JSON.stringify(estado.antL));
+      props.setProperty(DOC_PROP_SNAPSHOT_HASHES, JSON.stringify(estado.antH));
+      props.setProperty(DOC_PROP_SNAPSHOT_TS, String(estado.ts));
+      props.setProperty(DOC_PROP_PARAGRAFOS_VISTOS, JSON.stringify(estado.vistos));
+    } catch (e) {
+      Logger.log('[Whitebox] snapshot save: ' + e);
+    }
+  }
+
+  return {
+    conhecidos:       r.conhecidos,
+    charsRestaurados: r.charsRestaurados,
+    colagensNovas:    r.colagensNovas,
+    charsColados:     r.charsColados,
+    ignorada:         r.ignorada,
+    medicao:          med
+  };
+}
+
+/**
+ * Obsoleta. A versão antiga do painel marcava colagem por índice de parágrafo a partir do
+ * navegador do aluno (qualquer um podia chamar e marcar o que quisesse). A detecção agora
+ * é toda feita em _checkAndUpdatePasteSnapshot. Fica só porque o script do cliente já
+ * publicado expõe este nome; não grava nada.
+ * @returns {boolean} false
+ */
+function updatePasteMap() {
+  return false;
 }
 
 // =====================================================
@@ -582,10 +813,17 @@ function getProcessReport(opcoes) {
  * Chamado tanto para log de métricas quanto para análise de trecho
  */
 function sendToBackend(payload) {
+  // Medições do Radar vindas do navegador são recusadas: o aluno poderia forjá-las pelo
+  // console. Elas são medidas e enviadas só no Apps Script (enviarMedicoesPendentes).
+  if (payload && payload.medicoes !== undefined) {
+    return { error: 'MEDICOES_SO_PELO_APPS_SCRIPT',
+             message: 'As medições do Radar não são aceitas do navegador.' };
+  }
   const item3  = getAdvancedItem3Data();
   const userEmail      = Session.getActiveUser().getEmail();
   const ctx            = getContext();
   const professorEmail = resolverProfessorDoDocumento(userEmail, ctx, item3);
+
   // Sem acesso ao Drive, gradeLevel é 'NAO_IDENTIFICADO' (truthy): a turma fica SEM_TURMA.
   const turma          = (item3.gradeLevel && item3.gradeLevel !== 'NAO_IDENTIFICADO')
                          ? item3.gradeLevel : TURMA_FALLBACK;
@@ -817,7 +1055,27 @@ function getAdvancedItem3Data() {
   const docId  = doc.getId();
   const email  = Session.getActiveUser().getEmail() || '';
 
+  // O painel do aluno chama isto a cada envio de métricas: sem cache, seriam três leituras
+  // do Drive (arquivo, pasta, revisões) por envio. A pasta e o dono mudam raramente.
+  const chaveCache = 'ITEM3_' + docId + '_' + email;
+  let cache = null;
+  try {
+    cache = CacheService.getDocumentCache();
+    const guardado = JSON.parse(cache.get(chaveCache) || 'null');
+    if (guardado && typeof guardado === 'object' && 'driveAccess' in guardado) return guardado;
+  } catch (e) {
+    cache = cache || null;
+  }
+  const dados = _lerItem3(docId, email);
+  try { if (cache) cache.put(chaveCache, JSON.stringify(dados), 600); } catch (e) {}
+  return dados;
+}
+
+/** Lê do Drive a pasta, o dono da pasta e o número de revisões. @private */
+function _lerItem3(docId, email) {
   let gradeLevel    = 'NAO_IDENTIFICADO';
+  // A escola vem do cadastro do professor no servidor (Instituicao), nunca do domínio do
+  // e-mail: contas @gmail não dizem a escola. Campo mantido por compatibilidade.
   let institutionId = 'NAO_IDENTIFICADO';
   let professorEmail = 'NAO_IDENTIFICADO';
   let revisionsCount = 0;
@@ -826,9 +1084,6 @@ function getAdvancedItem3Data() {
   let driveAccess    = false;
 
   try {
-    if (email.includes('@')) {
-      institutionId = email.split('@')[1].toUpperCase().replace(/\./g, '_');
-    }
     const file    = DriveApp.getFileById(docId);
     const parents = file.getParents();
     if (parents.hasNext()) {
@@ -849,296 +1104,360 @@ function getAdvancedItem3Data() {
 }
 
 // =====================================================
-//  RADAR DE ESFORÇO (Aura Map)
+//  RADAR DE ESFORÇO
 // =====================================================
 
 /**
- * Gera o Mapa de Calor (Aura) do documento atual.
+ * Radar de Esforço do documento atual, para o painel do professor.
  *
- * [MED-02] NOTA: Esta é uma heurística de POC baseada em comprimento de texto
- * e eventos de paste persistidos localmente. Não substitui análise real do Gemini.
- * Scores definitivos são fornecidos pela análise socrática do BrainProxy.
+ * A cor de cada parágrafo mostra só evidência de processo (RADAR_ESTADO_*): colagem
+ * detectada, colagem depois editada, escrito com o painel fechado (não observado) ou sem
+ * alerta. O tamanho do parágrafo não entra. "Sem alerta" não prova autoria: texto
+ * redigitado à mão, por exemplo, não é detectado.
  *
- * Heurística atual:
- *   - Score base pelo comprimento (textos longos são neutros por padrão)
- *   - Penalidade se o parágrafo foi colado (detectado via PASTE_MAP no DocumentProperties)
- *   - Variância leve por index para efeito visual durante POC
+ * @returns {{
+ *   segmentos: Array<{index:number, estado:string, fonte:string|null, ts:number, charCount:number, preview:string}>,
+ *   resumo: {total:number, S:number, C:number, E:number, N:number, L:number},
+ *   avisos: string[]
+ * }}
  */
 function getDocumentAuraMap() {
   const doc        = DocumentApp.getActiveDocument();
-  const body       = doc.getBody();
-  const paragraphs = body.getParagraphs();
+  const paragraphs = doc.getBody().getParagraphs();
   const docId      = doc.getId();
+  const textos     = paragraphs.map(p => p.getText().trim());
+  const props      = PropertiesService.getDocumentProperties();
 
   // Parágrafos do modelo ficam fora do Radar: no documento mestre ele fica vazio.
-  const modelo = _mascaraDoModelo(paragraphs.map(p => p.getText().trim()));
+  const modelo = _mascaraDoModelo(textos);
+  // O painel do aluno já mediu aqui? Marca gravada pelo envio do aluno, ou um snapshot que
+  // não foi o radar do professor que deixou (versões antigas da biblioteca não gravam a
+  // marca). Lido antes da medição abaixo, que também grava o snapshot.
+  const tsAntes = props.getProperty(DOC_PROP_SNAPSHOT_TS);
+  const painelDoAlunoRodou = !!props.getProperty(DOC_PROP_PAINEL_ALUNO_TS) ||
+    (tsAntes !== null && tsAntes !== props.getProperty(DOC_PROP_SNAPSHOT_PROFESSOR_TS));
 
-  // Layer 2: snapshot + anomaly (fast, always runs)
-  _checkAndUpdatePasteSnapshot(paragraphs, modelo);
-
-  // Layer 1: Drive revision fingerprint diff (retroactive, 30-min cache, graceful fail)
-  try {
-    _detectPasteFromRevisions(docId, paragraphs, modelo);
-  } catch (e) {
-    Logger.log('[Whitebox] getDocumentAuraMap: revision diff outer error: ' + e);
-  }
-
-  // Read pasteMap — cached 5 min to avoid re-reading DocProperties on rapid professor refreshes
-  var pasteMap = {};
-  try {
-    var rawPasteMap =
-      PropertiesService.getDocumentProperties()
-        .getProperty(DOC_PROP_PASTE_MAP);
-
-    if (rawPasteMap) {
-      pasteMap = JSON.parse(rawPasteMap);
-    }
-  } catch (e) {
-    Logger.log('[Whitebox] pasteMap read: ' + e);
-  }
-
-  const allTexts = paragraphs.map(p => p.getText().trim()).filter((t, i) => t.length > 0 && !modelo[i]);
-  const medianLen = _computeMedianParagraphLength(allTexts);
-
-  // Layer 3: TTR lexical divergence — experimental, disabled by default.
-  // Enable: Apps Script → Project Settings → Script Properties → WHITEBOX_TTR_ENABLED = true
-  var ttrEnabled = false;
-  var docAvgTTR  = 0;
-  try {
-    ttrEnabled = PropertiesService.getScriptProperties()
-                   .getProperty('WHITEBOX_TTR_ENABLED') === 'true';
-  } catch (e) {}
-
-  if (ttrEnabled) {
+  _comTrava(function() {
+    _checkAndUpdatePasteSnapshot(paragraphs, modelo);
     try {
-      var ttrSum = 0, ttrCount = 0;
-      for (var ti = 0; ti < allTexts.length; ti++) {
-        if (allTexts[ti].length > 20) {
-          var tWords = _tokenizeParagraph(allTexts[ti]);
-          if (tWords.length > 0) {
-            var tUniq = {};
-            for (var tu = 0; tu < tWords.length; tu++) { tUniq[tWords[tu]] = true; }
-            ttrSum += Object.keys(tUniq).length / tWords.length;
-            ttrCount++;
-          }
-        }
+      if (painelDoAlunoRodou && !props.getProperty(DOC_PROP_PAINEL_ALUNO_TS)) {
+        props.setProperty(DOC_PROP_PAINEL_ALUNO_TS, String(tsAntes));
       }
-      docAvgTTR = ttrCount > 0 ? ttrSum / ttrCount : 0;
-    } catch (e) { docAvgTTR = 0; }
+      const tsDepois = props.getProperty(DOC_PROP_SNAPSHOT_TS);
+      if (tsDepois !== null) props.setProperty(DOC_PROP_SNAPSHOT_PROFESSOR_TS, tsDepois);
+    } catch (e) {
+      Logger.log('[Whitebox] marca do radar do professor: ' + e);
+    }
+    try {
+      _detectPasteFromRevisions(docId, textos, modelo);
+    } catch (e) {
+      Logger.log('[Whitebox] getDocumentAuraMap: revisões: ' + e);
+    }
+  });
+
+  const avisos = [];
+  const local  = _lerMapaRadar(props, textos);
+  // Documento mestre ou cópia ainda sem texto do aluno: nada a buscar no servidor.
+  const temTextoDoAluno = textos.some((t, i) => t && !modelo[i]);
+  const doServidor = temTextoDoAluno ? _radarDoServidor(docId) : { aluno: null, outros: [], erro: null, pulado: true };
+  // Nenhuma medição do aluno em lugar nenhum: nem histórico no servidor nem o painel do
+  // aluno rodou neste documento. Sem isso o texto todo apareceria sem alerta, como se
+  // observado. Atividade começada antes do histórico no servidor (o painel do aluno rodou,
+  // mas o servidor não tem medições) não é "nunca observado": usa os dados do documento.
+  const nuncaObservado = temTextoDoAluno && !doServidor.aluno && !painelDoAlunoRodou;
+  let mapa;
+  if (doServidor.aluno) {
+    // Fonte principal: o histórico do servidor, que o aluno não altera. Do mapa local só
+    // entram as colagens achadas no histórico de revisões do Drive.
+    mapa = { v: 2, a: Object.assign({}, doServidor.aluno.mapa.a) };
+    Object.keys(local.a).forEach(function(h) {
+      const it = local.a[h];
+      if (it.f === 'revisao') radarRegistrarAlerta(mapa, h, it.p, it.e, it.f, it.ts);
+    });
+    avisos.push(_avisoFonteServidor(doServidor));
+  } else {
+    mapa = local;
+    if (nuncaObservado) {
+      avisos.push('O painel do aluno nunca registrou a escrita deste documento (não foi aberto ou o ' +
+                  'add-on não está instalado para ele). Todo o texto aparece como não observado.');
+    } else if (doServidor.erro) {
+      avisos.push('Não foi possível ler o histórico do servidor (' + doServidor.erro + '). O radar abaixo usa só ' +
+                  'os dados guardados no documento, que o aluno pode alterar.');
+    } else if (temTextoDoAluno) {
+      avisos.push('O servidor ainda não tem medições deste documento (atividade começada antes do histórico ' +
+                  'no servidor, ou o primeiro envio do painel do aluno ainda não chegou, em até 2 min). O radar ' +
+                  'abaixo usa só os dados guardados no documento, que o aluno pode alterar.');
+    }
+  }
+  const estados  = _estadosDoRadar(textos, modelo, mapa).filter(Boolean);
+  if (nuncaObservado) {
+    estados.forEach(function(e) {
+      if (e.estado === RADAR_ESTADO_SEM_ALERTA) { e.estado = RADAR_ESTADO_NAO_OBSERVADO; e.fonte = 'nunca_observado'; }
+    });
+  }
+  const resumo   = { total: estados.length, S: 0, C: 0, E: 0, N: 0, L: 0 };
+  const segmentos = estados.map(function(e) {
+    resumo[e.estado] = (resumo[e.estado] || 0) + 1;
+    return {
+      index:     e.index,
+      estado:    e.estado,
+      fonte:     e.fonte,
+      ts:        e.ts,
+      charCount: textos[e.index].length,
+      preview:   textos[e.index].substring(0, 60)
+    };
+  });
+
+  const marcadores = _contarMarcadores(textos);
+  if (marcadores > 1) {
+    avisos.push('A linha "' + MARCADOR_INICIO_ALUNO + '" aparece ' + marcadores +
+                ' vezes. Só a primeira separa o modelo do texto do aluno.');
+  }
+  if (props.getProperty(DOC_PROP_BASELINE) && props.getProperty(DOC_PROP_BASELINE_FONTE) !== 'revisao') {
+    avisos.push('O texto do modelo foi reconhecido na primeira vez que o aluno abriu o painel, ' +
+                'sem o histórico do Drive. Algo colado antes disso pode ter sido tratado como modelo.');
+  }
+  if (resumo.L > 0) {
+    avisos.push(resumo.L + ' alerta(s) vêm da versão anterior do painel, que guardava a posição ' +
+                'do parágrafo: confira o trecho antes de concluir algo.');
   }
 
-  return paragraphs.map((p, index) => {
-    const text = p.getText().trim();
-    if (text.length === 0 || modelo[index]) return null;
+  // Parte do texto que o painel não viu ser escrita (estado N): painel fechado, aluno sem
+  // abrir o painel ou add-on não instalado. Não é acusação, é falta de evidência.
+  const charsTotal = segmentos.reduce((s, g) => s + g.charCount, 0);
+  const charsN     = segmentos.reduce((s, g) => s + (g.estado === RADAR_ESTADO_NAO_OBSERVADO ? g.charCount : 0), 0);
+  resumo.naoObservadoPct = charsTotal > 0 ? Math.round(100 * charsN / charsTotal) : 0;
+  if (!nuncaObservado && resumo.naoObservadoPct >= RADAR_AVISO_NAO_OBSERVADO_PCT) {
+    avisos.push(resumo.naoObservadoPct + '% do texto do aluno apareceu sem o painel observar ' +
+                '(painel fechado ou nunca aberto). Para esse trecho o radar não tem evidência de processo.');
+  }
 
-    const r = text.length / medianLen;
-    let score;
-    if (r <= 0.3)       { score = 70; }
-    else if (r <= 0.8)  { score = 92 - ((r - 0.3) / 0.5) * 10; }
-    else if (r <= 1.2)  { score = 82 - ((r - 0.8) / 0.4) * 8; }
-    else if (r <= 1.8)  { score = 74 - ((r - 1.2) / 0.6) * 20; }
-    else if (r <= 3.0)  { score = 54 - ((r - 1.8) / 1.2) * 22; }
-    else { const capped = Math.min(r, 8.0); score = 32 - ((capped - 3.0) / 5.0) * 22; }
-
-    if (text.length < 20) score = Math.min(score, 60);
-
-    let lexicalPenalty = 0;
-    if (ttrEnabled) {
-      lexicalPenalty = _computeParagraphLexicalScore(text, docAvgTTR);
-      score = score - lexicalPenalty;
-    }
-
-    const rawScore = Math.max(10, Math.min(100, Math.round(score)));
-
-    if (pasteMap[String(index)]) score = Math.min(score, 30);
-
-    score = Math.max(10, Math.min(100, Math.round(score)));
-
-    return {
-      index:           index,
-      preview:         text.substring(0, 30) + '...',
-      score:           score,
-      rawScore:        rawScore,
-      charCount:       text.length,
-      ratio:           Math.round(r * 10) / 10,
-      lexicalPenalty:  lexicalPenalty,
-      color:           score > 80 ? '#10b981' : (score > 55 ? '#f59e0b' : '#ef4444'),
-      hasPageBreak:    p.getAttributes()[DocumentApp.Attribute.PAGE_BREAK_BEFORE] === true,
-      isPasteDetected: !!pasteMap[String(index)],
-      pasteSource:     pasteMap[String(index)] || null
-    };
-  }).filter(item => item !== null);
+  return { segmentos: segmentos, resumo: resumo, avisos: avisos };
 }
 
 /**
- * Median paragraph length used by getDocumentAuraMap() for relative scoring.
- * Median is preferred over mean: a single large paste block would inflate the mean,
- * falsely normalising all genuine paragraphs as "short".
+ * Etapa 3 do Radar: compartilha este documento, como LEITOR, com a conta do servidor, para
+ * o servidor conferir as medições com o histórico de revisões do Drive usando a conta dele.
+ * Document.addViewer usa só o escopo documents.currentonly que o painel já tem: nada de
+ * escopo restrito (regra do projeto).
  *
- * @param {string[]} texts - Trimmed, non-empty paragraph strings.
- * @returns {number} Median character length, minimum 1.
+ * A conta não vem do navegador: a biblioteca pergunta ao servidor (rota ping, URL fixa em
+ * BRAIN_PROXY_URL), que só a informa com a conferência ligada (RADAR_REVISOES_ATIVO). Assim
+ * esta função não compartilha o documento com um endereço qualquer. Nunca lança.
+ * @returns {{ ok: boolean, conta?: string, jaTinha?: boolean, novo?: boolean, erro?: string }}
  */
-function _computeMedianParagraphLength(texts) {
-  if (!texts || texts.length === 0) return 1;
-  const lengths = texts.map(t => t.length).sort((a, b) => a - b);
-  const mid = Math.floor(lengths.length / 2);
-  const median = (lengths.length % 2 !== 0)
-    ? lengths[mid]
-    : Math.round((lengths[mid - 1] + lengths[mid]) / 2);
-  return Math.max(1, median);
-}
-
-// =====================================================
-//  LAYER 1 — Drive Revision Fingerprint Diff
-// =====================================================
-
-function _normalizeBlockText(text) {
-  return text.trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
-function _buildFingerprintSet(exportText) {
-  var set   = {};
-  var lines = exportText.split('\n');
-  for (var i = 0; i < lines.length; i++) {
-    var norm = _normalizeBlockText(lines[i]);
-    if (norm.length >= 60) {
-      set[norm.substring(0, 60)] = true;
-    }
+function compartilharComServidor() {
+  let conta = '';
+  try {
+    const ping = callProxy('ping', {});
+    conta = String((ping && ping.contaServidor) || '').trim().toLowerCase();
+  } catch (e) {
+    return { ok: false, erro: String(e && e.message || e) };
   }
+  if (!conta) return { ok: false, erro: 'CONFERENCIA_DESLIGADA' };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(conta)) return { ok: false, erro: 'CONTA_INVALIDA' };
+  try {
+    const props = PropertiesService.getDocumentProperties();
+    const doc = DocumentApp.getActiveDocument();
+    const ja = doc.getViewers().concat(doc.getEditors())
+      .some(u => String(u.getEmail() || '').toLowerCase() === conta);
+    if (!ja) doc.addViewer(conta);
+    // novo: primeira vez com esta conta neste documento (o painel avisa o aluno uma vez).
+    const novo = props.getProperty(DOC_PROP_SERVIDOR_COMPARTILHADO) !== conta;
+    if (novo) props.setProperty(DOC_PROP_SERVIDOR_COMPARTILHADO, conta);
+    return { ok: true, conta: conta, jaTinha: ja, novo: novo };
+  } catch (e) {
+    // Ex.: a escola bloqueia compartilhar com contas de fora do domínio.
+    Logger.log('[Whitebox] compartilharComServidor: ' + e);
+    return { ok: false, conta: conta, erro: String(e && e.message || e) };
+  }
+}
+
+/**
+ * Radar guardado no servidor para este documento (rota radar_documento). Usa o aluno com
+ * mais medições; outros e-mails que mandaram medições para o mesmo documento viram aviso.
+ * Não compartilha nada: quem compartilha a cópia é o painel do aluno, que o avisa.
+ * @returns {{ aluno: object|null, outros: string[], erro: string|null, contaServidor?: string }}
+ * @private
+ */
+function _radarDoServidor(docId) {
+  try {
+    const userEmail      = Session.getActiveUser().getEmail();
+    const professorEmail = resolverProfessorDoDocumento(userEmail, getContext(), getAdvancedItem3Data());
+    if (!professorEmail || professorEmail === 'NAO_IDENTIFICADO') return { aluno: null, outros: [], erro: 'professor não identificado' };
+    const res = callProxy(ROUTE_RADAR_DOCUMENTO, { professorEmail: professorEmail, docId: docId });
+    if (!res || res.error) return { aluno: null, outros: [], erro: (res && (res.message || res.error)) || 'sem resposta' };
+    const alunos = (res.alunos || []).filter(a => a && a.mapa && a.mapa.a);
+    if (alunos.length === 0) return { aluno: null, outros: [], erro: null };
+    return { aluno: alunos[0], outros: alunos.slice(1).map(a => a.email), erro: null,
+             contaServidor: String(res.contaServidor || '') };
+  } catch (e) {
+    Logger.log('[Whitebox] _radarDoServidor: ' + e);
+    return { aluno: null, outros: [], erro: String(e && e.message || e) };
+  }
+}
+
+/** Texto do aviso que diz de onde veio o radar. @private */
+function _avisoFonteServidor(r) {
+  const a = r.aluno;
+  const data = iso => {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '?' : Utilities.formatDate(d, Session.getScriptTimeZone(), 'dd/MM HH:mm');
+  };
+  let txt = 'Histórico do servidor: ' + a.medicoes + ' medição(ões) do painel de ' + a.email +
+            (a.primeira ? ', de ' + data(a.primeira) + ' a ' + data(a.ultima) : '') + '.';
+  if (a.inconsistencias > 0) {
+    txt += ' ' + a.inconsistencias + ' medição(ões) descartada(s) por horário inconsistente ' +
+           '(relógio errado ou envio forjado).';
+  }
+  if (r.outros.length > 0) txt += ' Outros e-mails também enviaram medições deste documento: ' + r.outros.join(', ') + '.';
+  txt += _avisoRevisoes(a.revisoes, r.contaServidor, data);
+  if (a.origem === 'addon') {
+    txt += ' As medições vieram do add-on do Whitebox, que o aluno não edita.';
+  } else if (a.origem) {
+    txt += ' As medições vieram do script copiado com o documento, que o aluno pode editar.';
+  }
+  return txt;
+}
+
+/** Frase sobre a conferência das medições com as revisões do Drive (etapa 3). @private */
+function _avisoRevisoes(rv, conta, data) {
+  if (rv && rv.acesso === 'desligada') return '';
+  if (rv && rv.acesso === 'ok') {
+    let t = ' O servidor conferiu ' + rv.lidas + ' revisão(ões) do Drive' +
+            (rv.em ? ' (última conferência ' + data(rv.em) + ')' : '') + ': ' +
+            (rv.divergencias > 0
+              ? rv.divergencias + ' divergência(s) entre o tamanho do texto nas revisões e as medições do painel ' +
+                'feitas logo antes e logo depois (medição forjada ou painel adulterado). Veja a aba Radar_Eventos.'
+              : 'as medições batem com as revisões.');
+    if (rv.suprimidas > 0) {
+      t += ' ' + rv.suprimidas + ' parágrafo(s) aparecem nas revisões do Drive com o painel aberto, mas ' +
+           'nunca vieram nas medições (sinal de medições escondidas): estão marcados como não observados.';
+    }
+    return t;
+  }
+  const quem = conta ? ' (' + conta + ')' : '';
+  if (rv && rv.acesso === 'sem_acesso') {
+    return ' O servidor não consegue ler as revisões desta cópia no Drive, então as medições não foram ' +
+           'conferidas. O painel do aluno compartilha a cópia com a conta do Whitebox' + quem + ' quando é aberto; ' +
+           'se a escola bloqueia compartilhar com contas de fora, peça ao administrador da escola para permitir ' +
+           'compartilhar com essa conta.';
+  }
+  if (rv && rv.acesso === 'erro') {
+    return ' A última tentativa de conferir as medições com as revisões do Drive falhou; o servidor tenta de novo.';
+  }
+  return ' As medições ainda não foram conferidas com as revisões do Drive (isso acontece depois que o aluno ' +
+         'abre o painel e a cópia é compartilhada com a conta do Whitebox' + quem + ').';
+}
+
+// =====================================================
+//  RADAR: colagens vistas no histórico de revisões do Drive
+// =====================================================
+
+/** Impressão de um parágrafo para comparar com o texto exportado de uma revisão. @private */
+function _impressaoRevisao(texto) {
+  const n = _normalizarComparacao(texto);
+  return n.length >= 60 ? n.substring(0, 60) : '';
+}
+
+/** @private */
+function _conjuntoImpressoes(textoExportado) {
+  const set = {};
+  String(textoExportado || '').split(/\r?\n/).forEach(function(linha) {
+    const fp = _impressaoRevisao(linha);
+    if (fp) set[fp] = true;
+  });
   return set;
 }
 
-function _detectPasteFromRevisions(docId, paragraphs, modelo) {
-  modelo = modelo || [];
+/**
+ * Procura, nas últimas 20 revisões do Drive, parágrafos do aluno que surgiram entre duas
+ * revisões num ritmo impossível para digitação (RADAR_CPS_COLAGEM por segundo, contando o
+ * tempo entre as revisões). O Drive agrupa revisões: intervalo longo dá ritmo baixo e não
+ * marca nada. Um parágrafo que já existia numa revisão anterior (restaurar versão) não é
+ * marcado. Resultado em cache por 30 min; sem acesso ao Drive, não tenta de novo nesse tempo.
+ * @private
+ */
+function _detectPasteFromRevisions(docId, textos, modelo) {
+  const cache    = CacheService.getDocumentCache();
+  const cacheKey = 'REV_DIFF_DONE_' + docId;
+  if (cache.get(cacheKey)) return;
   try {
-    var cache    = CacheService.getDocumentCache();
-    var cacheKey = 'REV_DIFF_DONE_' + docId;
-    if (cache.get(cacheKey)) {
-      Logger.log('[Whitebox] _detectPasteFromRevisions: cache HIT');
-      return;
-    }
-
-    var revResponse = Drive.Revisions.list(docId);
-    if (!revResponse || !revResponse.revisions || revResponse.revisions.length < 2) return;
-
-    var allRevs   = revResponse.revisions;
-    var startIdx  = Math.max(0, allRevs.length - 20);
-    var revWindow = allRevs.slice(startIdx);
-
-    var token    = ScriptApp.getOAuthToken();
-    var requests = [];
-    for (var i = 0; i < revWindow.length; i++) {
-      var rev = revWindow[i];
+    const resp = Drive.Revisions.list(docId, { fields: 'revisions(id,modifiedTime,exportLinks)' });
+    const revs = (resp && resp.revisions) || [];
+    const janela = revs.slice(Math.max(0, revs.length - 20));
+    const token = ScriptApp.getOAuthToken();
+    const reqs = [], tempos = [];
+    janela.forEach(function(rev) {
       if (rev.exportLinks && rev.exportLinks['text/plain']) {
-        requests.push({
-          url:     rev.exportLinks['text/plain'],
-          method:  'get',
+        reqs.push({
+          url: rev.exportLinks['text/plain'],
+          method: 'get',
           headers: { Authorization: 'Bearer ' + token },
           muteHttpExceptions: true
         });
+        tempos.push(Date.parse(rev.modifiedTime || rev.modifiedDate || '') || 0);
       }
-    }
-    if (requests.length < 2) return;
-
-    var responses = UrlFetchApp.fetchAll(requests);
-
-    var props    = PropertiesService.getDocumentProperties();
-    var mapRaw   = props.getProperty(DOC_PROP_PASTE_MAP) || '{}';
-    var pasteMap = JSON.parse(mapRaw);
-    var dirty    = false;
-
-    // Tudo o que já apareceu em alguma revisão anterior. Restaurar uma versão antiga traz de
-    // volta texto que já existia: comparar só com a revisão imediatamente anterior (que pode
-    // estar vazia, se o aluno apagou tudo antes) marcaria o documento inteiro como colagem.
-    var jaVisto = {};
-    if (responses[0].getResponseCode() === 200) {
-      var primeiro = _buildFingerprintSet(responses[0].getContentText());
-      for (var p0 in primeiro) jaVisto[p0] = true;
-    }
-
-    for (var j = 1; j < responses.length; j++) {
-      if (responses[j - 1].getResponseCode() !== 200 ||
-          responses[j].getResponseCode()     !== 200) continue;
-
-      var prevText = responses[j - 1].getContentText();
-      var currText = responses[j].getContentText();
-      var currSet  = _buildFingerprintSet(currText);
-
-      if (currText.length - prevText.length < 100) {
-        for (var c0 in currSet) jaVisto[c0] = true;
-        continue;
-      }
-
-      for (var k = 0; k < paragraphs.length; k++) {
-        if (pasteMap[String(k)] || modelo[k]) continue;
-
-        var pNorm = _normalizeBlockText(paragraphs[k].getText());
-        if (pNorm.length < 60) continue;
-
-        var fp = pNorm.substring(0, 60);
-        if (currSet[fp] && !jaVisto[fp]) {
-          pasteMap[String(k)] = 'revision';
-          dirty = true;
+    });
+    if (reqs.length >= 2) {
+      const resps = UrlFetchApp.fetchAll(reqs);
+      const alvo = {};
+      textos.forEach(function(t, i) {
+        if (!t || modelo[i]) return;
+        const fp = _impressaoRevisao(t);
+        if (fp) (alvo[fp] = alvo[fp] || []).push(i);
+      });
+      const props = PropertiesService.getDocumentProperties();
+      const mapa  = _lerMapaRadar(props, textos);
+      let dirty   = !!mapa._migrado;
+      const jaVistas = {};
+      let anterior = null;
+      for (let j = 0; j < resps.length; j++) {
+        if (resps[j].getResponseCode() !== 200) continue;
+        const texto = resps[j].getContentText();
+        const fps   = _conjuntoImpressoes(texto);
+        if (anterior && tempos[j] && anterior.t) {
+          const cresc   = texto.length - anterior.len;
+          const minutos = (tempos[j] - anterior.t) / 60000;
+          const ritmo   = minutos > 0 ? cresc / minutos : 0;
+          if (cresc >= RADAR_CRESCIMENTO_MIN && ritmo >= RADAR_CPS_COLAGEM * 60) {
+            Object.keys(fps).forEach(function(fp) {
+              if (jaVistas[fp] || !alvo[fp]) return;
+              alvo[fp].forEach(function(i) {
+                if (_registrarAlerta(mapa, textos[i], RADAR_ESTADO_COLAGEM, 'revisao', tempos[j])) dirty = true;
+              });
+            });
+          }
         }
+        Object.keys(fps).forEach(function(fp) { jaVistas[fp] = true; });
+        anterior = { len: texto.length, t: tempos[j] };
       }
-      for (var c1 in currSet) jaVisto[c1] = true;
+      if (dirty) _gravarMapaRadar(props, mapa);
     }
-
-    if (dirty) props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify(pasteMap));
-
-    try { cache.put(cacheKey, '1', 1800); } catch (cacheErr) {}
-    Logger.log('[Whitebox] _detectPasteFromRevisions done.' +
-      ' revisions=' + revResponse.revisions.length +
-      ' revWindow='  + revWindow.length +
-      ' requests='   + requests.length +
-      ' dirty='      + dirty +
-      ' pasteMap='   + JSON.stringify(pasteMap));
-
   } catch (e) {
-    // Sem acesso ao Drive, não repetir a chamada a cada refresh do mapa de calor.
-    try { CacheService.getDocumentCache().put('REV_DIFF_DONE_' + docId, '1', 1800); } catch (cacheErr) {}
-    Logger.log('[Whitebox] _detectPasteFromRevisions (graceful fail): ' + e);
+    Logger.log('[Whitebox] _detectPasteFromRevisions (sem acesso ao Drive?): ' + e);
   }
+  try { cache.put(cacheKey, '1', 1800); } catch (cacheErr) {}
 }
 
-// =====================================================
-//  LAYER 3 — TTR Lexical Divergence (feature flag)
-// =====================================================
-
-function _tokenizeParagraph(text) {
-  if (!text) return [];
-  return text.toLowerCase()
-    .replace(/[^a-záéíóúàãõâêîôûç\s]/gi, ' ')
-    .split(/\s+/)
-    .filter(function(w) { return w.length > 0; });
-}
-
-function _computeParagraphLexicalScore(text, docAvgTTR) {
-  if (!text || text.length <= 80) return 0;
-  if (typeof docAvgTTR !== 'number' || docAvgTTR <= 0) return 0;
-  var words = _tokenizeParagraph(text);
-  if (words.length === 0) return 0;
-  var unique = {};
-  for (var j = 0; j < words.length; j++) { unique[words[j]] = true; }
-  var ttr = Object.keys(unique).length / words.length;
-  return (Math.abs(ttr - docAvgTTR) > 0.25) ? 15 : 0;
-}
-
+/**
+ * Leva o cursor do professor ao início do parágrafo (rola o documento até ele). Não
+ * seleciona o texto: com a seleção, uma tecla digitada em seguida apagaria o parágrafo.
+ * @returns {boolean} true se posicionou
+ */
 function scrollToParagraph(paragraphIndex) {
   const doc        = DocumentApp.getActiveDocument();
-  const body       = doc.getBody();
-  const paragraphs = body.getParagraphs();
-
-  if (paragraphIndex >= 0 && paragraphIndex < paragraphs.length) {
-    const target = paragraphs[paragraphIndex];
-    if (target.getNumChildren() > 0) {
-      doc.setCursor(doc.newPosition(target.getChild(0), 0));
-      const rb = doc.newRange();
-      rb.addRangeElement(target);
-      doc.setSelection(rb.build());
-    } else {
-      doc.setSelection(doc.newRange().addRangeElement(target).build());
-    }
+  const paragraphs = doc.getBody().getParagraphs();
+  const i = Number(paragraphIndex);
+  if (!(i >= 0 && i < paragraphs.length)) return false;
+  const alvo = paragraphs[i];
+  try {
+    const pos = alvo.getNumChildren() > 0 ? doc.newPosition(alvo.getChild(0), 0) : doc.newPosition(alvo, 0);
+    doc.setCursor(pos);
+    return true;
+  } catch (e) {
+    Logger.log('[Whitebox] scrollToParagraph: ' + e);
+    return false;
   }
 }
 
