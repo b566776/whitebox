@@ -418,6 +418,17 @@ function getSchemaStatus(token) {
 }
 
 /**
+ * Executa as migrações pendentes pelo editor do Apps Script (Executar > migrarSchemaAgora),
+ * sem token: só quem edita o projeto do servidor consegue rodar. Cria, por exemplo, a aba
+ * Escolas (v4).
+ */
+function migrarSchemaAgora() {
+  const r = migrarSchemaSeNecessario(getConfig().adminSpreadsheetId);
+  Logger.log('[SchemaManager] ' + JSON.stringify(r));
+  return r;
+}
+
+/**
  * [ARCH-05] Executa migrações pendentes via Dashboard Admin.
  * Chamado via google.script.run pelo HTML do Dashboard.
  *
