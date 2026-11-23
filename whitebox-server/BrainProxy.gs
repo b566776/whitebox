@@ -32,9 +32,13 @@ function doGet(e) {
   const adminId = props.getProperty('ADMIN_SPREADSHEET_ID');
   
   if (!adminId) {
+    // setupPlanilhaGlobal() sozinha só cria a planilha: não grava ADMIN_SPREADSHEET_ID nem o token.
     const msg = '❌ Acesso Negado: Whitebox não provisionado.\n\n' +
-                'Para administradores: execute a função AdminSetup.setupPlanilhaGlobal() ' +
-                'manualmente no Editor do Apps Script para gerar a chave e configurar o sistema.';
+                'Para administradores, no Editor do Apps Script deste projeto (arquivo AdminSetup.gs):\n' +
+                '1. Execute resetPlanilhaGlobal() — cria a Planilha Global, grava ADMIN_SPREADSHEET_ID e aplica o schema ' +
+                '(sem planilha vinculada, nada é apagado).\n' +
+                '2. Execute rotacionarSharedToken() — gera o SHARED_TOKEN do Dashboard.\n' +
+                '3. Copie o SHARED_TOKEN em Configurações do projeto → Propriedades do script e recarregue esta página.';
     return ContentService.createTextOutput(msg);
   }
   
