@@ -255,6 +255,7 @@ function handleRadarDocumento(body, cfg) {
         em:           data(v[9]) || (estado.rv.em ? new Date(estado.rv.em).toISOString() : null),
         lidas:        Number(estado.rv.lidas) || 0,
         divergencias: Number(estado.rv.divergencias) || 0,
+        suprimidas:   Number(estado.rv.suprimidas) || 0,
         acesso:       String(estado.rv.acesso || '')
       } : null,
       mapa:            (estado && estado.mapa) || { v: 2, a: {} }

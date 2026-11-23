@@ -1156,6 +1156,10 @@ function _avisoFonteServidor(r) {
              ? rv.divergencias + ' divergência(s) entre o texto das revisões e as medições do painel ' +
                '(medição forjada, painel adulterado ou texto mexido sem o painel). Veja a aba Radar_Eventos.'
              : 'as medições batem com as revisões.');
+    if (rv.suprimidas > 0) {
+      txt += ' ' + rv.suprimidas + ' parágrafo(s) aparecem nas revisões do Drive com o painel aberto, mas ' +
+             'nunca vieram nas medições (sinal de medições escondidas): estão marcados como não observados.';
+    }
   } else if (r.compartilhou && r.compartilhou.ok) {
     txt += ' A cópia acabou de ser compartilhada com o servidor; a conferência pelas revisões do Drive ' +
            'aparece na próxima abertura do radar (em até 10 min).';

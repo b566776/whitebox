@@ -431,3 +431,43 @@ test('Histórico de tamanhos guarda só medições com mudança, com teto', () =
   for (let i = 0; i < 900; i++) ctx.radarRegistrarHistorico(estado, { ts: 10 + i, l: [i] });
   assert.equal(estado.hist.length, 800);
 });
+
+test('Medição suprimida: parágrafo igual em duas revisões, painel medindo e nunca com ele, vira não observado', () => {
+  const { ctx } = montar();
+  const escondido = frase('parágrafo escondido das medições', 300);
+  const t0 = Date.parse('2026-11-23T10:00:00Z');
+  const estado = ctx.radarEstadoNovo();
+  // O painel mediu no intervalo, mas só o marcador e um texto curto.
+  const m = med(ctx, t0 + 2 * 60 * SEG, [MARC, 'curto']);
+  ctx.radarProcessarMedicao(estado, m);
+  ctx.radarRegistrarHistorico(estado, m);
+  const revs = [
+    { id: 'a', ts: t0 + 60 * SEG, texto: [MARC, escondido].join('\n') },
+    { id: 'b', ts: t0 + 4 * 60 * SEG, texto: [MARC, escondido].join('\n') }
+  ];
+  const r = ctx.radarAnalisarRevisoes(estado, revs, t0 + 5 * 60 * SEG);
+  assert.equal(r.suprimidas, 1);
+  const alerta = estado.mapa.a[ctx.radarHash(escondido)];
+  assert.equal(alerta.e, 'N');
+  assert.equal(alerta.f, 'revisao_nao_medido');
+  assert.equal(estado.rv.suprimidas, 1);
+});
+
+test('Medição suprimida não dispara sem medição no intervalo nem para parágrafo que o painel mediu', () => {
+  const { ctx } = montar();
+  const texto = frase('parágrafo normal do aluno', 300);
+  const t0 = Date.parse('2026-11-23T10:00:00Z');
+  const revs = [
+    { id: 'a', ts: t0 + 60 * SEG, texto: [MARC, texto].join('\n') },
+    { id: 'b', ts: t0 + 4 * 60 * SEG, texto: [MARC, texto].join('\n') }
+  ];
+  // Painel fechado no intervalo (nenhuma medição): não é supressão.
+  const fechado = ctx.radarEstadoNovo();
+  assert.equal(ctx.radarAnalisarRevisoes(fechado, revs, t0).suprimidas, 0);
+  // Painel mediu o parágrafo: nada a marcar.
+  const medido = ctx.radarEstadoNovo();
+  const m = med(ctx, t0 + 2 * 60 * SEG, [MARC, texto]);
+  ctx.radarProcessarMedicao(medido, m);
+  ctx.radarRegistrarHistorico(medido, m);
+  assert.equal(ctx.radarAnalisarRevisoes(medido, revs, t0).suprimidas, 0);
+});

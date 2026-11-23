@@ -11,7 +11,11 @@
  *      regras de ritmo do painel (RadarCore.gs);
  *   2. compara o tamanho do texto de cada revisão com a medição mais próxima recebida do
  *      painel. Diferença grande = divergência (medição forjada, painel adulterado ou
- *      texto mexido sem o painel).
+ *      texto mexido sem o painel);
+ *   3. medição suprimida: um parágrafo ficou igual em duas revisões com 1 min ou mais
+ *      entre elas, o painel mandou medições nesse intervalo e nenhuma delas tinha esse
+ *      parágrafo. Vira "não observado" (fonte 'revisao_nao_medido'): sinal de medições
+ *      escondidas ou forjadas.
  *
  * Acesso: a conta do servidor precisa ser leitora da cópia. O painel do aluno (ou o do
  * professor) compartilha a cópia com ela por Document.addViewer, que só usa o escopo
@@ -34,6 +38,11 @@ const RADAR_DIVERGENCIA_JANELA_MS = 3 * 60 * 1000;
 /** Divergência = diferença de tamanho acima de max(MIN, FRACAO × maior tamanho). */
 const RADAR_DIVERGENCIA_MIN = 200;
 const RADAR_DIVERGENCIA_FRACAO = 0.25;
+/** Tempo mínimo entre as duas revisões em que um parágrafo aparece igual (medição suprimida). */
+const RADAR_SUPRIMIDA_MIN_MS = 60 * 1000;
+/** Fonte do alerta de parágrafo que está nas revisões mas nunca veio nas medições. */
+const RADAR_FONTE_NAO_MEDIDO = 'revisao_nao_medido';
+
 /** Estado de evento na aba Radar_Eventos para divergências. */
 const RADAR_EVENTO_DIVERGENCIA = 'DIVERGENCIA';
 
@@ -71,13 +80,18 @@ function radarMedicaoMaisProxima(hist, ts) {
  * @param {object} estado    - estado do Radar no servidor (com hist)
  * @param {Array<{id: string, ts: number, texto: string}>} revisoes - em ordem de horário
  * @param {number} agora
- * @returns {{ novas: number, eventos: Array, divergencias: number }}
+ * @returns {{ novas: number, eventos: Array, divergencias: number, suprimidas: number }}
  */
 function radarAnalisarRevisoes(estado, revisoes, agora) {
-  const rv = estado.rv = Object.assign({ ultimoTs: 0, lidas: 0, divergencias: 0 }, estado.rv || {});
-  const res = { novas: 0, eventos: [], divergencias: 0 };
+  const rv = estado.rv = Object.assign({ ultimoTs: 0, lidas: 0, divergencias: 0, suprimidas: 0 }, estado.rv || {});
+  const res = { novas: 0, eventos: [], divergencias: 0, suprimidas: 0 };
   const revs = (revisoes || []).filter(r => r && isFinite(r.ts)).sort((a, b) => a.ts - b.ts);
   const vistos = {};
+  const primeiraVez = {};   // hash -> horário da primeira revisão da janela em que apareceu
+  // Hashes que o painel já mandou (vistos guarda os parágrafos medidos; antH, a última medição).
+  const medidos = {};
+  (estado.vistos || []).concat(estado.antH || []).forEach(function(h) { if (h) medidos[h] = true; });
+  const medicaoEntre = (a, b) => (estado.hist || []).some(p => p[0] > a && p[0] < b);
   let anterior = null;
 
   revs.forEach(function(rev) {
@@ -102,6 +116,19 @@ function radarAnalisarRevisoes(estado, revisoes, agora) {
           });
         }
       }
+      // Medição suprimida: parágrafo igual em duas revisões, painel medindo no intervalo,
+      // e nenhuma medição com ele.
+      linhas.forEach(function(l) {
+        if (!l || l.length < RADAR_CRESCIMENTO_MIN_PARAGRAFO) return;
+        const h = radarHash(l), desde = primeiraVez[h];
+        if (desde === undefined || medidos[h] || rev.ts - desde < RADAR_SUPRIMIDA_MIN_MS) return;
+        if (!medicaoEntre(desde, rev.ts)) return;
+        if (radarRegistrarAlerta(estado.mapa, h, radarHashPrefixo(l), RADAR_ESTADO_NAO_OBSERVADO, RADAR_FONTE_NAO_MEDIDO, rev.ts)) {
+          res.suprimidas++;
+          res.eventos.push({ estado: RADAR_ESTADO_NAO_OBSERVADO, h: h, ts: rev.ts, crescimento: l.length,
+                             decorridoMs: rev.ts - desde, fonte: RADAR_FONTE_NAO_MEDIDO });
+        }
+      });
       // Divergência entre a revisão e a medição mais próxima do painel.
       const med = radarMedicaoMaisProxima(estado.hist, rev.ts);
       if (med) {
@@ -113,13 +140,19 @@ function radarAnalisarRevisoes(estado, revisoes, agora) {
         }
       }
     }
-    linhas.forEach(function(l) { if (l) vistos[radarHash(l)] = true; });
+    linhas.forEach(function(l) {
+      if (!l) return;
+      const h = radarHash(l);
+      vistos[h] = true;
+      if (primeiraVez[h] === undefined) primeiraVez[h] = rev.ts;
+    });
     anterior = { ts: rev.ts, tam: tam };
   });
 
   if (revs.length > 0) rv.ultimoTs = Math.max(rv.ultimoTs, revs[revs.length - 1].ts);
   rv.lidas += res.novas;
   rv.divergencias += res.divergencias;
+  rv.suprimidas += res.suprimidas;
   rv.em = agora;
   rv.acesso = 'ok';
   delete rv.erro;

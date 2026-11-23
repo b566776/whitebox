@@ -442,8 +442,9 @@ test('compartilharComServidor não lança quando o domínio bloqueia', () => {
 test('Radar do professor: mostra a conferência das revisões e compartilha se o servidor não tem acesso', () => {
   const base = { email: 'aluno@x.com', medicoes: 5, inconsistencias: 0, mapa: { v: 2, a: {} } };
   const ok = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: () => ({ contaServidor: 's@x.com',
-    alunos: [Object.assign({ revisoes: { lidas: 12, divergencias: 2, acesso: 'ok', em: '2026-11-23T12:00:00Z' } }, base)] }) });
+    alunos: [Object.assign({ revisoes: { lidas: 12, divergencias: 2, suprimidas: 1, acesso: 'ok', em: '2026-11-23T12:00:00Z' } }, base)] }) });
   const av = ok.ctx.getDocumentAuraMap().avisos.join(' ');
+  assert.match(av, /1 parágrafo\(s\) aparecem nas revisões do Drive com o painel aberto/);
   assert.match(av, /conferiu 12 revisão\(ões\) do Drive/);
   assert.match(av, /2 divergência\(s\)/);
   assert.equal(ok.estado.leitores, undefined, 'com acesso não compartilha de novo');
