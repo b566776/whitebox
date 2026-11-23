@@ -49,7 +49,7 @@ function montar(o) {
     Session: { getActiveUser: () => ({ getEmail: () => 'aluno@x.com' }), getEffectiveUser: () => ({ getEmail: () => 'aluno@x.com' }) }
   };
   vm.createContext(ctx);
-  for (const f of ['Constants.gs', 'Utils.gs', 'Logic.gs']) {
+  for (const f of ['Constants.gs', 'RadarCore.gs', 'Utils.gs', 'Logic.gs']) {
     vm.runInContext(fs.readFileSync(path.join(LIB, f), 'utf8'), ctx, { filename: f });
   }
   return { ctx, estado, store, ranges: () => ranges };

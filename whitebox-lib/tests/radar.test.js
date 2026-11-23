@@ -75,7 +75,13 @@ function montar(o) {
       }
     },
     UrlFetchApp: {
-      fetch: url => {
+      fetch: (url, opts) => {
+        if (/^https:/.test(url)) {
+          if (!o.servidor) throw new Error('sem rede no teste');
+          const pedido = JSON.parse(opts.payload);
+          (estado.pedidos = estado.pedidos || []).push(pedido);
+          return { getContentText: () => JSON.stringify(o.servidor(pedido)) };
+        }
         const r = revs[Number(String(url).split(':')[1])];
         return { getResponseCode: () => 200, getContentText: () => r.texto };
       },
@@ -83,8 +89,14 @@ function montar(o) {
     }
   };
   vm.createContext(ctx);
-  for (const f of ['Constants.gs', 'Utils.gs', 'Logic.gs']) {
+  for (const f of ['Constants.gs', 'RadarCore.gs', 'Utils.gs', 'Logic.gs']) {
     vm.runInContext(fs.readFileSync(path.join(LIB, f), 'utf8'), ctx, { filename: f });
+  }
+  if (o.servidor) {
+    ctx.getContext = () => ({ initialRole: 'student' });
+    ctx.getAdvancedItem3Data = () => ({ professorEmail: 'prof@x.com' });
+    ctx.Utilities = { formatDate: d => d.toISOString().substring(5, 16) };
+    ctx.Session.getScriptTimeZone = () => 'America/Sao_Paulo';
   }
   /** Mede no instante t (ms), como o pulso do painel. */
   const medir = t => ctx._checkAndUpdatePasteSnapshot(body.getParagraphs(), null, t);
@@ -215,9 +227,9 @@ test('Mapa de alertas respeita o teto e descarta primeiro os não observados', (
 
 test('Alinhamento por texto: linha inserida no topo não desloca os tamanhos', () => {
   const m = montar({ paragrafos: [] });
-  const r = Array.from(m.ctx._alinharAnteriores(['a', 'b', 'c'], [10, 20, 30], ['x', 'a', 'b', 'c']));
+  const r = Array.from(m.ctx.radarAlinharAnteriores(['a', 'b', 'c'], [10, 20, 30], ['x', 'a', 'b', 'c']));
   assert.deepEqual(r, [0, 10, 20, 30]);
-  const r2 = Array.from(m.ctx._alinharAnteriores(['a', 'b1', 'c'], [10, 20, 30], ['a', 'b2', 'c']));
+  const r2 = Array.from(m.ctx.radarAlinharAnteriores(['a', 'b1', 'c'], [10, 20, 30], ['a', 'b2', 'c']));
   assert.deepEqual(r2, [10, 20, 30], 'parágrafo editado é pareado com a versão anterior');
 });
 
@@ -249,7 +261,7 @@ test('Linha de base vem da 1ª revisão: texto colado antes de abrir o painel co
   assert.deepEqual(mascara, [true, true, false, true, false]);
   const radar = m.ctx.getDocumentAuraMap();
   assert.deepEqual(radar.segmentos.map(s => s.index), [2, 4]);
-  assert.equal(radar.avisos.length, 0);
+  assert.equal(radar.avisos.filter(a => !/servidor/.test(a)).length, 0);
 });
 
 test('Sem Drive, a linha de base da abertura avisa o professor', () => {
@@ -284,7 +296,7 @@ test('Revisões: salto rápido marca colagem; intervalo longo e restauração n�
   m.ctx.getDocumentAuraMap();
   const porTexto = {};
   Object.values(JSON.parse(m.store.WHITEBOX_PASTE_MAP).a).forEach(it => { porTexto[it.p] = it; });
-  const pc = m.ctx._prefixoRadar(colado), pd = m.ctx._prefixoRadar(digitado);
+  const pc = m.ctx.radarHashPrefixo(colado), pd = m.ctx.radarHashPrefixo(digitado);
   assert.equal(porTexto[pc].e, 'C');
   assert.equal(porTexto[pc].f, 'revisao');
   assert.notEqual((porTexto[pd] || {}).e, 'C');
@@ -308,4 +320,53 @@ test('scrollToParagraph posiciona o cursor sem selecionar', () => {
   assert.equal(m.estado.cursor.el.idx, 1);
   assert.equal(m.estado.selecao, 0);
   assert.equal(m.ctx.scrollToParagraph(9), false);
+});
+
+// ---- Histórico no servidor -----------------------------------------------------------
+
+test('Radar do professor usa o histórico do servidor, mesmo com o documento limpo pelo aluno', () => {
+  const colado = frase('servidor', 300), meu = 'Parágrafo meu, curto.';
+  const mapaServidor = { v: 2, a: {} };
+  const m = montar({
+    paragrafos: [MARCADOR, meu, colado],
+    servidor: pedido => {
+      if (pedido.route !== 'radar_documento') return { error: 'ROTA' };
+      return { alunos: [{ email: 'aluno@x.com', medicoes: 42, inconsistencias: 1,
+                          primeira: '2026-11-23T10:00:00Z', ultima: '2026-11-23T11:00:00Z', mapa: mapaServidor }] };
+    }
+  });
+  m.ctx.radarRegistrarAlerta(mapaServidor, m.ctx.radarHash(colado), m.ctx.radarHashPrefixo(colado), 'C', 'medicao', 1);
+  // O aluno apagou o mapa local (WHITEBOX_PASTE_MAP vazio)
+  const radar = m.ctx.getDocumentAuraMap();
+  assert.equal(radar.segmentos.map(s => s.estado).join(''), 'SC');
+  const aviso = radar.avisos.join(' ');
+  assert.match(aviso, /Histórico do servidor: 42 medição/);
+  assert.match(aviso, /1 medição\(ões\) descartada/);
+  assert.equal(m.estado.pedidos[0].docId, 'DOC1');
+});
+
+test('Sem histórico no servidor, o radar avisa que usa os dados do documento', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ alunos: [] }) });
+  assert.match(m.ctx.getDocumentAuraMap().avisos.join(' '), /ainda não recebeu medições/);
+  const m2 = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ error: 'PROFESSOR_INATIVO', message: 'Licença inativa' }) });
+  assert.match(m2.ctx.getDocumentAuraMap().avisos.join(' '), /Licença inativa/);
+});
+
+test('Documento mestre não consulta o servidor', () => {
+  const m = montar({ paragrafos: [AVISO, MARCADOR, ''], servidor: () => { throw new Error('não devia chamar'); } });
+  const radar = m.ctx.getDocumentAuraMap();
+  assert.equal(radar.segmentos.length, 0);
+  assert.equal(m.estado.pedidos, undefined);
+});
+
+test('Medições vão ao servidor pela rota registrar_medicoes, sem o texto', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Segredo do aluno'], servidor: () => ({ success: true, aceitas: 1 }) });
+  const stats = m.ctx.getDocumentStats();
+  assert.ok(!JSON.stringify(stats.medicao).includes('Segredo'));
+  const r = m.ctx.sendToBackend({ medicoes: [stats.medicao] });
+  assert.equal(r.aceitas, 1);
+  const pedido = m.estado.pedidos[0];
+  assert.equal(pedido.route, 'registrar_medicoes');
+  assert.equal(pedido.professorEmail, 'prof@x.com');
+  assert.ok(!JSON.stringify(pedido).includes('Segredo'));
 });

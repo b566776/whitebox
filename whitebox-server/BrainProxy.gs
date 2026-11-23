@@ -783,7 +783,8 @@ function doPost(e) {
     // 2. Autorização: alunos só logam métricas (em nome do professor da turma) e
     // consultam o próprio resumo de processo (o handler filtra pelo e-mail verificado).
     // Nas demais rotas o chamador precisa ser o próprio professorEmail.
-    const rotaAbertaAAlunos = (route === ROUTE_LOGAR_METRICAS || route === ROUTE_RESUMO_PROCESSO || route === 'ping');
+    const rotaAbertaAAlunos = (route === ROUTE_LOGAR_METRICAS || route === ROUTE_RESUMO_PROCESSO ||
+                              route === ROUTE_REGISTRAR_MEDICOES || route === 'ping');
     const professorEmail = String(body.professorEmail || '').trim().toLowerCase();
     if (!isAdmin && !rotaAbertaAAlunos && callerEmail !== professorEmail) {
       return jsonResponse({ error: 'UNAUTHORIZED', message: 'Token inválido ou não autorizado.' }, 401);
@@ -793,7 +794,8 @@ function doPost(e) {
     // estas rotas exigem cadastro com Status "Ativo" na aba Assinaturas.
     const rotaDeProfessor = [
       ROUTE_REGISTRAR_CHAVE, ROUTE_ANALISAR,
-      ROUTE_LISTAR_TURMAS_PROFESSOR, ROUTE_CRIAR_LEVA_TEMPLATE, ROUTE_COPIAR_MODELO_ATIVIDADE
+      ROUTE_LISTAR_TURMAS_PROFESSOR, ROUTE_CRIAR_LEVA_TEMPLATE, ROUTE_COPIAR_MODELO_ATIVIDADE,
+      ROUTE_RADAR_DOCUMENTO
     ].indexOf(route) !== -1;
     if (rotaDeProfessor && professorEmail) {
       const registro = buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId);
@@ -823,6 +825,10 @@ function doPost(e) {
         return handleStatusLicenca(body, cfg);
       case ROUTE_RESUMO_PROCESSO:
         return handleResumoProcesso(body, cfg, callerEmail);
+      case ROUTE_REGISTRAR_MEDICOES:
+        return handleRegistrarMedicoes(body, cfg, callerEmail);
+      case ROUTE_RADAR_DOCUMENTO:
+        return handleRadarDocumento(body, cfg);
 
       // ── Módulo de Distribuição de Templates ──────────────────────
       case ROUTE_LISTAR_TEMPLATES:

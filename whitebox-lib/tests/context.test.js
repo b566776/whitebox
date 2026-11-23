@@ -60,7 +60,7 @@ function montar(o) {
     Utilities: { sleep: () => {} }
   };
   vm.createContext(ctx);
-  for (const f of ['Constants.gs', 'Utils.gs', 'Logic.gs']) {
+  for (const f of ['Constants.gs', 'RadarCore.gs', 'Utils.gs', 'Logic.gs']) {
     vm.runInContext(fs.readFileSync(path.join(LIB, f), 'utf8'), ctx, { filename: f });
   }
   // Substitui as chamadas ao servidor: licença e proxy.

@@ -230,6 +230,7 @@ function getContext() {
  * colagensNovas/charsColados vêm da detecção de colagem desta medição (com tempo, ver
  * _checkAndUpdatePasteSnapshot), e radarEstados é o estado de cada parágrafo do aluno no
  * Radar de Esforço (códigos RADAR_ESTADO_*, separados por vírgula) para o log.
+ * medicao (hashes e tamanhos, sem o texto) vai para o histórico no servidor.
  */
 function getDocumentStats() {
   const doc        = DocumentApp.getActiveDocument();
@@ -271,6 +272,8 @@ function getDocumentStats() {
     colagensNovas:      medida.colagensNovas,
     charsColados:       medida.charsColados,
     radarEstados:       radarEstados,
+    // Hashes e tamanhos (sem texto) que o painel manda ao servidor (registrar_medicoes)
+    medicao:            medida.medicao,
     fullTextChunk:      text.substring(0, 1000)
   };
 }
@@ -308,11 +311,7 @@ function _contarPalavras(texto) {
  * @private
  */
 function _normalizarComparacao(texto) {
-  return String(texto || '')
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+  return radarNormalizar(texto);
 }
 
 /**
@@ -320,14 +319,7 @@ function _normalizarComparacao(texto) {
  * @private
  */
 function _hashParagrafo(texto) {
-  const norm = _normalizarComparacao(texto);
-  if (!norm) return '';
-  let h = 0x811c9dc5;
-  for (let i = 0; i < norm.length; i++) {
-    h ^= norm.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(36) + '.' + norm.length.toString(36);
+  return radarHash(texto);
 }
 
 /**
@@ -467,18 +459,11 @@ function garantirLinhaDeBase() {
 }
 
 // =====================================================
-//  RADAR: mapa de alertas (chaveado pelo texto, não pela posição)
+//  RADAR: estado local (o cálculo fica em RadarCore.gs)
 // =====================================================
 
-/** Início normalizado do parágrafo que identifica uma colagem depois editada. @private */
-function _prefixoRadar(texto) {
-  const n = _normalizarComparacao(texto);
-  return n.length >= RADAR_PREFIXO ? n.substring(0, RADAR_PREFIXO) : '';
-}
-
 /**
- * Lê o mapa de alertas do Radar: { v: 2, a: { <hash do parágrafo>: { e, f, ts, p } } }
- *   e = estado (RADAR_ESTADO_*), f = detector, ts = quando (ms), p = prefixo normalizado.
+ * Lê o mapa de alertas do Radar ({ v: 2, a: { <hash>: { e, f, ts, p } } }, ver RadarCore).
  * O formato antigo (chave = índice do parágrafo) é convertido com o texto que está hoje
  * naquela posição, como "alerta antigo" (L): a posição pode ter mudado desde então.
  * Quando converteu, o retorno traz _migrado = true para quem grava persistir a conversão.
@@ -499,240 +484,79 @@ function _lerMapaRadar(props, textos) {
   return mapa;
 }
 
-/** Precedência entre alertas do mesmo texto: um alerta nunca é trocado por outro mais fraco. */
-const _PESO_ALERTA = { C: 3, L: 2, N: 1 };
-
-/**
- * Registra um alerta para o texto. Só troca um alerta existente por um mais forte
- * (colagem > alerta antigo > não observado).
- * @returns {boolean} true se mudou o mapa
- * @private
- */
+/** radarRegistrarAlerta a partir do texto do parágrafo. @private */
 function _registrarAlerta(mapa, texto, estado, fonte, quando) {
-  const h = _hashParagrafo(texto);
-  if (!h) return false;
-  const atual = mapa.a[h];
-  if (atual && (_PESO_ALERTA[atual.e] || 0) >= (_PESO_ALERTA[estado] || 0)) return false;
-  mapa.a[h] = { e: estado, f: fonte, ts: quando || 0, p: _prefixoRadar(texto) };
-  return true;
+  return radarRegistrarAlerta(mapa, radarHash(texto), radarHashPrefixo(texto), estado, fonte, quando);
 }
 
-/**
- * Grava o mapa. Acima de RADAR_MAPA_MAX, descarta primeiro os "não observados" mais
- * antigos e depois os alertas mais antigos.
- * @private
- */
+/** Grava o mapa, podado em RADAR_MAPA_MAX. @private */
 function _gravarMapaRadar(props, mapa) {
-  const chaves = Object.keys(mapa.a);
-  if (chaves.length > RADAR_MAPA_MAX) {
-    const peso = it => (it.e === RADAR_ESTADO_NAO_OBSERVADO ? 0 : 1);
-    chaves.sort(function(x, y) {
-      const a = mapa.a[x], b = mapa.a[y];
-      return (peso(a) - peso(b)) || ((a.ts || 0) - (b.ts || 0));
-    });
-    chaves.slice(0, chaves.length - RADAR_MAPA_MAX).forEach(function(k) { delete mapa.a[k]; });
-  }
+  radarPodarMapa(mapa);
   props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify({ v: 2, a: mapa.a }));
 }
 
-/**
- * Estado de cada parágrafo no Radar (null para vazio ou do modelo):
- *   - hash igual a um alerta: o estado do alerta;
- *   - mesmo começo de um alerta: colagem editada (ou não observado, se era isso);
- *   - senão: sem alerta.
- * @returns {Array<{index:number, estado:string, fonte:string|null, ts:number}|null>}
- * @private
- */
+/** radarEstados a partir dos textos. @private */
 function _estadosDoRadar(textos, modelo, mapa) {
-  const porPrefixo = {};
-  Object.keys(mapa.a).forEach(function(h) {
-    const it = mapa.a[h];
-    if (!it.p) return;
-    const ja = porPrefixo[it.p];
-    if (!ja || (ja.e === RADAR_ESTADO_NAO_OBSERVADO && it.e !== RADAR_ESTADO_NAO_OBSERVADO)) porPrefixo[it.p] = it;
-  });
-  return textos.map(function(t, i) {
-    if (!t || modelo[i]) return null;
-    const exato = mapa.a[_hashParagrafo(t)];
-    if (exato) return { index: i, estado: exato.e, fonte: exato.f || null, ts: exato.ts || 0 };
-    const p  = _prefixoRadar(t);
-    const it = p ? porPrefixo[p] : null;
-    if (it) {
-      return {
-        index: i,
-        estado: it.e === RADAR_ESTADO_NAO_OBSERVADO ? RADAR_ESTADO_NAO_OBSERVADO : RADAR_ESTADO_COLAGEM_EDITADA,
-        fonte: it.f || null,
-        ts: it.ts || 0
-      };
-    }
-    return { index: i, estado: RADAR_ESTADO_SEM_ALERTA, fonte: null, ts: 0 };
-  });
+  return radarEstados(textos.map(radarHash), textos.map(radarHashPrefixo), modelo, mapa);
 }
 
 /**
- * Para cada parágrafo atual, o tamanho que ele tinha na medição anterior. Alinha as duas
- * versões pela maior subsequência comum de hashes (não pela posição): inserir ou apagar
- * uma linha não faz cada parágrafo ser comparado com o vizinho. Entre dois parágrafos
- * iguais, os que mudaram são pareados na ordem; os que sobram são novos (tamanho 0).
- *
- * @param {string[]} antH  - hashes da medição anterior, por posição
- * @param {number[]} antL  - tamanhos da medição anterior, por posição
- * @param {string[]} curH  - hashes atuais, por posição
- * @returns {number[]}
- * @private
- */
-function _alinharAnteriores(antH, antL, curH) {
-  const n = antH.length, m = curH.length;
-  const res = new Array(m).fill(0);
-  if (n === 0 || m === 0) return res;
-  if (n * m > 4000000) { // documento enorme: alinhamento por posição
-    for (let j = 0; j < m; j++) res[j] = antL[j] || 0;
-    return res;
-  }
-  const w = m + 1;
-  const dp = new Uint16Array((n + 1) * w);
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      dp[i * w + j] = antH[i] === curH[j]
-        ? dp[(i + 1) * w + j + 1] + 1
-        : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
-    }
-  }
-  const pares = [];
-  let i = 0, j = 0;
-  while (i < n && j < m) {
-    if (antH[i] === curH[j]) { pares.push([i, j]); i++; j++; }
-    else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) i++;
-    else j++;
-  }
-  pares.push([n, m]);
-  let pi = 0, pj = 0;
-  pares.forEach(function(par) {
-    const qtd = Math.min(par[0] - pi, par[1] - pj);
-    for (let k = 0; k < qtd; k++) res[pj + k] = antL[pi + k] || 0;
-    if (par[1] < m) res[par[1]] = antL[par[0]] || 0;
-    pi = par[0] + 1; pj = par[1] + 1;
-  });
-  return res;
-}
-
-/**
- * Mede os parágrafos, compara com a medição anterior e registra alertas no Radar.
- *
- * Colagem só quando o painel viu a mudança acontecer (medição anterior há no máximo
- * RADAR_JANELA_OBSERVADA_MS) e o texto cresceu mais rápido do que se digita
- * (RADAR_CPS_COLAGEM caracteres/s, mínimo RADAR_CRESCIMENTO_MIN). Os parágrafos que
- * cresceram ao menos RADAR_CRESCIMENTO_MIN_PARAGRAFO nessa medição recebem o alerta.
- * Se a medição anterior é antiga (painel fechado) ou não existe, o que cresceu
- * RADAR_CRESCIMENTO_MIN ou mais é "não observado", nunca colagem.
- * Parágrafos do modelo ou já vistos antes (restaurar versão, desfazer) não contam.
- *
- * Chamada por getDocumentStats() (pulso do aluno) e por getDocumentAuraMap() (professor),
- * sempre dentro de _comTrava.
+ * Mede os parágrafos, aplica a medição ao estado guardado em DocumentProperties
+ * (radarProcessarMedicao) e grava o resultado. Chamada por getDocumentStats() (pulso do
+ * aluno) e por getDocumentAuraMap() (professor), sempre dentro de _comTrava.
  *
  * @param {GoogleAppsScript.Document.Paragraph[]} paragraphs
  * @param {boolean[]} [modelo]
  * @param {number} [agora] - ms (para testes)
- * @returns {{conhecidos: boolean[], charsRestaurados: number, colagensNovas: number, charsColados: number}}
+ * @returns {{conhecidos: boolean[], charsRestaurados: number, colagensNovas: number,
+ *            charsColados: number, medicao: object}}
  */
 function _checkAndUpdatePasteSnapshot(paragraphs, modelo, agora) {
-  const props   = PropertiesService.getDocumentProperties();
-  agora         = (typeof agora === 'number') ? agora : Date.now();
-  const textos  = paragraphs.map(p => p.getText().trim());
-  const current = textos.map(t => t.length);
-  const hashes  = textos.map(_hashParagrafo);
-  modelo = modelo || _mascaraDoModelo(textos);
+  const props  = PropertiesService.getDocumentProperties();
+  agora        = (typeof agora === 'number') ? agora : Date.now();
+  const textos = paragraphs.map(p => p.getText().trim());
+  modelo       = modelo || _mascaraDoModelo(textos);
+  const med    = radarMedicao(textos, modelo, agora);
 
-  // Parágrafos já vistos antes desta medição: restaurar uma versão, desfazer ou mover texto
-  // traz de volta parágrafos iguais, que não são colagem.
-  let vistos = [];
-  let anteriores = null;
-  try { vistos = JSON.parse(props.getProperty(DOC_PROP_PARAGRAFOS_VISTOS) || '[]'); } catch (e) { vistos = []; }
-  try {
-    const rawAnt = props.getProperty(DOC_PROP_SNAPSHOT_HASHES);
-    if (rawAnt) anteriores = JSON.parse(rawAnt);
-  } catch (e) { anteriores = null; }
-  const vistoSet = {};
-  vistos.forEach(function(h) { vistoSet[h] = true; });
-  const antSet = {};
-  (anteriores || []).forEach(function(h) { if (h) antSet[h] = true; });
-
-  const conhecidos = hashes.map(function(h, i) { return !!modelo[i] || (!!h && !!vistoSet[h]); });
-  let charsRestaurados = 0;
-  if (anteriores) {
-    hashes.forEach(function(h, i) {
-      if (h && vistoSet[h] && !antSet[h]) charsRestaurados += current[i];
-    });
-  }
-
-  let colagensNovas = 0;
-  let charsColados  = 0;
-  try {
-    let prevLens = null;
-    try { prevLens = JSON.parse(props.getProperty('WHITEBOX_PARA_SNAPSHOT') || 'null'); } catch (e) { prevLens = null; }
-    const tsRaw     = props.getProperty(DOC_PROP_SNAPSHOT_TS);
-    const tsAnt     = tsRaw === null ? NaN : Number(tsRaw);
+  const lerJson = function(chave, padrao) {
+    try { const v = JSON.parse(props.getProperty(chave) || 'null'); return v === null ? padrao : v; }
+    catch (e) { return padrao; }
+  };
+  const tsRaw  = props.getProperty(DOC_PROP_SNAPSHOT_TS);
+  const estado = {
+    antL:   lerJson('WHITEBOX_PARA_SNAPSHOT', null),
+    antH:   lerJson(DOC_PROP_SNAPSHOT_HASHES, null),
     // Sem hora da medição anterior (primeira medição ou versão antiga): não observado.
-    const decorrido = (prevLens && isFinite(tsAnt)) ? Math.max(0, agora - tsAnt) : Infinity;
-    const posicional = anteriores && prevLens && anteriores.length === prevLens.length;
-    const base = !prevLens ? current.map(() => 0)
-               : posicional ? _alinharAnteriores(anteriores, prevLens, hashes)
-               : current.map((_, i) => prevLens[i] || 0);
-
-    const cresc = current.map((len, i) => (conhecidos[i] || !textos[i]) ? 0 : Math.max(0, len - base[i]));
-    const total = cresc.reduce((s, c) => s + c, 0);
-
-    const mapa  = _lerMapaRadar(props, textos);
-    let   dirty = !!mapa._migrado;
-    if (total >= RADAR_CRESCIMENTO_MIN) {
-      const observado = decorrido <= RADAR_JANELA_OBSERVADA_MS;
-      const rapido    = observado &&
-        total >= Math.max(RADAR_CRESCIMENTO_MIN, RADAR_CPS_COLAGEM * decorrido / 1000);
-      cresc.forEach(function(c, i) {
-        if (rapido && c >= RADAR_CRESCIMENTO_MIN_PARAGRAFO) {
-          if (_registrarAlerta(mapa, textos[i], RADAR_ESTADO_COLAGEM, 'medicao', agora)) {
-            colagensNovas++;
-            dirty = true;
-          }
-          charsColados += c;
-        } else if (!observado && c >= RADAR_CRESCIMENTO_MIN) {
-          if (_registrarAlerta(mapa, textos[i], RADAR_ESTADO_NAO_OBSERVADO, 'painel_fechado', agora)) dirty = true;
-        }
-      });
-    }
-    if (dirty) _gravarMapaRadar(props, mapa);
-  } catch (e) {
-    Logger.log('[Whitebox] _checkAndUpdatePasteSnapshot: ' + e);
-  }
+    ts:     (tsRaw === null || !isFinite(Number(tsRaw))) ? null : Number(tsRaw),
+    vistos: lerJson(DOC_PROP_PARAGRAFOS_VISTOS, []),
+    mapa:   _lerMapaRadar(props, textos)
+  };
+  const migrado = !!estado.mapa._migrado;
+  const r = radarProcessarMedicao(estado, med);
 
   try {
-    props.setProperty('WHITEBOX_PARA_SNAPSHOT', JSON.stringify(current));
-    props.setProperty(DOC_PROP_SNAPSHOT_HASHES, JSON.stringify(hashes));
-    props.setProperty(DOC_PROP_SNAPSHOT_TS, String(agora));
-    props.setProperty(DOC_PROP_PARAGRAFOS_VISTOS, JSON.stringify(_atualizarVistos(vistos, hashes)));
+    if (r.mapaMudou || migrado) _gravarMapaRadar(props, estado.mapa);
   } catch (e) {
-    Logger.log('[Whitebox] snapshot save: ' + e);
+    Logger.log('[Whitebox] mapa do Radar: ' + e);
+  }
+  if (!r.ignorada) {
+    try {
+      props.setProperty('WHITEBOX_PARA_SNAPSHOT', JSON.stringify(estado.antL));
+      props.setProperty(DOC_PROP_SNAPSHOT_HASHES, JSON.stringify(estado.antH));
+      props.setProperty(DOC_PROP_SNAPSHOT_TS, String(estado.ts));
+      props.setProperty(DOC_PROP_PARAGRAFOS_VISTOS, JSON.stringify(estado.vistos));
+    } catch (e) {
+      Logger.log('[Whitebox] snapshot save: ' + e);
+    }
   }
 
   return {
-    conhecidos:       conhecidos,
-    charsRestaurados: charsRestaurados,
-    colagensNovas:    colagensNovas,
-    charsColados:     charsColados
+    conhecidos:       r.conhecidos,
+    charsRestaurados: r.charsRestaurados,
+    colagensNovas:    r.colagensNovas,
+    charsColados:     r.charsColados,
+    medicao:          med
   };
-}
-
-/**
- * LRU dos hashes vistos: os atuais vão para o fim; os mais antigos saem acima do teto.
- * @private
- */
-function _atualizarVistos(vistos, hashes) {
-  const atuais = {};
-  hashes.forEach(function(h) { if (h) atuais[h] = true; });
-  const lista = vistos.filter(function(h) { return !atuais[h]; });
-  Object.keys(atuais).forEach(function(h) { lista.push(h); });
-  while (lista.length > PARAGRAFOS_VISTOS_MAX) lista.shift();
-  return lista;
 }
 
 /**
@@ -833,6 +657,19 @@ function sendToBackend(payload) {
   const userEmail      = Session.getActiveUser().getEmail();
   const ctx            = getContext();
   const professorEmail = resolverProfessorDoDocumento(userEmail, ctx, item3);
+
+  // Medições do Radar (hashes e tamanhos, sem texto): só guardar no servidor. Vem por aqui,
+  // e não por uma função nova, para não exigir atualizar o script do cliente.
+  if (payload && Array.isArray(payload.medicoes)) {
+    if (!professorEmail || professorEmail === 'NAO_IDENTIFICADO') {
+      return { error: 'PROFESSOR_NAO_IDENTIFICADO', message: 'Não foi possível identificar o professor deste documento.' };
+    }
+    return callProxy(ROUTE_REGISTRAR_MEDICOES, {
+      professorEmail: professorEmail,
+      docId:          DocumentApp.getActiveDocument().getId(),
+      medicoes:       payload.medicoes
+    });
+  }
   // Sem acesso ao Drive, gradeLevel é 'NAO_IDENTIFICADO' (truthy): a turma fica SEM_TURMA.
   const turma          = (item3.gradeLevel && item3.gradeLevel !== 'NAO_IDENTIFICADO')
                          ? item3.gradeLevel : TURMA_FALLBACK;
@@ -1150,7 +987,29 @@ function getDocumentAuraMap() {
     }
   });
 
-  const mapa     = _lerMapaRadar(props, textos);
+  const avisos = [];
+  const local  = _lerMapaRadar(props, textos);
+  // Documento mestre ou cópia ainda sem texto do aluno: nada a buscar no servidor.
+  const temTextoDoAluno = textos.some((t, i) => t && !modelo[i]);
+  const doServidor = temTextoDoAluno ? _radarDoServidor(docId) : { aluno: null, outros: [], erro: null, pulado: true };
+  let mapa;
+  if (doServidor.aluno) {
+    // Fonte principal: o histórico do servidor, que o aluno não altera. Do mapa local só
+    // entram as colagens achadas no histórico de revisões do Drive.
+    mapa = { v: 2, a: Object.assign({}, doServidor.aluno.mapa.a) };
+    Object.keys(local.a).forEach(function(h) {
+      const it = local.a[h];
+      if (it.f === 'revisao') radarRegistrarAlerta(mapa, h, it.p, it.e, it.f, it.ts);
+    });
+    avisos.push(_avisoFonteServidor(doServidor));
+  } else {
+    mapa = local;
+    if (!doServidor.pulado) avisos.push(doServidor.erro
+      ? 'Não foi possível ler o histórico do servidor (' + doServidor.erro + '). O radar abaixo usa só ' +
+        'os dados guardados no documento, que o aluno pode alterar.'
+      : 'O servidor ainda não recebeu medições do painel do aluno para este documento. O radar abaixo ' +
+        'usa só os dados guardados no documento, que o aluno pode alterar.');
+  }
   const estados  = _estadosDoRadar(textos, modelo, mapa).filter(Boolean);
   const resumo   = { total: estados.length, S: 0, C: 0, E: 0, N: 0, L: 0 };
   const segmentos = estados.map(function(e) {
@@ -1165,7 +1024,6 @@ function getDocumentAuraMap() {
     };
   });
 
-  const avisos = [];
   const marcadores = _contarMarcadores(textos);
   if (marcadores > 1) {
     avisos.push('A linha "' + MARCADOR_INICIO_ALUNO + '" aparece ' + marcadores +
@@ -1181,6 +1039,45 @@ function getDocumentAuraMap() {
   }
 
   return { segmentos: segmentos, resumo: resumo, avisos: avisos };
+}
+
+/**
+ * Radar guardado no servidor para este documento (rota radar_documento). Usa o aluno com
+ * mais medições; outros e-mails que mandaram medições para o mesmo documento viram aviso.
+ * @returns {{ aluno: object|null, outros: string[], erro: string|null }}
+ * @private
+ */
+function _radarDoServidor(docId) {
+  try {
+    const userEmail      = Session.getActiveUser().getEmail();
+    const professorEmail = resolverProfessorDoDocumento(userEmail, getContext(), getAdvancedItem3Data());
+    if (!professorEmail || professorEmail === 'NAO_IDENTIFICADO') return { aluno: null, outros: [], erro: 'professor não identificado' };
+    const res = callProxy(ROUTE_RADAR_DOCUMENTO, { professorEmail: professorEmail, docId: docId });
+    if (!res || res.error) return { aluno: null, outros: [], erro: (res && (res.message || res.error)) || 'sem resposta' };
+    const alunos = (res.alunos || []).filter(a => a && a.mapa && a.mapa.a);
+    if (alunos.length === 0) return { aluno: null, outros: [], erro: null };
+    return { aluno: alunos[0], outros: alunos.slice(1).map(a => a.email), erro: null };
+  } catch (e) {
+    Logger.log('[Whitebox] _radarDoServidor: ' + e);
+    return { aluno: null, outros: [], erro: String(e && e.message || e) };
+  }
+}
+
+/** Texto do aviso que diz de onde veio o radar. @private */
+function _avisoFonteServidor(r) {
+  const a = r.aluno;
+  const data = iso => {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '?' : Utilities.formatDate(d, Session.getScriptTimeZone(), 'dd/MM HH:mm');
+  };
+  let txt = 'Histórico do servidor: ' + a.medicoes + ' medição(ões) do painel de ' + a.email +
+            (a.primeira ? ', de ' + data(a.primeira) + ' a ' + data(a.ultima) : '') + '.';
+  if (a.inconsistencias > 0) {
+    txt += ' ' + a.inconsistencias + ' medição(ões) descartada(s) por horário inconsistente ' +
+           '(relógio errado ou envio forjado).';
+  }
+  if (r.outros.length > 0) txt += ' Outros e-mails também enviaram medições deste documento: ' + r.outros.join(', ') + '.';
+  return txt;
 }
 
 // =====================================================
