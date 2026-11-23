@@ -15,7 +15,7 @@
  *
  * Essa configuração vale para professores com UsaChaveGlobal = 'Sim'. A chave
  * individual de um professor escolhe o provedor pelo formato (prefixoChave):
- * 'AIza...' → Gemini, 'sk-ant-...' → Claude.
+ * 'AIza...' ou 'AQ....' → Gemini, 'sk-ant-...' → Claude.
  *
  * PARA ADICIONAR UM PROVEDOR: inclua uma entrada em IA_PROVIDERS com
  * montarRequisicao() e extrairTexto(). Nada mais precisa mudar.
@@ -33,7 +33,8 @@ const IA_PROVIDERS = {
 
   gemini: {
     modeloPadrao: 'gemini-3.8-flash',
-    prefixoChave: 'AIza',
+    // 'AIza...' é o formato antigo; o Google AI Studio passou a gerar chaves 'AQ.'.
+    prefixoChave: ['AIza', 'AQ.'],
     exigeChave:   true,
     montarRequisicao: function(prompt, ia) {
       return {
@@ -140,8 +141,10 @@ function detectarProvedorPorChave(chave) {
   if (!chave) return null;
   const nomes = Object.keys(IA_PROVIDERS);
   for (let i = 0; i < nomes.length; i++) {
-    const prefixo = IA_PROVIDERS[nomes[i]].prefixoChave;
-    if (prefixo && chave.indexOf(prefixo) === 0) return nomes[i];
+    const prefixos = [].concat(IA_PROVIDERS[nomes[i]].prefixoChave || []);
+    for (let j = 0; j < prefixos.length; j++) {
+      if (chave.indexOf(prefixos[j]) === 0) return nomes[i];
+    }
   }
   return null;
 }

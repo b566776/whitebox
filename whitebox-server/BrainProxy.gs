@@ -954,8 +954,14 @@ function handleRegistrarChave(body, cfg) {
         if (detectarProvedorPorChave(apiKey)) {
           PropertiesService.getScriptProperties().setProperty('APIKEY_' + emailRegistrado, apiKey);
           sheet.getRange(i + 1, chaveCol + 1).setValue('SECURE_STORAGE');
+        } else if (/\/d\/[-\w]{25,}/.test(apiKey) || /^[-\w]{25,}$/.test(apiKey.trim())) {
+          sheet.getRange(i + 1, chaveCol + 1).setValue(apiKey); // Cofre Drive (link ou ID do arquivo)
         } else {
-          sheet.getRange(i + 1, chaveCol + 1).setValue(apiKey); // Cofre Drive
+          // Formato desconhecido: não gravar em claro na planilha.
+          return jsonResponse({
+            error:   'CHAVE_FORMATO_INVALIDO',
+            message: 'Formato de chave não reconhecido. Use uma chave do Gemini (AIza... ou AQ....) ou do Claude (sk-ant-...).'
+          }, 400);
         }
       } else {
         PropertiesService.getScriptProperties().deleteProperty('APIKEY_' + emailRegistrado);

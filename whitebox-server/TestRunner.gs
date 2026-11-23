@@ -153,6 +153,7 @@ function test_construirPromptSocratico_idiomaPtBR() {
 
 function test_detectarProvedorPorChave() {
   assertEquals(detectarProvedorPorChave('AIzaSyExemplo'), 'gemini', 'Chave AIza... é do Gemini');
+  assertEquals(detectarProvedorPorChave('AQ.Ab8Exemplo-chave'), 'gemini', 'Chave AQ.... (formato novo) é do Gemini');
   assertEquals(detectarProvedorPorChave('sk-ant-api03-exemplo'), 'claude', 'Chave sk-ant-... é do Claude');
   assertEquals(detectarProvedorPorChave('1BxiMVs0XRY5IdDoArquivoNoDrive'), null, 'ID de cofre no Drive não é chave');
   assertEquals(detectarProvedorPorChave(''), null, 'Vazio não é chave');
