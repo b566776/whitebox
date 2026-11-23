@@ -86,7 +86,7 @@ Só e-mails na aba `Assinaturas` da planilha global, com `Status` = `Ativo`, tê
    O envio aceita até 50 e-mails por vez, só para formulários de onboarding abertos, e é recusado se a cota diária de e-mails do Apps Script não bastar. **Não abra o link no seu perfil**: o servidor registra o e-mail de quem responde.
 3. Quando o professor envia, o servidor grava a linha em `Assinaturas` (`Ativo`), cria a planilha "Whitebox - <email>" em `WhiteBox/` e manda ao professor o e-mail "✅ Cadastro Aprovado - Whitebox".
 
-A pergunta **Link do arquivo de Cofre (Google Drive)** é opcional e explica ao professor como enviar a chave de IA dele: um arquivo **.txt** com a chave (Gemini `AIza…` ou Claude `sk-ant-…`), compartilhado como Leitor com a sua conta ou com "Qualquer pessoa com o link". Se ficar em branco, o cadastro entra **sem IA** (`UsaChaveGlobal` = `Não`) e o professor pode colar a chave depois no painel. Se o link não puder ser lido, o professor recebe "❌ Erro de Cadastro - Permissão do Cofre Drive (Whitebox)" e o cadastro não é feito.
+A pergunta **Link do arquivo de Cofre (Google Drive)** é opcional e explica ao professor como enviar a chave de IA dele: um arquivo **.txt** com a chave (Gemini `AIza…` ou `AQ.…`, ou Claude `sk-ant-…`), compartilhado como Leitor com a sua conta ou com "Qualquer pessoa com o link". Se ficar em branco, o cadastro entra **sem IA** (`UsaChaveGlobal` = `Não`) e o professor pode colar a chave depois no painel. Se o link não puder ser lido, o professor recebe "❌ Erro de Cadastro - Permissão do Cofre Drive (Whitebox)" e o cadastro não é feito.
 
 Se você mudar o texto dessa ajuda em `Constants.gs` (`FORM_HELP_LINK_COFRE`), os formulários já criados não mudam sozinhos: execute **atualizarAjudaFormulariosOnboarding** no editor do servidor.
 
@@ -124,11 +124,15 @@ cd whitebox-server; clasp push -f; clasp create-deployment -i AKfycbzRiSQpiKHH4D
 
 O Web App executa **como o proprietário**, com acesso **"Qualquer pessoa"**. A URL precisa ser a mesma da constante `BRAIN_PROXY_URL` em `whitebox-lib/Constants.gs`.
 
-**Biblioteca.** `clasp push -f` em `whitebox-lib` e crie uma nova versão (**Implantar** > **Gerenciar versões** no editor, ou `clasp create-version`). A biblioteca precisa estar compartilhada como **Leitor** ("Qualquer pessoa com o link: Leitor"), nunca como Editor; sem isso o painel não abre para ninguém.
+**Biblioteca.** `clasp push -f` em `whitebox-lib` e crie uma nova versão (**Implantar** > **Gerenciar versões** no editor, ou `clasp create-version "descrição"`). Professores e alunos usam a versão fixada no cliente, não a de desenvolvimento: depois de criar a versão, aponte `WhiteboxLib` para ela no script do Documento Modelo **e** no de cada documento mestre já distribuído (**Extensões** > **Apps Script** > **Bibliotecas**). A biblioteca precisa estar compartilhada como **Leitor** ("Qualquer pessoa com o link: Leitor"), nunca como Editor; sem isso o painel não abre para ninguém.
 
 **Cliente.** Muda quando a biblioteca muda de versão (no editor do documento modelo, em **Bibliotecas**, aponte `WhiteboxLib` para a nova versão) ou quando o próprio `Código.gs` muda. Para enviar o código, rode `clasp push` em `whitebox-client` (sem `-f`; o `.claspignore` deixa `tests/` de fora). Se o `clasp push` pedir para confirmar o manifesto, pare e confira o `appsscript.json` remoto antes: o do repositório pode apontar para uma versão antiga da biblioteca. Documentos já distribuídos levam o cliente da época em que foram copiados.
 
 **Abertura automática do painel.** O `onOpen` simples só cria o menu: ele roda sem autorização e não pode abrir a sidebar. Quando um aluno abre o painel numa cópia distribuída, o `getContext` do cliente cria um gatilho instalável "ao abrir" em nome dele (`garantirAberturaAutomatica`, sem duplicar). O handler `abrirPainelAutomaticamente` fica no cliente, porque é o script do documento que recebe o gatilho, e só abre o painel quando quem abriu (`Session.getActiveUser`) é quem criou o gatilho (`Session.getEffectiveUser`). Assim o professor que abre a cópia do aluno não ganha o painel nem tem a escrita registrada como do aluno. Erros são engolidos, porque falha em gatilho instalável manda e-mail para o aluno. Os gatilhos ficam em **Acionadores** do script de cada cópia, em nome do aluno.
+
+**Modelo de IA.** Sem a propriedade `IA_MODEL`, chaves individuais do Gemini usam o modelo padrão (`gemini-3.8-flash`). Se ele responder `HTTP 503 … high demand`, crie em **Propriedades do script** do servidor `IA_MODEL` = `gemini-flash-lite-latest` (ou `gemini-flash-latest`). Vale na hora, sem publicar. Apague a propriedade para voltar ao padrão.
+
+**Não abra o painel com a sua conta.** Numa cópia com professor designado (documento mestre ou cópia de aluno), a sua conta não está em `Assinaturas` e cai na visão de aluno: o cliente cria um gatilho "ao abrir" em seu nome. Para desfazer, apague `abrirPainelAutomaticamente` em https://script.google.com/home/triggers. Se quiser revogar a autorização em https://myaccount.google.com/permissions, remova só o projeto do documento, nunca o `whitebox-server`.
 
 ## 8. Onde olhar quando algo falha
 
@@ -140,4 +144,7 @@ O Web App executa **como o proprietário**, com acesso **"Qualquer pessoa"**. A 
 - **Seu próprio e-mail aparece como professor**: o formulário foi respondido no seu perfil. Apague a linha de `Assinaturas` e a planilha "Whitebox - <seu email>" e peça ao professor que responda de novo no perfil dele.
 - **Turma `SEM_TURMA` na telemetria**: esperado quando o escopo `drive.file` não cobre o documento (`item3.driveAccess: false` no log de `getContext`).
 - **Erro "ID do Documento Semente não configurado"**: preencha **Google Doc ID (Semente)** em **⚙️ Configurações Globais**.
-- **Logs**: em **Execuções**, no editor do servidor e no da biblioteca.
+- **📤 Distribuir Levas mostra "⚠️ Distribuição falhou" com `Classroom API retornou 404: … NOT_FOUND`**: problema conhecido. A atividade é criada com o acesso do professor (`drive.file`), que não enxerga o documento mestre, cujo dono é você. Até a correção, o professor cria a atividade direto no Classroom (veja o manual do professor, seção 4).
+- **"Métricas não enviadas: O professor deste documento não está cadastrado…" com o professor Ativo**: a cópia perdeu o `WHITEBOX_CONFIG`. Esse named range fica preso ao primeiro parágrafo e some se o aluno apaga o começo do documento. Restaure pelo **Histórico de versões** da cópia.
+- **"Análise de IA não disponível (modo offline)" com chave salva**: confira em `Assinaturas` se `ChaveIndividual` = `SECURE_STORAGE`. Chave em formato desconhecido é recusada com `CHAVE_FORMATO_INVALIDO`. Aceitos: `AIza…`, `AQ.…` (Gemini) e `sk-ant-…` (Claude).
+- **Logs**: em **Execuções**, no editor do servidor e no da biblioteca. As chamadas ao Web App (`doPost`) aparecem sem log, porque são anônimas e o projeto não tem Registros do Cloud. Por isso o painel mostra a mensagem de erro do servidor.

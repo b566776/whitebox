@@ -20,6 +20,8 @@ Só a primeira vez é pelo menu. Depois dela, o painel abre sozinho sempre que v
 
 ## 2. Escrever
 
+- **Não apague o começo do documento** (o texto que veio do professor). Escreva abaixo do enunciado. Se o começo for apagado, as suas métricas deixam de ser enviadas e aparece "Métricas não enviadas"; peça ajuda ao professor ou restaure pelo **Arquivo** > **Histórico de versões**.
+- Use a visão **🧑‍🎓 Aluno**. O botão **👩‍🏫 Professor** pausa o registro enquanto estiver selecionado.
 - O Whitebox só registra enquanto o painel está aberto. Escreva normalmente com ele aberto. Os contadores ao vivo (palavras, minutos e outros) mudam enquanto você digita.
 - De tempos em tempos o painel envia as métricas: o indicador fica verde e aparece "Métricas salvas e enviadas.".
 - Se você fechar o painel, nada é registrado até ele abrir de novo (pelo menu ou recarregando a página). Você pode voltar outro dia. Cada volta conta como uma nova sessão, e os minutos ativos continuam somando, mesmo que os contadores ao vivo comecem do zero.
