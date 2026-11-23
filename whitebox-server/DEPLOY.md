@@ -78,7 +78,7 @@ adicionarProfessor("vip@escola.com.br", "Escola XYZ", true, ""); // Chave Global
 ## Modo do painel por escola (aba Escolas)
 
 Cada escola tem uma linha na aba **Escolas** da Planilha Global (criada pela migração v4;
-rode `executarMigracoes` pelo Dashboard depois de publicar o servidor):
+depois de publicar o servidor, abra o editor do Apps Script do servidor e rode `migrarSchemaAgora`. Sem a aba, toda escola fica no modo de sempre, então isso só é preciso antes de configurar uma escola):
 
 | Coluna | Valores | Efeito |
 |---|---|---|
