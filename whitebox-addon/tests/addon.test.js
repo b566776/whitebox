@@ -48,7 +48,7 @@ const funcoes = src => new Set([...src.matchAll(/^function (\w+)\(/gm)].map(m =>
 test('onOpen monta o menu do add-on sem chamar a biblioteca (AuthMode.NONE)', () => {
   const { ctx, estado } = montar();
   ctx.onOpen({ authMode: 'NONE' });
-  assert.deepEqual(estado.menu, ['showSidebar']);
+  assert.deepEqual(estado.menu, ['showSidebar', 'conferirConexao']);
   assert.equal(estado.libChamadas.length, 0);
 });
 
@@ -82,4 +82,14 @@ test('Manifesto do add-on: mesmos escopos do cliente e biblioteca em versão fix
   assert.deepEqual(m.oauthScopes.slice().sort(), c.oauthScopes.slice().sort());
   const lib = m.dependencies.libraries.find(l => l.userSymbol === 'WhiteboxLib');
   assert.equal(lib.developmentMode, false, 'add-on publicado não pode rodar o código em edição da biblioteca');
+});
+
+test('Conferir conexão: mostra o ID de cliente e diz se o servidor reconhece o add-on', () => {
+  const { ctx } = montar();
+  const ok = ctx.textoConferencia({ ok: true, email: 'a@x.com', clientId: 'ADDON.apps', origem: 'addon', idsConfigurados: 1 });
+  assert.match(ok, /ID de cliente OAuth: ADDON\.apps/);
+  assert.match(ok, /O servidor reconhece o add-on/);
+  assert.match(ctx.textoConferencia({ ok: true, clientId: 'X', origem: 'script_vinculado', idsConfigurados: 0 }), /ainda não está configurado/);
+  assert.match(ctx.textoConferencia({ ok: true, clientId: 'X', origem: 'script_vinculado', idsConfigurados: 2 }), /NÃO está em ADDON_CLIENT_IDS/);
+  assert.match(ctx.textoConferencia({ error: 'PROXY_INVALID_RESPONSE', message: 'fora do ar' }), /não respondeu: fora do ar/);
 });

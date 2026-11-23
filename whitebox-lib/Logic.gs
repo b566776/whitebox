@@ -68,6 +68,15 @@ function saveTeacherApiKey(apiKey) {
 /**
  * Retorna o status atual de licença/configuração do professor
  */
+/**
+ * Conferência do add-on (passo 7 de whitebox-addon/PUBLICACAO.md): chama a rota ping e
+ * devolve o ID de cliente OAuth que o servidor viu no token e se ele está em
+ * ADDON_CLIENT_IDS. O servidor também registra no log.
+ */
+function conferirConexaoAddon() {
+  return callProxy('ping', {});
+}
+
 function getTeacherLicenseStatus() {
   const userEmail = Session.getActiveUser().getEmail();
   return callProxy(ROUTE_STATUS_LICENCA, { professorEmail: userEmail });

@@ -187,3 +187,21 @@ function escolherSemente(cfgEscola, seedComum, seedAddon) {
   }
   return { seedId: seedComum, aviso: '' };
 }
+
+/**
+ * Resposta da rota ping (puro, testável). O ID de cliente OAuth não é segredo: aparece em
+ * toda tela de autorização do Google.
+ * @returns {{ ok: true, message: string, email: string, clientId: string, origem: string,
+ *             idsConfigurados: number }}
+ */
+function respostaPing(email, clientId, idsDoAddonLista) {
+  const ids = idsDoAddonLista || [];
+  return {
+    ok:              true,
+    message:         'Whitebox Server OK',
+    email:           email || '',
+    clientId:        clientId || '',
+    origem:          origemDoCliente(clientId, ids),
+    idsConfigurados: ids.length
+  };
+}

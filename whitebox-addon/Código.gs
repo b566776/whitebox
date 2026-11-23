@@ -22,7 +22,33 @@ function onOpen(e) {
   DocumentApp.getUi()
     .createAddonMenu()
     .addItem('Abrir painel', 'showSidebar')
+    .addItem('Conferir conexão', 'conferirConexao')
     .addToUi();
+}
+
+/**
+ * Passo 7 do guia (PUBLICACAO.md): mostra o ID de cliente OAuth que o servidor recebeu
+ * deste add-on e se ele já está em ADDON_CLIENT_IDS. Um clique, sem abrir o painel.
+ */
+function conferirConexao() {
+  var ui = DocumentApp.getUi();
+  ui.alert('Whitebox: conferir conexão', textoConferencia(callLibrary('conferirConexaoAddon', [])), ui.ButtonSet.OK);
+}
+
+/** Texto do alerta de conferirConexao (separado para teste). */
+function textoConferencia(r) {
+  if (!r || r.error || !r.ok) {
+    return 'O servidor não respondeu: ' + ((r && (r.message || r.error)) || 'sem resposta') + '.';
+  }
+  var linhas = ['Conta: ' + (r.email || '?'), 'ID de cliente OAuth: ' + (r.clientId || '(vazio)'), ''];
+  if (r.origem === 'addon') {
+    linhas.push('OK: este ID está em ADDON_CLIENT_IDS. O servidor reconhece o add-on.');
+  } else if (!r.idsConfigurados) {
+    linhas.push('ADDON_CLIENT_IDS ainda não está configurado no servidor. Copie o ID acima para essa Script Property.');
+  } else {
+    linhas.push('Este ID NÃO está em ADDON_CLIENT_IDS. Acrescente-o (separado por vírgula) antes de pôr a escola em modo addon.');
+  }
+  return linhas.join('\n');
 }
 
 function onInstall(e) { onOpen(e); }

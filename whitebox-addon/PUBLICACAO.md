@@ -45,9 +45,10 @@ Radar vindas dele nas escolas em modo `addon`.
 7. **ID de cliente OAuth:** na página Credenciais do projeto do Cloud, copiar o ID do
    cliente OAuth do add-on (termina em `.apps.googleusercontent.com`) e colocar na Script
    Property `ADDON_CLIENT_IDS` do servidor (vários separados por vírgula).
-   *A confirmar no primeiro teste real:* o `azp` que o tokeninfo devolve para o token do
-   add-on é esse ID. Para conferir, chame a rota `ping` pelo add-on e veja o log do servidor,
-   ou rode `verificarTokenOAuth(ScriptApp.getOAuthToken())` a partir do add-on.
+   **Conferência em um clique:** num documento qualquer, Extensões > Whitebox > **Conferir
+   conexão**. O alerta mostra o ID de cliente que o servidor recebeu do add-on e se ele já
+   está em `ADDON_CLIENT_IDS` (o servidor também registra no log, com a etiqueta `[ping]`).
+   Se o ID mostrado for diferente do copiado do Cloud, use o mostrado: é o que vem no token.
 8. Na Planilha Global, aba **Escolas**: `Tipo_Conta = workspace`, `Modo_Painel = addon`.
 9. Na aba **Config**, preencher `seed_document_id_addon` com um documento semente **sem
    script vinculado** (cópia do semente atual com o projeto vinculado apagado). Os novos

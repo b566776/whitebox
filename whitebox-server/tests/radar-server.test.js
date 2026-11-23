@@ -272,3 +272,15 @@ test('Schema v4: aba Escolas no SCHEMA_GLOBAL, migração e versão atual', () =
   const esc = fs.readFileSync(path.join(SERVER, 'Escolas.gs'), 'utf8');
   assert.match(esc, /ESCOLAS_HEADERS = \['Instituicao', 'Tipo_Conta', 'Modo_Painel', 'Observacao'\]/);
 });
+
+test('ping devolve o ID de cliente do token e se ele é o do add-on', () => {
+  const { ctx } = montar();
+  const r = ctx.respostaPing('a@x.com', 'ADDON.apps', ['ADDON.apps']);
+  assert.equal(r.ok, true);
+  assert.equal(r.clientId, 'ADDON.apps');
+  assert.equal(r.origem, 'addon');
+  assert.equal(r.idsConfigurados, 1);
+  assert.equal(ctx.respostaPing('a@x.com', 'OUTRO', []).origem, 'script_vinculado');
+  const src = fs.readFileSync(path.join(SERVER, 'BrainProxy.gs'), 'utf8');
+  assert.match(src, /case 'ping':[\s\S]*?respostaPing\(callerEmail, token \? token\.clientId : '', idsDoAddon\(\)\)/);
+});

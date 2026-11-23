@@ -857,8 +857,13 @@ function doPost(e) {
         return handleCopiarModeloAtividade(body, cfg, callerEmail);
 
       // ── Health Check / Setup Validation ─────────────────────────
-      case 'ping':
-        return jsonResponse({ ok: true, message: 'Whitebox Server OK' });
+      case 'ping': {
+        // Diz ao chamador qual ID de cliente OAuth veio no token e se é o do add-on
+        // (ADDON_CLIENT_IDS), e registra no log: é a conferência do passo 7 do guia do add-on.
+        const ping = respostaPing(callerEmail, token ? token.clientId : '', idsDoAddon());
+        if (!isAdmin) Logger.log('[ping] ' + ping.email + ' | clientId=' + ping.clientId + ' | origem=' + ping.origem);
+        return jsonResponse(ping);
+      }
 
       // ── Operações Administrativas ─────────────────────────────────
       case 'reset_planilha':
