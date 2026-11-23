@@ -37,7 +37,7 @@ function montar(o) {
     },
     WhiteboxLib: {
       getContext: () => o.contexto,
-      showSidebar: () => { estado.sidebars++; }
+      showSidebar: opcoes => { estado.sidebars++; estado.opcoes = opcoes; }
     },
     HtmlService: {}
   };
@@ -90,4 +90,10 @@ test('outra pessoa abrindo (professor ou e-mail oculto): painel não abre', () =
     assert.equal(ctx.abrirPainelAutomaticamente({}), false);
     assert.equal(estado.sidebars, 0);
   }
+});
+
+test('abertura pelo gatilho avisa a biblioteca (automatico) para o painel se fechar se não for aluno', () => {
+  const { ctx, estado } = montar({ ativo: 'aluno@x.com', efetivo: 'aluno@x.com', contexto: ALUNO_DISTRIBUIDO });
+  assert.equal(ctx.abrirPainelAutomaticamente({}), true);
+  assert.equal(estado.opcoes && estado.opcoes.automatico, true);
 });

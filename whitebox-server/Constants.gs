@@ -92,6 +92,27 @@ const CONFIG_KEY_SEED_FORM_ID = 'seed_form_id';
  */
 const DOC_CONFIG_RANGE_PREFIX = 'WHITEBOX_CONFIG:';
 
+/**
+ * Linha do Documento Modelo abaixo da qual o aluno escreve. A biblioteca não conta o que
+ * está acima dela (Palavras Escritas, Radar de Esforço, colagens).
+ * DEVE ser idêntico a MARCADOR_INICIO_ALUNO em whitebox-lib/Constants.gs.
+ */
+const MARCADOR_INICIO_ALUNO = 'ESCREVA O SEU TRABALHO ABAIXO DESTA LINHA';
+
+/** Parágrafo inserido no fim do modelo quando ele ainda não tem a linha do marcador */
+const TEXTO_LINHA_MARCADOR = '✍️ ' + MARCADOR_INICIO_ALUNO + ' ✍️';
+
+/**
+ * Instrução antiga do modelo que mandava o aluno apagar tudo. Apagar o começo do documento
+ * apaga junto a designação do professor (WHITEBOX_CONFIG). Regex do Body.replaceText().
+ */
+// Body.replaceText não aceita modificadores como (?i): maiúscula inicial por classe.
+const REGEX_INSTRUCAO_APAGAR_MODELO = '[Ss]elecione e apague todo este texto';
+
+/** Substituto da instrução antiga */
+const TEXTO_INSTRUCAO_NAO_APAGAR =
+  'não apague este texto: escreva o seu trabalho abaixo da linha "' + MARCADOR_INICIO_ALUNO + '"';
+
 // =====================================================
 //  SCRIPT PROPERTIES: Chaves do Servidor
 // =====================================================
@@ -169,6 +190,12 @@ const ROUTE_HISTORICO_TEMPLATES     = 'historico_templates';
 /** [TEMPLATE-06] Rota para verificar status de uma distribuição em andamento */
 const ROUTE_STATUS_DISTRIBUICAO     = 'status_distribuicao';
 
+/**
+ * Professor pede ao servidor uma cópia do documento mestre com o título da atividade.
+ * O Classroom nomeia a cópia do aluno "<aluno> - <nome do arquivo anexado>".
+ */
+const ROUTE_COPIAR_MODELO_ATIVIDADE = 'copiar_modelo_atividade';
+
 // =====================================================
 //  FORMULÁRIO DE ONBOARDING: Títulos dos Campos
 // =====================================================
@@ -194,7 +221,7 @@ const ONBOARDING_MAX_DESTINATARIOS = 50;
  */
 const FORM_HELP_LINK_COFRE   =
   'Opcional. Serve para ativar a análise por IA com a sua própria chave.\n' +
-  '1. Gere uma chave de IA: Gemini (começa com AIza) em https://aistudio.google.com/app/apikey ' +
+  '1. Gere uma chave de IA: Gemini (começa com AIza ou AQ.) em https://aistudio.google.com/app/apikey ' +
   'ou Claude (começa com sk-ant-) em https://console.anthropic.com\n' +
   '2. No computador, salve só a chave num arquivo de texto .txt (Bloco de Notas) e envie esse ' +
   'arquivo ao seu Google Drive. Um documento Google Docs não funciona.\n' +
@@ -222,6 +249,21 @@ const DRIVE_ROOT_FOLDER_NAME    = 'WhiteBox';
 
 /** Subpasta de DRIVE_ROOT_FOLDER_NAME com os projetos de script */
 const DRIVE_SCRIPTS_FOLDER_NAME = 'Scripts';
+
+/**
+ * Subpasta de DRIVE_ROOT_FOLDER_NAME com as planilhas de logs dos professores, uma
+ * subpasta por instituição: WhiteBox/planilhas_dos_professores/<Instituição>.
+ */
+const DRIVE_PLANILHAS_PROFESSORES_FOLDER_NAME = 'planilhas_dos_professores';
+
+/** Subpasta usada quando o professor não informou a instituição */
+const DRIVE_INSTITUICAO_SEM_NOME = 'Sem instituição';
+
+/**
+ * Permissão dada automaticamente ao professor na planilha "Whitebox - <email>":
+ * 'leitor' (padrão: vê os registros sem poder alterá-los) ou 'editor'.
+ */
+const COMPARTILHAMENTO_PLANILHA_PROFESSOR = 'leitor';
 
 /** Caminho antigo (a partir do Meu Drive) da pasta do Whitebox, migrado por organizarPastasWhitebox() */
 const DRIVE_PASTA_ANTIGA        = ['GDrive Meus Documentos', 'Projetos', 'whitebox'];

@@ -265,3 +265,27 @@ test('Body sem docId ou professorEmail → 400', () => {
   assert.equal(ctx.handleResumoProcesso({ professorEmail: PROF }, {}, PROF).code, 400);
   assert.equal(ctx.handleResumoProcesso({ docId: DOC }, {}, PROF).code, 400);
 });
+
+// ── Todas as cópias (professor no documento mestre) ──────────────
+
+const LOGS_VARIOS_DOCS = [
+  HEADERS,
+  telemetria({ ts: minutos(0), email: ALUNO, doc: 'COPIA-A', min: 5 }),
+  telemetria({ ts: minutos(1), email: ALUNO, doc: 'COPIA-A', min: 8 }),
+  telemetria({ ts: minutos(2), email: 'colega@ies.edu.br', doc: 'COPIA-B', min: 4 }),
+  telemetria({ ts: minutos(3), email: PROF, doc: 'MESTRE', min: 9 })
+];
+
+test('todosDocumentos (professor): um bloco por aluno e cópia, com docId, sem as linhas dele', () => {
+  const ctx = montar({ logs: LOGS_VARIOS_DOCS });
+  const res = ctx.handleResumoProcesso(body({ docId: 'MESTRE', todosDocumentos: true }), {}, PROF);
+  assert.equal(res.data.registros, 3);
+  const blocos = plain(res.data.alunos.map(a => [a.email, a.docId, a.minutosAtivos])).sort();
+  assert.deepEqual(blocos, [['aluno@ies.edu.br', 'COPIA-A', 8], ['colega@ies.edu.br', 'COPIA-B', 4]]);
+});
+
+test('todosDocumentos pedido por aluno é ignorado: só o próprio bloco deste documento', () => {
+  const ctx = montar({ logs: LOGS_VARIOS_DOCS });
+  const res = ctx.handleResumoProcesso(body({ docId: 'COPIA-B', todosDocumentos: true }), {}, ALUNO);
+  assert.equal(res.data.registros, 0);
+});

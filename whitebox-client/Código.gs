@@ -124,7 +124,13 @@ function abrirPainelAutomaticamente(e) {
     var quemAbriu = (Session.getActiveUser().getEmail() || '').trim().toLowerCase();
     var dono      = (Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
     if (!quemAbriu || quemAbriu !== dono) return false;
-    showSidebar();
+    // automatico: o painel se fecha sozinho se o papel de quem abriu não for aluno (o
+    // Session pode devolver o e-mail do dono do gatilho também para outro editor).
+    try {
+      WhiteboxLib.showSidebar({ automatico: true });
+    } catch (libErr) {
+      fallbackSidebar();
+    }
     return true;
   } catch (err) {
     Logger.log('[Whitebox-Wrapper] Abertura automática falhou: ' + err);

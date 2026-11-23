@@ -14,8 +14,8 @@ function setupFormularioSemente() {
   form.setTitle('Cadastro de Professor - Whitebox')
       .setDescription('Seja bem-vindo ao ecossistema Whitebox. Preencha os dados abaixo para provisionar seu ambiente de auditoria pedagógica.')
       .setConfirmationMessage('Recebemos seus dados! Você receberá um e-mail em instantes com o link da sua planilha individual.')
-      .setAllowResponseEdits(false)
-      .setCollectEmail(true);
+      .setAllowResponseEdits(false);
+  configurarColetaDeEmail(form);
 
   // Itens obrigatórios
   form.addTextItem().setTitle('Seu Nome Completo').setRequired(true);
@@ -64,6 +64,21 @@ function setupFormularioSemente() {
 }
 
 /**
+ * O e-mail do professor vem da conta Google com que ele responde: o formulário não mostra
+ * um campo "E-mail" para preencher (EmailCollectionType.VERIFIED; exige login no Google).
+ * Em ambientes sem essa API, cai no setCollectEmail(true) antigo.
+ * @param {GoogleAppsScript.Forms.Form} form
+ */
+function configurarColetaDeEmail(form) {
+  try {
+    form.setEmailCollectionType(FormApp.EmailCollectionType.VERIFIED);
+  } catch (err) {
+    Logger.log('[Onboarding] setEmailCollectionType indisponível, usando setCollectEmail: ' + err);
+    form.setCollectEmail(true);
+  }
+}
+
+/**
  * Texto de ajuda da pergunta do Cofre, com o e-mail da conta que executa o servidor
  * (é ela que precisa ler o arquivo .txt do professor).
  */
@@ -75,7 +90,8 @@ function textoAjudaCofre() {
 /**
  * O Google Forms não atualiza formulários já criados quando o código muda.
  * Reaplica o texto de ajuda atual na pergunta do Cofre de todos os formulários de
- * onboarding desta conta (semente e levas). Executar no editor após mudar o texto;
+ * onboarding desta conta (semente e levas) e troca o campo de e-mail pela coleta
+ * automática da conta Google (configurarColetaDeEmail). Executar no editor após mudar o texto;
  * organizarPastasWhitebox() também chama esta função.
  * @returns {number} quantidade de formulários atualizados
  */
@@ -88,7 +104,12 @@ function atualizarAjudaFormulariosOnboarding() {
   while (files.hasNext()) {
     const file = files.next();
     try {
-      const itens = FormApp.openById(file.getId()).getItems(FormApp.ItemType.TEXT);
+      const form  = FormApp.openById(file.getId());
+      // Formulários antigos pediam o e-mail num campo: passar a pegar da conta Google.
+      try { configurarColetaDeEmail(form); } catch (emailErr) {
+        Logger.log('[Onboarding] Coleta de e-mail não atualizada em ' + file.getId() + ': ' + emailErr);
+      }
+      const itens = form.getItems(FormApp.ItemType.TEXT);
       for (let i = 0; i < itens.length; i++) {
         if (itens[i].getTitle() === FORM_FIELD_LINK_COFRE) {
           itens[i].setHelpText(ajuda);
@@ -119,8 +140,8 @@ function gerarLevaOnboarding(token, nomeLeva, dataLimite) {
           .setDescription('Seja bem-vindo ao ecossistema Whitebox. Preencha os dados abaixo para provisionar seu ambiente de auditoria pedagógica.')
           .setConfirmationMessage('Recebemos seus dados! Você receberá um e-mail em instantes com o link da sua planilha individual.')
           .setAllowResponseEdits(false)
-          .setCollectEmail(true)
           .setAcceptingResponses(true);
+  configurarColetaDeEmail(novoForm);
 
   // Itens do formulário
   novoForm.addTextItem().setTitle('Seu Nome Completo').setRequired(true);
@@ -434,7 +455,7 @@ function onProfessorFormSubmit(e) {
     MailApp.sendEmail({
       to: email,
       subject: '❌ Erro de Cadastro - Permissão do Cofre Drive (Whitebox)',
-      body: 'Olá!\n\nRecebemos sua inscrição no Whitebox, porém NÃO conseguimos acessar a Chave de API através do Link do Cofre fornecido.\n\nPor favor, verifique se:\n1. O link está correto.\n2. O arquivo está compartilhado conosco com permissão de "Leitor".\n3. É um arquivo de texto .txt enviado ao Drive (um Google Docs não funciona) e contém apenas a sua chave de API (Gemini: iniciada com AIza...; Claude: iniciada com sk-ant-...).\n\nCorrija as permissões no Drive e preencha o formulário novamente para ativar sua conta.'
+      body: 'Olá!\n\nRecebemos sua inscrição no Whitebox, porém NÃO conseguimos acessar a Chave de API através do Link do Cofre fornecido.\n\nPor favor, verifique se:\n1. O link está correto.\n2. O arquivo está compartilhado conosco com permissão de "Leitor".\n3. É um arquivo de texto .txt enviado ao Drive (um Google Docs não funciona) e contém apenas a sua chave de API (Gemini: iniciada com AIza... ou AQ....; Claude: iniciada com sk-ant-...).\n\nCorrija as permissões no Drive e preencha o formulário novamente para ativar sua conta.'
     });
   }
 }

@@ -793,7 +793,7 @@ function doPost(e) {
     // estas rotas exigem cadastro com Status "Ativo" na aba Assinaturas.
     const rotaDeProfessor = [
       ROUTE_REGISTRAR_CHAVE, ROUTE_ANALISAR,
-      ROUTE_LISTAR_TURMAS_PROFESSOR, ROUTE_CRIAR_LEVA_TEMPLATE
+      ROUTE_LISTAR_TURMAS_PROFESSOR, ROUTE_CRIAR_LEVA_TEMPLATE, ROUTE_COPIAR_MODELO_ATIVIDADE
     ].indexOf(route) !== -1;
     if (rotaDeProfessor && professorEmail) {
       const registro = buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId);
@@ -837,6 +837,8 @@ function doPost(e) {
         return handleHistoricoTemplates(body, cfg);
       case ROUTE_STATUS_DISTRIBUICAO:
         return handleStatusDistribuicao(body, cfg);
+      case ROUTE_COPIAR_MODELO_ATIVIDADE:
+        return handleCopiarModeloAtividade(body, cfg, callerEmail);
 
       // ── Health Check / Setup Validation ─────────────────────────
       case 'ping':
@@ -1039,6 +1041,14 @@ function handleLogarMetricas(body, cfg) {
     }, 404);
   }
 
+  // O professor do documento não é aluno: telemetria sem análise em nome dele (pré-visualização
+  // da visão do aluno, painel aberto antes de o papel ser conhecido) não vai para os Logs.
+  // As linhas de análise de IA continuam: elas levam o e-mail do professor como Email_Aluno.
+  const alunoNorm = String(alunoEmail || '').trim().toLowerCase();
+  if (!analise && alunoNorm && alunoNorm === String(professorEmail).trim().toLowerCase()) {
+    return jsonResponse({ success: true, ignorado: 'PROFESSOR_NAO_E_ALUNO' });
+  }
+
   logarNaPlanilhaProfessor({
     spreadsheetId: registro.spreadsheetId,
     turma:         turma || 'SEM_TURMA',
@@ -1228,10 +1238,19 @@ function garantirPlanilhaProfessor(email, adminSheet, rowIndex, spreadsheetCol) 
   const existingId = adminSheet.getRange(rowIndex + 1, spreadsheetCol + 1).getValue();
   if (existingId && existingId.trim().length > 0) return existingId;
 
-  // Criar nova planilha
+  // Criar nova planilha em WhiteBox/planilhas_dos_professores/<Instituição>, já
+  // compartilhada com o professor (ele não precisa pedir acesso).
   const nomePlanilha = 'Whitebox - ' + email;
   const ss = SpreadsheetApp.create(nomePlanilha);
-  DriveApp.getFileById(ss.getId()).moveTo(getOrCreateTargetFolder());
+  let instituicao = '';
+  try {
+    const headers = adminSheet.getRange(1, 1, 1, adminSheet.getLastColumn()).getValues()[0];
+    const instCol = headers.indexOf('Instituicao');
+    if (instCol !== -1) instituicao = adminSheet.getRange(rowIndex + 1, instCol + 1).getValue();
+  } catch (e) {
+    Logger.log('[BrainProxy] Instituição do professor ilegível: ' + e);
+  }
+  organizarPlanilhaProfessor(ss.getId(), email, instituicao);
   inicializarPlanilhaProfessor(ss);
 
   // Salvar ID na planilha global

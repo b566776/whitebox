@@ -11,6 +11,9 @@
  *   IA_BASE_URL   — Só 'ollama': URL pública do servidor (ex.: https://ollama.com).
  *                   Este script roda na nuvem do Google: 'localhost' não funciona.
  *   IA_GLOBAL_KEY — Chave do provedor global. Opcional para 'ollama'.
+ *   IA_FALLBACK_MODELS — (Opcional) modelos de reserva, separados por vírgula, usados quando
+ *                   o modelo principal responde 429/5xx (ex.: 503 "high demand"). Sem ela,
+ *                   vale modelosReserva do provedor.
  *                   GEMINI_GLOBAL_KEY continua valendo quando IA_PROVIDER = 'gemini'.
  *
  * Essa configuração vale para professores com UsaChaveGlobal = 'Sim'. A chave
@@ -33,6 +36,8 @@ const IA_PROVIDERS = {
 
   gemini: {
     modeloPadrao: 'gemini-3.8-flash',
+    // Tentados em ordem quando o modelo da vez responde 429/5xx (sobrecarga)
+    modelosReserva: ['gemini-flash-latest', 'gemini-flash-lite-latest'],
     // 'AIza...' é o formato antigo; o Google AI Studio passou a gerar chaves 'AQ.'.
     prefixoChave: ['AIza', 'AQ.'],
     exigeChave:   true,
@@ -57,6 +62,7 @@ const IA_PROVIDERS = {
 
   claude: {
     modeloPadrao: 'claude-opus-5-5',
+    modelosReserva: ['claude-sonnet-5-5', 'claude-haiku-5-5'],
     prefixoChave: 'sk-ant-',
     exigeChave:   true,
     montarRequisicao: function(prompt, ia) {
@@ -89,6 +95,7 @@ const IA_PROVIDERS = {
 
   ollama: {
     modeloPadrao: null,
+    modelosReserva: [],
     prefixoChave: null,
     exigeChave:   false,
     montarRequisicao: function(prompt, ia) {
@@ -165,9 +172,80 @@ function analisarComIA(fragmento, metricas, ia, conselhoPedagogico) {
   const prompt   = construirPromptSocratico(fragmento, metricas, conselhoPedagogico);
   const provider = IA_PROVIDERS[ia.provider];
   const tag      = '[IA:' + ia.provider + '] ';
-  // Todo erro leva um `message` legível: é o que a barra lateral mostra ao professor.
-  const origem   = ia.provider + ' (' + ia.model + ')';
+  const modelos  = _modelosParaTentar(ia, provider);
+  const inicio   = Date.now();
+  const falhas   = [];
 
+  for (let m = 0; m < modelos.length; m++) {
+    const iaModelo = Object.assign({}, ia, { model: modelos[m] });
+    for (let tentativa = 1; tentativa <= IA_TENTATIVAS_POR_MODELO; tentativa++) {
+      const r = _chamarProvedorUmaVez(prompt, iaModelo, provider, tag);
+      if (!r.error) {
+        if (m > 0) {
+          Logger.log(tag + 'Resposta obtida com o modelo de reserva ' + modelos[m] +
+                     ' depois de: ' + falhas.join(' | '));
+          r.modeloUsado = modelos[m];
+        }
+        return r;
+      }
+      if (!_erroTransitorioIA(r)) return r; // chave inválida, JSON quebrado etc.: não adianta repetir
+      falhas.push(modelos[m] + ' HTTP ' + r.code);
+      // O cliente espera no máximo 30 s pelo servidor: parar antes de estourar.
+      if (Date.now() - inicio > IA_ORCAMENTO_MS) return _erroSobrecargaIA(r, falhas);
+      if (tentativa < IA_TENTATIVAS_POR_MODELO) Utilities.sleep(IA_ESPERA_REPETIR_MS * tentativa);
+    }
+  }
+  return _erroSobrecargaIA(null, falhas);
+}
+
+/** Tentativas por modelo antes de passar ao de reserva */
+const IA_TENTATIVAS_POR_MODELO = 2;
+/** Espera antes de repetir no mesmo modelo (multiplicada pela tentativa) */
+const IA_ESPERA_REPETIR_MS = 1500;
+/** Tempo máximo gasto em tentativas (o callProxy da biblioteca desiste em 30 s) */
+const IA_ORCAMENTO_MS = 15000;
+/** Códigos HTTP de sobrecarga ou falha temporária do provedor */
+const IA_CODIGOS_TRANSITORIOS = [429, 500, 502, 503, 504, 529];
+
+/**
+ * Modelo configurado primeiro, depois os de reserva (IA_FALLBACK_MODELS ou modelosReserva do
+ * provedor), sem repetir.
+ * @private
+ */
+function _modelosParaTentar(ia, provider) {
+  let reserva = provider.modelosReserva || [];
+  try {
+    const prop = PropertiesService.getScriptProperties().getProperty('IA_FALLBACK_MODELS');
+    if (prop) reserva = prop.split(',').map(x => x.trim()).filter(Boolean);
+  } catch (e) {}
+  const lista = [ia.model];
+  reserva.forEach(function(m) { if (m && lista.indexOf(m) === -1) lista.push(m); });
+  return lista;
+}
+
+/** @private */
+function _erroTransitorioIA(r) {
+  return r.error === 'IA_API_ERROR' && IA_CODIGOS_TRANSITORIOS.indexOf(r.code) !== -1;
+}
+
+/** Mensagem amigável quando todos os modelos estavam sobrecarregados. @private */
+function _erroSobrecargaIA(ultimo, falhas) {
+  return {
+    error:   'IA_SOBRECARREGADA',
+    code:    ultimo ? ultimo.code : 503,
+    message: 'O serviço de IA está sobrecarregado no momento (tentativas: ' + falhas.join(', ') +
+             '). Tente de novo em alguns minutos.'
+  };
+}
+
+/**
+ * Uma chamada ao provedor com um modelo.
+ * @returns {object} Análise em JSON, ou { error: 'IA_...', code?, message }
+ * @private
+ */
+function _chamarProvedorUmaVez(prompt, ia, provider, tag) {
+  // Todo erro leva um `message` legível: é o que a barra lateral mostra ao professor.
+  const origem = ia.provider + ' (' + ia.model + ')';
   try {
     const req = provider.montarRequisicao(prompt, ia);
     const response = UrlFetchApp.fetch(req.url, {
