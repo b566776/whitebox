@@ -45,6 +45,45 @@ const DOC_PROP_STUDENT_EMAIL = 'STUDENT_EMAIL';
 /** Mapa de eventos de colagem capturados via telemetria da Sidebar (JSON) */
 const DOC_PROP_PASTE_MAP    = 'WHITEBOX_PASTE_MAP';
 
+/**
+ * Cópia do professor designado (e-mail). O WHITEBOX_CONFIG é um NamedRange preso ao
+ * primeiro parágrafo e some quando o aluno apaga o começo do documento; esta propriedade
+ * não depende do texto. getDesignatedProfessors() grava aqui quando acha o NamedRange e,
+ * quando ele sumiu, lê daqui e recria o NamedRange.
+ */
+const DOC_PROP_PROFESSOR    = 'WHITEBOX_PROFESSOR';
+
+/**
+ * Impressões (hash) dos parágrafos que vieram do modelo, gravadas na primeira abertura
+ * do painel pelo aluno numa cópia SEM a linha MARCADOR_INICIO_ALUNO (modelos antigos).
+ * Esses parágrafos não contam em Palavras Escritas, no Radar nem como colagem.
+ */
+const DOC_PROP_BASELINE     = 'WHITEBOX_BASELINE';
+
+/**
+ * Hashes dos parágrafos já vistos neste documento (LRU, no máximo PARAGRAFOS_VISTOS_MAX).
+ * Um parágrafo que reaparece igual (restaurar versão, desfazer, mover) não é colagem.
+ */
+const DOC_PROP_PARAGRAFOS_VISTOS = 'WHITEBOX_SEEN_PARAS';
+
+/** Hashes dos parágrafos na última medição (para saber o que reapareceu desde então) */
+const DOC_PROP_SNAPSHOT_HASHES   = 'WHITEBOX_PARA_HASHES';
+
+/** Teto da lista de parágrafos vistos (cabe folgado nos 9 KB de uma propriedade) */
+const PARAGRAFOS_VISTOS_MAX = 400;
+
+// =====================================================
+//  DOCUMENTO: Linha que separa o modelo do texto do aluno
+// =====================================================
+
+/**
+ * Texto da linha do Documento Modelo abaixo da qual o aluno escreve. Tudo até esta linha
+ * (inclusive) é do modelo: não conta em Palavras Escritas, no Radar de Esforço nem como
+ * colagem. A comparação ignora maiúsculas, acentos e símbolos ao redor.
+ * DEVE ser idêntico a MARCADOR_INICIO_ALUNO em whitebox-server/Constants.gs.
+ */
+const MARCADOR_INICIO_ALUNO = 'ESCREVA O SEU TRABALHO ABAIXO DESTA LINHA';
+
 // =====================================================
 //  DOCUMENTO: Auto-configuração gravada pelo servidor
 // =====================================================
@@ -96,6 +135,9 @@ const ROUTE_HISTORICO_TEMPLATES     = 'historico_templates';
 
 /** [TEMPLATE-06] Rota para verificar status de uma distribuição em andamento */
 const ROUTE_STATUS_DISTRIBUICAO     = 'status_distribuicao';
+
+/** Cópia do documento mestre com o título da atividade (nome da cópia do aluno) */
+const ROUTE_COPIAR_MODELO_ATIVIDADE = 'copiar_modelo_atividade';
 
 
 // =====================================================

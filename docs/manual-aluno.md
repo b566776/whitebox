@@ -20,7 +20,10 @@ Só a primeira vez é pelo menu. Depois dela, o painel abre sozinho sempre que v
 
 ## 2. Escrever
 
+- **Não apague o texto que veio do professor.** Escreva abaixo da linha **✍️ ESCREVA O SEU TRABALHO ABAIXO DESTA LINHA ✍️**. O que está acima dela não conta nas suas métricas: **Palavras Escritas** começa em 0. Se o começo do documento for apagado depois de você abrir o painel uma vez, o Whitebox se recupera sozinho; se aparecer "Métricas não enviadas", peça ajuda ao professor ou restaure pelo **Arquivo** > **Histórico de versões**.
+- **Dedicação Ativa** conta o tempo em que você está escrevendo ou editando (mais uma pausa curta para pensar). Deixar o painel aberto sem mexer no texto não soma minutos.
 - O Whitebox só registra enquanto o painel está aberto. Escreva normalmente com ele aberto. Os contadores ao vivo (palavras, minutos e outros) mudam enquanto você digita.
+- Restaurar uma versão anterior pelo **Histórico de versões** não conta como colagem: o texto que volta já era seu.
 - De tempos em tempos o painel envia as métricas: o indicador fica verde e aparece "Métricas salvas e enviadas.".
 - Se você fechar o painel, nada é registrado até ele abrir de novo (pelo menu ou recarregando a página). Você pode voltar outro dia. Cada volta conta como uma nova sessão, e os minutos ativos continuam somando, mesmo que os contadores ao vivo comecem do zero.
 

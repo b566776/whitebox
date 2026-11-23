@@ -32,15 +32,18 @@ const PROCESSO_GAP_SESSAO_MIN = 30;
  *
  * @param {Array} headers - primeira linha da aba Logs
  * @param {Array<Array>} rows - demais linhas
- * @param {{ docId: string, alunoEmail?: string|null, professorEmail?: string, gapMinutos?: number }} opts
+ * @param {{ docId: string, alunoEmail?: string|null, professorEmail?: string, gapMinutos?: number,
+ *           todosDocumentos?: boolean }} opts
  *        alunoEmail: restringe a um aluno (chamador aluno); null/ausente = todos (professor).
+ *        todosDocumentos: ignora docId e devolve um bloco por aluno e documento (com docId),
+ *        para o professor acompanhar todas as cópias sem abrir cada uma.
  * @returns {{ registros: number, alunos: Array<{ email, minutosAtivos, sessoes, palavras,
  *            colagens, charsAdicionados, charsDeletados, cpmMedio, cpmPico, entregue,
  *            primeiraAtividade, ultimaAtividade }> }}
  */
 function resumirProcessoDocumento(headers, rows, opts) {
   const vazio = { registros: 0, alunos: [] };
-  if (!headers || !rows || !opts || !opts.docId) return vazio;
+  if (!headers || !rows || !opts || (!opts.docId && !opts.todosDocumentos)) return vazio;
 
   const h = headers;
   const COL = {
@@ -59,7 +62,8 @@ function resumirProcessoDocumento(headers, rows, opts) {
   };
   if (COL.ts === -1 || COL.doc === -1 || COL.email === -1) return vazio;
 
-  const docId          = String(opts.docId);
+  const docId          = String(opts.docId || '');
+  const todos          = !!opts.todosDocumentos;
   const alunoFiltro    = opts.alunoEmail ? String(opts.alunoEmail).trim().toLowerCase() : null;
   const professorEmail = opts.professorEmail ? String(opts.professorEmail).trim().toLowerCase() : null;
   const gapMs          = (opts.gapMinutos || PROCESSO_GAP_SESSAO_MIN) * 60000;
@@ -74,14 +78,17 @@ function resumirProcessoDocumento(headers, rows, opts) {
   const porAluno = {};
   let registros = 0;
   rows.forEach(function(row) {
-    if (String(row[COL.doc] || '') !== docId) return;
+    const docLinha = String(row[COL.doc] || '');
+    if (!todos && docLinha !== docId) return;
+    if (todos && !docLinha) return;
     if (COL.risco !== -1 && !isNaN(parseFloat(row[COL.risco]))) return; // linha de análise
     const email = String(row[COL.email] || '').trim().toLowerCase();
     if (!email) return;
     if (professorEmail && email === professorEmail) return;
     if (alunoFiltro && email !== alunoFiltro) return;
-    if (!porAluno[email]) porAluno[email] = [];
-    porAluno[email].push({
+    const chave = todos ? email + '|' + docLinha : email;
+    if (!porAluno[chave]) porAluno[chave] = [];
+    porAluno[chave].push({
       t:        tempo(row[COL.ts]),
       palavras: num(row, COL.palavras),
       minutos:  num(row, COL.minutos),
@@ -96,8 +103,9 @@ function resumirProcessoDocumento(headers, rows, opts) {
   });
 
   // 2. Somar por trechos monotônicos
-  const alunos = Object.keys(porAluno).map(function(email) {
-    const linhas = porAluno[email].sort((a, b) => a.t - b.t);
+  const alunos = Object.keys(porAluno).map(function(chave) {
+    const linhas = porAluno[chave].sort((a, b) => a.t - b.t);
+    const email  = todos ? chave.substring(0, chave.indexOf('|')) : chave;
     const r = {
       email: email, minutosAtivos: 0, sessoes: 0, palavras: 0, colagens: 0,
       charsAdicionados: 0, charsDeletados: 0, cpmMedio: 0, cpmPico: 0, entregue: false,
@@ -128,6 +136,7 @@ function resumirProcessoDocumento(headers, rows, opts) {
       ant = l;
     });
     r.cpmMedio = cpmN > 0 ? Math.round(cpmSoma / cpmN) : 0;
+    if (todos) r.docId = chave.substring(chave.indexOf('|') + 1);
     return r;
   });
 
@@ -155,6 +164,8 @@ function handleResumoProcesso(body, cfg, callerEmail) {
   const docId          = String(body.docId || '').trim();
   const caller         = String(callerEmail || '').trim().toLowerCase();
   if (!professorEmail || !docId) return jsonResponse({ error: 'BAD_REQUEST', message: 'professorEmail e docId são obrigatórios.' }, 400);
+  // Todas as cópias: só o próprio professor (o aluno continua restrito ao próprio bloco).
+  const todosDocumentos = !!body.todosDocumentos && caller === professorEmail;
   if (!caller) return jsonResponse({ error: 'UNAUTHORIZED', message: 'Token inválido ou não autorizado.' }, 401);
 
   const registro = buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId);
@@ -178,9 +189,10 @@ function handleResumoProcesso(body, cfg, callerEmail) {
   const data = sheet.getDataRange().getValues();
 
   return jsonResponse(resumirProcessoDocumento(data[0] || [], data.slice(1), {
-    docId:          docId,
-    alunoEmail:     ehProfessor ? null : caller,
-    professorEmail: professorEmail,
-    gapMinutos:     PROCESSO_GAP_SESSAO_MIN
+    docId:           docId,
+    alunoEmail:      ehProfessor ? null : caller,
+    professorEmail:  professorEmail,
+    gapMinutos:      PROCESSO_GAP_SESSAO_MIN,
+    todosDocumentos: todosDocumentos
   }));
 }

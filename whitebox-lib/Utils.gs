@@ -51,7 +51,52 @@ function getDesignatedProfessors() {
   } catch (e) {
     Logger.log('[Whitebox-Lib] Erro ao ler WHITEBOX_CONFIG: ' + e);
   }
-  return emails;
+  return _sincronizarProfessorPersistido(emails);
+}
+
+/**
+ * O NamedRange WHITEBOX_CONFIG some quando o aluno apaga o começo do documento. Guarda o
+ * professor também em DocumentProperties (não depende do texto) e, se o NamedRange sumiu,
+ * usa a cópia guardada e o recria no primeiro parágrafo. Nunca lança.
+ *
+ * @param {string[]} emails - designados lidos dos NamedRanges
+ * @returns {string[]} os mesmos e-mails, ou [professor guardado] quando não havia NamedRange
+ * @private
+ */
+function _sincronizarProfessorPersistido(emails) {
+  try {
+    const props = PropertiesService.getDocumentProperties();
+    const guardado = (props.getProperty(DOC_PROP_PROFESSOR) || '').trim().toLowerCase();
+    if (emails.length > 0) {
+      if (guardado !== emails[0]) props.setProperty(DOC_PROP_PROFESSOR, emails[0]);
+      return emails;
+    }
+    if (!guardado) return emails;
+    _recriarConfigNoDocumento(guardado);
+    return [guardado];
+  } catch (e) {
+    Logger.log('[Whitebox-Lib] Erro ao sincronizar o professor guardado: ' + e);
+    return emails;
+  }
+}
+
+/**
+ * Recria o NamedRange WHITEBOX_CONFIG no primeiro elemento do corpo (mesmo formato que o
+ * servidor grava em _gravarConfigNoDocumento). O escopo documents.currentonly permite
+ * editar o documento aberto. Falha é só registrada: a propriedade continua valendo.
+ * @private
+ */
+function _recriarConfigNoDocumento(professorEmail) {
+  try {
+    const doc  = DocumentApp.getActiveDocument();
+    const body = doc.getBody();
+    if (!body || body.getNumChildren() === 0) return;
+    const nome = DOC_CONFIG_RANGE_PREFIX + JSON.stringify({ professorEmail: professorEmail });
+    doc.addNamedRange(nome, doc.newRange().addElement(body.getChild(0)).build());
+    Logger.log('[Whitebox-Lib] WHITEBOX_CONFIG recriado a partir de ' + DOC_PROP_PROFESSOR);
+  } catch (e) {
+    Logger.log('[Whitebox-Lib] Não foi possível recriar o WHITEBOX_CONFIG: ' + e);
+  }
 }
 
 /**

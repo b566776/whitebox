@@ -376,7 +376,7 @@
         <input type="text" id="levaEmail" placeholder="professor@escola.edu.br">
         <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap;">
           <button id="btnEnviarLevaEmail" onclick="enviarLinkLevaPorEmail()" style="background: #8b5cf6;">📧 Sim, enviar</button>
-          <button onclick="recusarEnvioLevaEmail()" style="background: transparent; border: 1px solid var(--glass-border); color: var(--text-dim);">Não, só mostrar o link</button>
+          <button onclick="recusarEnvioLevaEmail()" style="background: transparent; border: 1px solid var(--glass-border); color: var(--text-dim);">Não, só copiar o Link</button>
         </div>
       </div>
       <p id="levaEmailStatus" style="display: none; margin-top: 0.75rem; font-size: 0.9rem; word-break: normal;"></p>
@@ -671,7 +671,24 @@
     const tbody = document.getElementById('profTableBody');
     tbody.innerHTML = '';
 
-    data.professores.forEach(p => {
+    // Agrupado por instituição e, dentro dela, por professor (ordem alfabética).
+    const nomeInst = p => String(p.escola || '').trim() || 'Sem instituição';
+    const ordenados = data.professores.slice().sort((a, b) =>
+      nomeInst(a).localeCompare(nomeInst(b), 'pt-BR', { sensitivity: 'base' }) ||
+      String(a.email).localeCompare(String(b.email), 'pt-BR', { sensitivity: 'base' }));
+    let instAtual = null;
+    ordenados.forEach(p => {
+      if (nomeInst(p) !== instAtual) {
+        instAtual = nomeInst(p);
+        const trInst = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 4;
+        td.style.fontWeight = '700';
+        td.style.paddingTop = '0.75rem';
+        td.textContent = '🏫 ' + instAtual;
+        trInst.appendChild(td);
+        tbody.appendChild(trInst);
+      }
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${p.email}</td>
@@ -769,7 +786,34 @@
 
   function recusarEnvioLevaEmail() {
     document.getElementById('levaEmailConfirm').style.display = 'none';
-    mostrarStatusEmailLeva('Link não enviado por e-mail. Copie o link acima e envie ao professor.', false);
+    const url = document.getElementById('levaLink').innerText;
+    copiarTexto(url).then(ok => {
+      if (ok) showToast('Link copiado!');
+      mostrarStatusEmailLeva(ok
+        ? '📋 Link copiado. Cole-o na mensagem para o professor.'
+        : 'Não foi possível copiar automaticamente. Selecione o link acima e copie (Ctrl+C).', !ok);
+    });
+  }
+
+  /** Copia para a área de transferência. O iframe do Apps Script pode bloquear a API nova. */
+  function copiarTexto(texto) {
+    const antigo = () => {
+      const campo = document.createElement('textarea');
+      campo.value = texto;
+      campo.setAttribute('readonly', '');
+      campo.style.position = 'fixed';
+      campo.style.opacity = '0';
+      document.body.appendChild(campo);
+      campo.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(campo);
+      return ok;
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(texto).then(() => true, () => antigo());
+    }
+    return Promise.resolve(antigo());
   }
 
   function enviarLinkLevaPorEmail() {

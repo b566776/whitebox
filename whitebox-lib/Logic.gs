@@ -23,11 +23,19 @@ function start(e) {
     .addToUi();
 }
 
-function showSidebar() {
+/**
+ * @param {{ automatico?: boolean }} [opcoes] automatico = aberto pelo gatilho "ao abrir" do
+ *        aluno. Nesse caso o painel se fecha sozinho se quem abriu não tiver papel de aluno
+ *        (o gatilho dispara para qualquer editor, inclusive o professor corrigindo a cópia).
+ */
+function showSidebar(opcoes) {
   const ui = HtmlService.createHtmlOutputFromFile('Sidebar')
     .setTitle('Whitebox')
     .setSandboxMode(HtmlService.SandboxMode.IFRAME)
     .setWidth(300);
+  if (opcoes && opcoes.automatico) {
+    ui.append('<script>window.WB_ABERTURA_AUTOMATICA = true;</script>');
+  }
   DocumentApp.getUi().showSidebar(ui);
 }
 
@@ -92,6 +100,23 @@ function criarLevaTemplate(params) {
     titulo:         params.titulo         || '',
     instrucoes:     params.instrucoes     || '',
     prazo:          params.prazo          || ''
+  });
+}
+
+/**
+ * Pede ao servidor uma cópia deste documento mestre com o título da atividade. O Classroom
+ * nomeia a cópia de cada aluno "<aluno> - <nome do arquivo anexado>": anexando esta cópia,
+ * o nome reflete a atividade. Chamada pela Sidebar via callLibrary (sem wrapper no cliente).
+ *
+ * @param {string} titulo
+ * @returns {{ success: boolean, docId: string, nome: string, url: string }|{ error: string, message: string }}
+ */
+function criarCopiaParaAtividade(titulo) {
+  const userEmail = Session.getActiveUser().getEmail();
+  return callProxy(ROUTE_COPIAR_MODELO_ATIVIDADE, {
+    professorEmail: userEmail,
+    templateDocId:  DocumentApp.getActiveDocument().getId(),
+    titulo:         titulo || ''
   });
 }
 
@@ -170,6 +195,10 @@ function getContext() {
     : (isRegisteredProfessor && (!hasDesignation || isOwner || isProfessor)) ? 'teacher'
     : 'student';
 
+  // Cópia de aluno de um modelo sem a linha MARCADOR_INICIO_ALUNO: guarda o texto que veio
+  // do modelo para não contá-lo como escrito pelo aluno.
+  if (role === 'student' && hasDesignation) garantirLinhaDeBase();
+
   const responseObj = {
     email:        userEmail,
     docId:        doc.getId(),
@@ -191,25 +220,147 @@ function getContext() {
   return responseObj;
 }
 
+/**
+ * Métricas do documento para o pulso do painel do aluno.
+ *
+ * wordCount conta só o que o aluno escreveu: os parágrafos do modelo (até a linha
+ * MARCADOR_INICIO_ALUNO, ou a linha de base gravada na primeira abertura) ficam de fora.
+ * knownParagraphs marca, por índice, os parágrafos do modelo ou que já existiam antes
+ * (restaurar versão, desfazer): a Sidebar não os conta como colagem. restoredChars soma
+ * os caracteres que reapareceram desde a última medição, para não inflar Caracteres.
+ */
 function getDocumentStats() {
   const doc        = DocumentApp.getActiveDocument();
   const body       = doc.getBody();
   const text       = body.getText();
   const paragraphs = body.getParagraphs();
-  const structureSignature = paragraphs
-    .map(p => p.getText().trim().length)
+  const textos     = paragraphs.map(p => p.getText().trim());
+  const structureSignature = textos
+    .map(t => t.length)
     .filter(len => len > 0);
 
-  _checkAndUpdatePasteSnapshot(paragraphs);
+  const modelo = _mascaraDoModelo(textos);
+  const medida = _checkAndUpdatePasteSnapshot(paragraphs, modelo);
+
+  let palavras = 0;
+  textos.forEach(function(t, i) {
+    if (!modelo[i]) palavras += _contarPalavras(t);
+  });
 
   return {
     docId:              doc.getId(),
     length:             text.length,
-    wordCount:          text.split(/\s+/).filter(w => w.length > 0).length,
+    wordCount:          palavras,
     structureSignature: structureSignature,
-    paragraphLengths:   paragraphs.map(p => p.getText().trim().length),
+    paragraphLengths:   textos.map(t => t.length),
+    knownParagraphs:    medida.conhecidos,
+    restoredChars:      medida.charsRestaurados,
     fullTextChunk:      text.substring(0, 1000)
   };
+}
+
+/** @private */
+function _contarPalavras(texto) {
+  return String(texto || '').split(/\s+/).filter(w => w.length > 0).length;
+}
+
+/**
+ * Normaliza para comparar parágrafos e o marcador: minúsculas, sem acentos e com só
+ * letras, dígitos e espaços simples.
+ * @private
+ */
+function _normalizarComparacao(texto) {
+  return String(texto || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Hash curto (FNV-1a 32 bits, base 36) do parágrafo normalizado. Vazio → ''.
+ * @private
+ */
+function _hashParagrafo(texto) {
+  const norm = _normalizarComparacao(texto);
+  if (!norm) return '';
+  let h = 0x811c9dc5;
+  for (let i = 0; i < norm.length; i++) {
+    h ^= norm.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36) + '.' + norm.length.toString(36);
+}
+
+/**
+ * Índice da linha MARCADOR_INICIO_ALUNO (a última, se houver mais de uma), ou -1.
+ * @param {string[]} textos
+ * @private
+ */
+function _indiceDoMarcador(textos) {
+  const alvo = _normalizarComparacao(MARCADOR_INICIO_ALUNO);
+  for (let i = textos.length - 1; i >= 0; i--) {
+    if (_normalizarComparacao(textos[i]).indexOf(alvo) !== -1) return i;
+  }
+  return -1;
+}
+
+/**
+ * Para cada parágrafo, true se ele veio do modelo (não foi escrito pelo aluno):
+ *   1. com a linha MARCADOR_INICIO_ALUNO: tudo até ela, inclusive;
+ *   2. sem ela: os parágrafos cujo hash está na linha de base (DOC_PROP_BASELINE);
+ *   3. sem nenhum dos dois: nada (conta o documento inteiro, como antes).
+ * No documento mestre, o texto inteiro fica acima da linha: Radar vazio e 0 palavras.
+ *
+ * @param {string[]} textos - texto de cada parágrafo
+ * @returns {boolean[]}
+ */
+function _mascaraDoModelo(textos) {
+  const marcador = _indiceDoMarcador(textos);
+  if (marcador !== -1) return textos.map((t, i) => i <= marcador);
+
+  let base = null;
+  try {
+    const raw = PropertiesService.getDocumentProperties().getProperty(DOC_PROP_BASELINE);
+    if (raw) base = JSON.parse(raw);
+  } catch (e) {
+    Logger.log('[Whitebox] Linha de base ilegível: ' + e);
+  }
+  if (!base || !base.length) return textos.map(() => false);
+  const set = {};
+  base.forEach(function(h) { set[h] = true; });
+  return textos.map(t => { const h = _hashParagrafo(t); return !!h && !!set[h]; });
+}
+
+/**
+ * Grava a linha de base (hashes dos parágrafos atuais) na primeira abertura do painel pelo
+ * aluno, quando o documento não tem a linha MARCADOR_INICIO_ALUNO. Não grava se o painel já
+ * rodou neste documento antes (há snapshot ou mapa de colagens): numa cópia em que o aluno
+ * já escreveu, a base esconderia o texto dele. Nunca lança.
+ * @returns {boolean} true se gravou agora
+ */
+function garantirLinhaDeBase() {
+  try {
+    const props = PropertiesService.getDocumentProperties();
+    if (props.getProperty(DOC_PROP_BASELINE)) return false;
+    if (props.getProperty('WHITEBOX_PARA_SNAPSHOT') || props.getProperty(DOC_PROP_PASTE_MAP)) return false;
+    const textos = DocumentApp.getActiveDocument().getBody().getParagraphs().map(p => p.getText().trim());
+    if (_indiceDoMarcador(textos) !== -1) return false;
+    const hashes = [];
+    textos.forEach(function(t) {
+      const h = _hashParagrafo(t);
+      if (h && hashes.indexOf(h) === -1) hashes.push(h);
+    });
+    if (hashes.length === 0) return false;
+    // Uma propriedade guarda até 9 KB: um modelo muito longo fica com os primeiros parágrafos.
+    let json = JSON.stringify(hashes);
+    while (json.length > 8500 && hashes.length > 0) { hashes.pop(); json = JSON.stringify(hashes); }
+    props.setProperty(DOC_PROP_BASELINE, json);
+    return true;
+  } catch (e) {
+    Logger.log('[Whitebox] garantirLinhaDeBase: ' + e);
+    return false;
+  }
 }
 
 /**
@@ -227,9 +378,34 @@ function getDocumentStats() {
  * Isto captura colagens que ocorreram ANTES do primeiro snapshot,
  * que o método incremental jamais detectaria.
  */
-function _checkAndUpdatePasteSnapshot(paragraphs) {
+function _checkAndUpdatePasteSnapshot(paragraphs, modelo) {
   const props   = PropertiesService.getDocumentProperties();
-  const current = paragraphs.map(p => p.getText().trim().length);
+  const textos  = paragraphs.map(p => p.getText().trim());
+  const current = textos.map(t => t.length);
+  const hashes  = textos.map(_hashParagrafo);
+  modelo = modelo || _mascaraDoModelo(textos);
+
+  // Parágrafos já vistos antes desta medição: restaurar uma versão, desfazer ou mover texto
+  // traz de volta parágrafos iguais, que não são colagem.
+  let vistos = [];
+  let anteriores = null;
+  try { vistos = JSON.parse(props.getProperty(DOC_PROP_PARAGRAFOS_VISTOS) || '[]'); } catch (e) { vistos = []; }
+  try {
+    const rawAnt = props.getProperty(DOC_PROP_SNAPSHOT_HASHES);
+    if (rawAnt) anteriores = JSON.parse(rawAnt);
+  } catch (e) { anteriores = null; }
+  const vistoSet = {};
+  vistos.forEach(function(h) { vistoSet[h] = true; });
+  const antSet = {};
+  (anteriores || []).forEach(function(h) { antSet[h] = true; });
+
+  const conhecidos = hashes.map(function(h, i) { return !!modelo[i] || (!!h && !!vistoSet[h]); });
+  let charsRestaurados = 0;
+  if (anteriores) {
+    hashes.forEach(function(h, i) {
+      if (h && vistoSet[h] && !antSet[h]) charsRestaurados += current[i];
+    });
+  }
 
   // Incremental diff: paragraph grew >= 80 chars since last check → paste
   try {
@@ -240,6 +416,7 @@ function _checkAndUpdatePasteSnapshot(paragraphs) {
       const pasteMap = JSON.parse(mapRaw);
       let   dirty    = false;
       current.forEach(function(len, idx) {
+        if (conhecidos[idx]) return;
         if (len - (prev[idx] || 0) >= 80 && !pasteMap[String(idx)]) {
           pasteMap[String(idx)] = 'snapshot';
           dirty = true;
@@ -254,7 +431,8 @@ function _checkAndUpdatePasteSnapshot(paragraphs) {
   // Anomaly detection: >= 200 chars AND >= 2.5x median catches pre-snapshot pastes.
   // Runs for ALL document sizes (no minimum paragraph count).
   try {
-    const nonEmpty = current.filter(function(len) { return len > 0; });
+    // Mediana só do texto do aluno: o texto do modelo não é escrita dele.
+    const nonEmpty = current.filter(function(len, idx) { return len > 0 && !modelo[idx]; });
     if (nonEmpty.length >= 1) {
       const sorted = nonEmpty.slice().sort(function(a, b) { return a - b; });
       const mid    = Math.floor(sorted.length / 2);
@@ -267,6 +445,7 @@ function _checkAndUpdatePasteSnapshot(paragraphs) {
       const pasteMap = JSON.parse(mapRaw);
       let   dirty    = false;
       current.forEach(function(len, idx) {
+        if (conhecidos[idx]) return;
         if (len >= 200 && len >= minMedian * 2.5 && !pasteMap[String(idx)]) {
           pasteMap[String(idx)] = 'anomaly';
           dirty = true;
@@ -280,9 +459,26 @@ function _checkAndUpdatePasteSnapshot(paragraphs) {
 
   try {
     props.setProperty('WHITEBOX_PARA_SNAPSHOT', JSON.stringify(current));
+    props.setProperty(DOC_PROP_SNAPSHOT_HASHES, JSON.stringify(hashes.filter(Boolean)));
+    props.setProperty(DOC_PROP_PARAGRAFOS_VISTOS, JSON.stringify(_atualizarVistos(vistos, hashes)));
   } catch (e) {
     Logger.log('[Whitebox] snapshot save: ' + e);
   }
+
+  return { conhecidos: conhecidos, charsRestaurados: charsRestaurados };
+}
+
+/**
+ * LRU dos hashes vistos: os atuais vão para o fim; os mais antigos saem acima do teto.
+ * @private
+ */
+function _atualizarVistos(vistos, hashes) {
+  const atuais = {};
+  hashes.forEach(function(h) { if (h) atuais[h] = true; });
+  const lista = vistos.filter(function(h) { return !atuais[h]; });
+  Object.keys(atuais).forEach(function(h) { lista.push(h); });
+  while (lista.length > PARAGRAFOS_VISTOS_MAX) lista.shift();
+  return lista;
 }
 
 /**
@@ -366,15 +562,18 @@ function resolverProfessorDoDocumento(userEmail, ctx, item3) {
  *
  * @returns {{ registros: number, alunos: Array }|{ error: string, message: string }}
  */
-function getProcessReport() {
+function getProcessReport(opcoes) {
   const userEmail      = Session.getActiveUser().getEmail();
   const professorEmail = resolverProfessorDoDocumento(userEmail, getContext(), getAdvancedItem3Data());
   if (!professorEmail || professorEmail === 'NAO_IDENTIFICADO') {
     return { error: 'PROFESSOR_NAO_IDENTIFICADO', message: 'Não foi possível identificar o professor deste documento.' };
   }
+  // todosDocumentos: o professor vê as cópias de todos os alunos a partir do documento mestre,
+  // sem autorizar o painel em cada cópia. O servidor só atende se o chamador for o professor.
   return callProxy(ROUTE_RESUMO_PROCESSO, {
-    professorEmail: professorEmail,
-    docId:          DocumentApp.getActiveDocument().getId()
+    professorEmail:  professorEmail,
+    docId:           DocumentApp.getActiveDocument().getId(),
+    todosDocumentos: !!(opcoes && opcoes.todosDocumentos)
   });
 }
 
@@ -671,12 +870,15 @@ function getDocumentAuraMap() {
   const paragraphs = body.getParagraphs();
   const docId      = doc.getId();
 
+  // Parágrafos do modelo ficam fora do Radar: no documento mestre ele fica vazio.
+  const modelo = _mascaraDoModelo(paragraphs.map(p => p.getText().trim()));
+
   // Layer 2: snapshot + anomaly (fast, always runs)
-  _checkAndUpdatePasteSnapshot(paragraphs);
+  _checkAndUpdatePasteSnapshot(paragraphs, modelo);
 
   // Layer 1: Drive revision fingerprint diff (retroactive, 30-min cache, graceful fail)
   try {
-    _detectPasteFromRevisions(docId, paragraphs);
+    _detectPasteFromRevisions(docId, paragraphs, modelo);
   } catch (e) {
     Logger.log('[Whitebox] getDocumentAuraMap: revision diff outer error: ' + e);
   }
@@ -695,7 +897,7 @@ function getDocumentAuraMap() {
     Logger.log('[Whitebox] pasteMap read: ' + e);
   }
 
-  const allTexts = paragraphs.map(p => p.getText().trim()).filter(t => t.length > 0);
+  const allTexts = paragraphs.map(p => p.getText().trim()).filter((t, i) => t.length > 0 && !modelo[i]);
   const medianLen = _computeMedianParagraphLength(allTexts);
 
   // Layer 3: TTR lexical divergence — experimental, disabled by default.
@@ -727,7 +929,7 @@ function getDocumentAuraMap() {
 
   return paragraphs.map((p, index) => {
     const text = p.getText().trim();
-    if (text.length === 0) return null;
+    if (text.length === 0 || modelo[index]) return null;
 
     const r = text.length / medianLen;
     let score;
@@ -806,7 +1008,8 @@ function _buildFingerprintSet(exportText) {
   return set;
 }
 
-function _detectPasteFromRevisions(docId, paragraphs) {
+function _detectPasteFromRevisions(docId, paragraphs, modelo) {
+  modelo = modelo || [];
   try {
     var cache    = CacheService.getDocumentCache();
     var cacheKey = 'REV_DIFF_DONE_' + docId;
@@ -844,30 +1047,41 @@ function _detectPasteFromRevisions(docId, paragraphs) {
     var pasteMap = JSON.parse(mapRaw);
     var dirty    = false;
 
+    // Tudo o que já apareceu em alguma revisão anterior. Restaurar uma versão antiga traz de
+    // volta texto que já existia: comparar só com a revisão imediatamente anterior (que pode
+    // estar vazia, se o aluno apagou tudo antes) marcaria o documento inteiro como colagem.
+    var jaVisto = {};
+    if (responses[0].getResponseCode() === 200) {
+      var primeiro = _buildFingerprintSet(responses[0].getContentText());
+      for (var p0 in primeiro) jaVisto[p0] = true;
+    }
+
     for (var j = 1; j < responses.length; j++) {
       if (responses[j - 1].getResponseCode() !== 200 ||
           responses[j].getResponseCode()     !== 200) continue;
 
       var prevText = responses[j - 1].getContentText();
       var currText = responses[j].getContentText();
+      var currSet  = _buildFingerprintSet(currText);
 
-      if (currText.length - prevText.length < 100) continue;
-
-      var prevSet = _buildFingerprintSet(prevText);
-      var currSet = _buildFingerprintSet(currText);
+      if (currText.length - prevText.length < 100) {
+        for (var c0 in currSet) jaVisto[c0] = true;
+        continue;
+      }
 
       for (var k = 0; k < paragraphs.length; k++) {
-        if (pasteMap[String(k)]) continue;
+        if (pasteMap[String(k)] || modelo[k]) continue;
 
         var pNorm = _normalizeBlockText(paragraphs[k].getText());
         if (pNorm.length < 60) continue;
 
         var fp = pNorm.substring(0, 60);
-        if (currSet[fp] && !prevSet[fp]) {
+        if (currSet[fp] && !jaVisto[fp]) {
           pasteMap[String(k)] = 'revision';
           dirty = true;
         }
       }
+      for (var c1 in currSet) jaVisto[c1] = true;
     }
 
     if (dirty) props.setProperty(DOC_PROP_PASTE_MAP, JSON.stringify(pasteMap));

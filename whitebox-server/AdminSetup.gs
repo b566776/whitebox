@@ -214,6 +214,60 @@ function getOrCreateScriptsFolder() {
 }
 
 /**
+ * Pasta "WhiteBox/planilhas_dos_professores/<Instituição>" das planilhas de logs.
+ * @param {string} instituicao - como o professor escreveu no onboarding
+ */
+function getOrCreatePastaPlanilhasProfessores(instituicao) {
+  const base = _getOrCreateSubpasta(getOrCreateTargetFolder(), DRIVE_PLANILHAS_PROFESSORES_FOLDER_NAME);
+  return _getOrCreateSubpasta(base, nomePastaInstituicao(instituicao));
+}
+
+/**
+ * Nome de pasta para a instituição: sem barras, espaços repetidos nem nome vazio.
+ * @param {string} instituicao
+ */
+function nomePastaInstituicao(instituicao) {
+  const nome = String(instituicao || '').replace(/[\/\\]+/g, '-').replace(/\s+/g, ' ').trim();
+  if (!nome || nome === 'Não informada') return DRIVE_INSTITUICAO_SEM_NOME;
+  return nome.substring(0, 100);
+}
+
+/**
+ * Põe a planilha de logs do professor na pasta da instituição e a compartilha com ele
+ * (COMPARTILHAMENTO_PLANILHA_PROFESSOR). Nunca lança: o cadastro não pode falhar por isso.
+ * @returns {{ movida: boolean, compartilhada: boolean }}
+ */
+function organizarPlanilhaProfessor(spreadsheetId, email, instituicao) {
+  const r = { movida: false, compartilhada: false };
+  let file;
+  try {
+    file = DriveApp.getFileById(spreadsheetId);
+  } catch (err) {
+    Logger.log('[AdminSetup] Planilha ' + spreadsheetId + ' inacessível: ' + err);
+    return r;
+  }
+  try {
+    const destino = getOrCreatePastaPlanilhasProfessores(instituicao);
+    let jaEsta = false;
+    const pais = file.getParents();
+    while (pais.hasNext()) { if (pais.next().getId() === destino.getId()) jaEsta = true; }
+    if (!jaEsta) { file.moveTo(destino); r.movida = true; }
+  } catch (err) {
+    Logger.log('[AdminSetup] Não foi possível mover a planilha de ' + email + ': ' + err);
+  }
+  try {
+    if (email) {
+      if (COMPARTILHAMENTO_PLANILHA_PROFESSOR === 'editor') file.addEditor(email);
+      else file.addViewer(email);
+      r.compartilhada = true;
+    }
+  } catch (err) {
+    Logger.log('[AdminSetup] Não foi possível compartilhar a planilha com ' + email + ': ' + err);
+  }
+  return r;
+}
+
+/**
  * Subpasta de `pai` com exatamente esse nome, ou null. A busca do Drive não
  * diferencia maiúsculas, então "whitebox" e "WhiteBox" precisam ser filtradas aqui.
  * @private
@@ -239,7 +293,9 @@ function _getOrCreateSubpasta(pai, nome) {
  * Migração única: põe sob "WhiteBox" o que o Whitebox criou antes desta organização.
  * Executar no editor do servidor. Pode ser repetida sem efeito colateral.
  *  - conteúdo da pasta antiga (DRIVE_PASTA_ANTIGA) e de pastas "whitebox" soltas na raiz;
- *  - planilha global, planilhas de logs dos professores, formulário e documento semente;
+ *  - planilha global, formulário e documento semente;
+ *  - planilhas de logs dos professores, em "WhiteBox/planilhas_dos_professores/<Instituição>",
+ *    compartilhadas com cada professor;
  *  - formulários de onboarding e documentos "Modelo Mestre" desta conta;
  *  - projetos de script do servidor e da biblioteca, em "WhiteBox/Scripts".
  * Também reaplica o texto de ajuda nos formulários de onboarding.
@@ -291,9 +347,19 @@ function organizarPastasWhitebox() {
   const cfg = getConfig();
   mover(cfg.adminSpreadsheetId, root);
   try {
-    const data = getPlanilhaGlobal(cfg.adminSpreadsheetId).getDataRange().getValues();
-    const col  = data[0].indexOf('SpreadsheetId');
-    for (let r = 1; col >= 0 && r < data.length; r++) mover(String(data[r][col] || '').trim(), root);
+    const data    = getPlanilhaGlobal(cfg.adminSpreadsheetId).getDataRange().getValues();
+    const col     = data[0].indexOf('SpreadsheetId');
+    const emailC  = data[0].indexOf('Email');
+    const instC   = data[0].indexOf('Instituicao');
+    // Planilhas de logs: pasta da instituição e compartilhadas com o professor
+    for (let r = 1; col >= 0 && r < data.length; r++) {
+      const id = String(data[r][col] || '').trim();
+      if (!id) continue;
+      const res = organizarPlanilhaProfessor(id,
+        emailC >= 0 ? String(data[r][emailC] || '').trim() : '',
+        instC >= 0 ? data[r][instC] : '');
+      if (res.movida) movidos.push(id);
+    }
     const configTab = SpreadsheetApp.openById(cfg.adminSpreadsheetId).getSheetByName('Config');
     const conf = configTab ? configTab.getDataRange().getValues() : [];
     for (let r = 1; r < conf.length; r++) {

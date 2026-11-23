@@ -559,7 +559,163 @@ function _gravarConfigNoDocumento(docId, professorEmail) {
      .forEach(r => r.remove());
 
   doc.addNamedRange(nome, doc.newRange().addElement(doc.getBody().getChild(0)).build());
+  try {
+    _prepararTextoDoModelo(doc);
+  } catch (textoErr) {
+    Logger.log('[TemplateService] Não foi possível ajustar o texto do modelo: ' + textoErr);
+  }
   doc.saveAndClose(); // gravar já: o Classroom copia o documento nesta mesma execução
+}
+
+/**
+ * Ajusta o texto de um Documento Modelo/mestre para o aluno não apagar o começo:
+ *   1. troca a instrução antiga "selecione e apague todo este texto" por
+ *      TEXTO_INSTRUCAO_NAO_APAGAR (apagar o começo apaga junto o WHITEBOX_CONFIG);
+ *   2. acrescenta no fim a linha TEXTO_LINHA_MARCADOR, se ainda não houver. A biblioteca
+ *      não conta o que está acima dela em Palavras Escritas, no Radar nem como colagem.
+ * Pode ser repetida: não duplica a linha nem a troca.
+ *
+ * @param {GoogleAppsScript.Document.Document} doc - aberto por DocumentApp.openById
+ * @returns {{ instrucaoTrocada: boolean, marcadorIncluido: boolean }}
+ * @private
+ */
+function _prepararTextoDoModelo(doc) {
+  const body = doc.getBody();
+  const antes = body.getText();
+  body.replaceText(REGEX_INSTRUCAO_APAGAR_MODELO, TEXTO_INSTRUCAO_NAO_APAGAR);
+  const instrucaoTrocada = body.getText() !== antes;
+
+  const alvo = _normalizarMarcador(MARCADOR_INICIO_ALUNO);
+  const temMarcador = body.getParagraphs().some(p => _normalizarMarcador(p.getText()).indexOf(alvo) !== -1);
+  if (!temMarcador) {
+    const linha = body.appendParagraph(TEXTO_LINHA_MARCADOR);
+    linha.setHeading(DocumentApp.ParagraphHeading.NORMAL)
+         .setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+    linha.editAsText().setBold(true).setForegroundColor('#4f46e5');
+    // Parágrafo vazio e sem destaque logo abaixo: é onde o aluno começa a escrever.
+    const inicio = body.appendParagraph('');
+    try {
+      const attrs = {};
+      attrs[DocumentApp.Attribute.BOLD] = false;
+      attrs[DocumentApp.Attribute.FOREGROUND_COLOR] = '#000000';
+      attrs[DocumentApp.Attribute.HORIZONTAL_ALIGNMENT] = DocumentApp.HorizontalAlignment.LEFT;
+      inicio.setAttributes(attrs);
+    } catch (fmtErr) {
+      Logger.log('[TemplateService] Formatação do parágrafo inicial do aluno: ' + fmtErr);
+    }
+  }
+  return { instrucaoTrocada: instrucaoTrocada, marcadorIncluido: !temMarcador };
+}
+
+/** Mesma normalização de _normalizarComparacao (whitebox-lib/Logic.gs). @private */
+function _normalizarMarcador(texto) {
+  return String(texto || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Executar no editor do servidor (uma vez, e de novo se o Documento Semente mudar):
+ * aplica _prepararTextoDoModelo ao Documento Semente e a todos os "Whitebox - Modelo
+ * Mestre" desta conta. Não mexe na designação do professor.
+ * @returns {{ documentos: number, alterados: string[] }}
+ */
+function atualizarTextoDosModelos() {
+  const ids = {};
+  try {
+    const configTab = SpreadsheetApp.openById(getConfig().adminSpreadsheetId).getSheetByName('Config');
+    const conf = configTab ? configTab.getDataRange().getValues() : [];
+    for (let r = 1; r < conf.length; r++) {
+      if (conf[r][0] === 'seed_document_id' && conf[r][1]) ids[String(conf[r][1]).trim()] = true;
+    }
+  } catch (err) {
+    Logger.log('[TemplateService] Documento Semente indisponível: ' + err);
+  }
+  const it = DriveApp.searchFiles(
+    "title contains 'Whitebox - Modelo Mestre' and mimeType = 'application/vnd.google-apps.document' " +
+    "and 'me' in owners and trashed = false");
+  while (it.hasNext()) ids[it.next().getId()] = true;
+
+  const alterados = [];
+  Object.keys(ids).forEach(function(id) {
+    try {
+      const doc = DocumentApp.openById(id);
+      const r = _prepararTextoDoModelo(doc);
+      if (r.instrucaoTrocada || r.marcadorIncluido) alterados.push(doc.getName());
+      doc.saveAndClose();
+    } catch (err) {
+      Logger.log('[TemplateService] Não foi possível ajustar ' + id + ': ' + err);
+    }
+  });
+  Logger.log('[TemplateService] Texto ajustado em ' + alterados.length + ' de ' +
+             Object.keys(ids).length + ' documento(s): ' + alterados.join(', '));
+  return { documentos: Object.keys(ids).length, alterados: alterados };
+}
+
+// =====================================================
+//  HANDLER: Cópia do mestre com o título da atividade
+// =====================================================
+
+/**
+ * O Classroom nomeia a cópia de cada aluno "<aluno> - <nome do arquivo anexado>". Anexando
+ * o mestre, todas as atividades viram "<aluno> - Whitebox - Modelo Mestre (<email>)". Esta
+ * rota copia o mestre com o título da atividade (com o script do documento, a designação e
+ * a linha do marcador) e compartilha a cópia com o professor, que a anexa no Classroom
+ * ou distribui por ela.
+ *
+ * Só aceita um documento desta conta designado ao próprio chamador.
+ *
+ * @param {object} body - { professorEmail, templateDocId, titulo }
+ * @param {object} cfg
+ * @param {string} callerEmail - e-mail verificado (o doPost já exigiu = professorEmail e Ativo)
+ */
+function handleCopiarModeloAtividade(body, cfg, callerEmail) {
+  const professorEmail = String(body.professorEmail || '').trim().toLowerCase();
+  const titulo = String(body.titulo || '').replace(/\s+/g, ' ').trim();
+  const templateDocId = String(body.templateDocId || '').trim();
+  if (!templateDocId) return jsonResponse({ error: 'TEMPLATE_ID_OBRIGATORIO', message: 'Documento não informado.' }, 400);
+  if (!titulo) return jsonResponse({ error: 'TITULO_OBRIGATORIO', message: 'Preencha o título da atividade.' }, 400);
+  if (titulo.length > 120) return jsonResponse({ error: 'TITULO_LONGO', message: 'Use um título de até 120 caracteres.' }, 400);
+  if (!callerEmail || callerEmail !== professorEmail) {
+    return jsonResponse({ error: 'UNAUTHORIZED', message: 'Token inválido ou não autorizado.' }, 401);
+  }
+
+  let file, designados;
+  try {
+    file = DriveApp.getFileById(templateDocId);
+    designados = DocumentApp.openById(templateDocId).getNamedRanges()
+      .map(r => r.getName())
+      .filter(n => n.indexOf(DOC_CONFIG_RANGE_PREFIX) === 0)
+      .map(n => { try { return String(JSON.parse(n.substring(DOC_CONFIG_RANGE_PREFIX.length)).professorEmail || '').toLowerCase(); } catch (e) { return ''; } });
+  } catch (err) {
+    return jsonResponse({
+      error: 'TEMPLATE_NAO_ENCONTRADO',
+      message: 'O servidor não consegue abrir este documento. Use o documento mestre recebido do Whitebox.'
+    }, 404);
+  }
+  if (designados.indexOf(professorEmail) === -1) {
+    return jsonResponse({
+      error: 'TEMPLATE_DE_OUTRO_PROFESSOR',
+      message: 'Este documento não está designado a você. Abra o seu documento mestre e tente de novo.'
+    }, 403);
+  }
+
+  try {
+    const copia = file.makeCopy(titulo, _getOrCreatePastaProfessor(professorEmail));
+    _gravarConfigNoDocumento(copia.getId(), professorEmail);
+    try {
+      copia.setOwner(professorEmail);
+    } catch (e) {
+      copia.addEditor(professorEmail); // entre contas Gmail a transferência falha
+    }
+    Logger.log('[TemplateService] Cópia "' + titulo + '" criada para ' + professorEmail + ': ' + copia.getId());
+    return jsonResponse({ success: true, docId: copia.getId(), nome: titulo, url: copia.getUrl() });
+  } catch (err) {
+    Logger.log('[TemplateService] handleCopiarModeloAtividade erro: ' + err);
+    return jsonResponse({ error: 'COPIA_FALHOU', message: 'Não foi possível criar a cópia: ' + err }, 500);
+  }
 }
 
 /**

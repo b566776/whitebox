@@ -141,7 +141,7 @@ test('organizarPastasWhitebox move o que já existe para WhiteBox e WhiteBox/Scr
   const onde = id => drive.caminho(id);
   assert.equal(onde('ADMIN'), 'WhiteBox/Whitebox - Painel Global Admin');
   assert.equal(onde('TPL-A'), 'WhiteBox/templates/Modelo A');
-  assert.equal(onde('LOG-PROF'), 'WhiteBox/Whitebox - prof@ies.edu.br');
+  assert.equal(onde('LOG-PROF'), 'WhiteBox/planilhas_dos_professores/Sem instituição/Whitebox - prof@ies.edu.br');
   assert.equal(onde('FORM-1'), 'WhiteBox/Whitebox - Onboarding: Leva 1');
   assert.equal(onde('MESTRE'), 'WhiteBox/Whitebox - Modelo Mestre (prof@ies.edu.br)');
   assert.equal(onde('SEED-DOC'), 'WhiteBox/Documento modelo');
@@ -194,4 +194,37 @@ test('atualizarAjudaFormulariosOnboarding só mexe na pergunta do Cofre', () => 
   assert.equal(ctx.atualizarAjudaFormulariosOnboarding(), 1);
   assert.equal(cofre.it.ajuda, ctx.textoAjudaCofre());
   assert.equal(nome.it.ajuda, 'texto antigo');
+});
+
+test('organizarPlanilhaProfessor: pasta da instituição e compartilhamento como leitor', () => {
+  const drive = criarDrive();
+  drive.arquivo('Whitebox - prof@ies.edu.br', null, { id: 'LOG-PROF' });
+  const ctx = montar(drive);
+  const leitores = [];
+  const getFile = ctx.DriveApp.getFileById;
+  ctx.DriveApp.getFileById = id => Object.assign(getFile(id), { addViewer: e => leitores.push(e) });
+  const r = ctx.organizarPlanilhaProfessor('LOG-PROF', 'prof@ies.edu.br', 'Escola / Unidade  Centro');
+  assert.equal(r.movida, true);
+  assert.equal(r.compartilhada, true);
+  assert.equal(drive.caminho('LOG-PROF'), 'WhiteBox/planilhas_dos_professores/Escola - Unidade Centro/Whitebox - prof@ies.edu.br');
+  assert.deepEqual(leitores, ['prof@ies.edu.br']);
+  assert.equal(ctx.organizarPlanilhaProfessor('LOG-PROF', 'prof@ies.edu.br', 'Escola / Unidade  Centro').movida, false);
+});
+
+test('nomePastaInstituicao: vazio ou "Não informada" vira "Sem instituição"', () => {
+  const ctx = montar(criarDrive());
+  assert.equal(ctx.nomePastaInstituicao(''), 'Sem instituição');
+  assert.equal(ctx.nomePastaInstituicao('Não informada'), 'Sem instituição');
+  assert.equal(ctx.nomePastaInstituicao('  IFSP  '), 'IFSP');
+});
+
+test('configurarColetaDeEmail usa VERIFIED e cai no setCollectEmail sem a API nova', () => {
+  const ctx = montar(criarDrive());
+  ctx.FormApp.EmailCollectionType = { VERIFIED: 'VERIFIED' };
+  const chamadas = [];
+  ctx.configurarColetaDeEmail({ setEmailCollectionType: t => chamadas.push(t), setCollectEmail: () => chamadas.push('antigo') });
+  assert.deepEqual(chamadas, ['VERIFIED']);
+  const antigos = [];
+  ctx.configurarColetaDeEmail({ setEmailCollectionType: () => { throw new Error('não existe'); }, setCollectEmail: v => antigos.push(v) });
+  assert.deepEqual(antigos, [true]);
 });
