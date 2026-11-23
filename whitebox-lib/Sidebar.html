@@ -1247,6 +1247,8 @@
         while (filaMedicoes.length > RADAR_FILA_MAX) filaMedicoes.shift();
       }
 
+      /** Uma tentativa por abertura do painel de compartilhar a cópia com o servidor. */
+      let compartilhamentoTentado = false;
       function enviarMedicoes(forcar) {
         if (enviandoMedicoes || filaMedicoes.length === 0) return;
         if (!forcar && Date.now() - ultimoEnvioMedicoesMs < RADAR_ENVIO_MS) return;
@@ -1262,6 +1264,11 @@
             enviandoMedicoes = false;
             // Servidor ocupado ou fora do ar: tenta de novo no próximo envio.
             if (res && (res.error === 'OCUPADO' || res.error === 'PROXY_INVALID_RESPONSE')) devolver();
+            // Etapa 3: o servidor pede leitura da cópia para conferir as revisões do Drive.
+            if (res && res.precisaAcesso && res.contaServidor && !compartilhamentoTentado) {
+              compartilhamentoTentado = true;
+              google.script.run.withFailureHandler(function() {}).compartilharComServidor(res.contaServidor);
+            }
             // Escola em modo add-on e o painel veio do script da cópia: o servidor recusa.
             if (res && res.error === 'ORIGEM_NAO_AUTORIZADA') {
               document.getElementById('origem-aviso').classList.remove('hidden');

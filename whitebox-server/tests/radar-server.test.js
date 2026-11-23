@@ -31,6 +31,7 @@ function planilha() {
           linhas[r - 1 + i] = linhas[r - 1 + i] || [];
           row.forEach((v, j) => { linhas[r - 1 + i][c - 1 + j] = v; });
         }),
+        setValue: v => { linhas[r - 1] = linhas[r - 1] || []; linhas[r - 1][c - 1] = v; },
         setFontWeight: () => {}
       })
     };
@@ -53,10 +54,30 @@ function montar(o) {
     SHEET_RADAR_EVENTOS: 'Radar_Eventos',
     SpreadsheetApp: { openById: () => ss },
     LockService: { getScriptLock: () => ({ tryLock: () => o.lockOk !== false, releaseLock: () => {} }) },
+    Session: { getEffectiveUser: () => ({ getEmail: () => 'Servidor@x.com' }) },
+    ScriptApp: { getOAuthToken: () => 'TOKEN-SERVIDOR' },
+    // Drive simulado: o.drive = { codigo, revisoes: [{ id, ts, texto }] } ou ausente (403).
+    UrlFetchApp: (() => {
+      const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => body });
+      return {
+        fetch: (url, opts) => {
+          (o.pedidosDrive = o.pedidosDrive || []).push({ url, auth: opts.headers.Authorization });
+          const d = o.drive;
+          if (!d) return resp(403, '{}');
+          if (d.codigo && d.codigo !== 200) return resp(d.codigo, '{}');
+          return resp(200, JSON.stringify({ revisions: d.revisoes.map(r => ({
+            id: r.id, modifiedTime: new Date(r.ts).toISOString(), exportLinks: { 'text/plain': 'exp://' + r.id } })) }));
+        },
+        fetchAll: reqs => reqs.map(q => {
+          const r = o.drive.revisoes.find(x => 'exp://' + x.id === q.url);
+          return resp(r ? 200 : 404, r ? '\uFEFF' + r.texto : '');
+        })
+      };
+    })(),
     __agora: o.agora || Date.parse('2026-11-23T12:00:00Z')
   };
   vm.createContext(ctx);
-  for (const f of ['RadarCore.gs', 'RadarServer.gs', 'Escolas.gs']) {
+  for (const f of ['RadarCore.gs', 'RadarServer.gs', 'Escolas.gs', 'RadarRevisoes.gs']) {
     vm.runInContext(fs.readFileSync(path.join(SERVER, f), 'utf8'), ctx, { filename: f });
   }
   vm.runInContext(`
@@ -283,4 +304,130 @@ test('ping devolve o ID de cliente do token e se ele é o do add-on', () => {
   assert.equal(ctx.respostaPing('a@x.com', 'OUTRO', []).origem, 'script_vinculado');
   const src = fs.readFileSync(path.join(SERVER, 'BrainProxy.gs'), 'utf8');
   assert.match(src, /case 'ping':[\s\S]*?respostaPing\(callerEmail, token \? token\.clientId : '', idsDoAddon\(\)\)/);
+});
+
+// ---- Etapa 3: conferência pelas revisões do Drive (RadarRevisoes.gs) ----
+
+test('Revisões: colagem entre duas revisões vira alerta com o mesmo hash das medições', () => {
+  const { ctx } = montar();
+  const colado = frase('copiado da internet', 600);
+  const estado = ctx.radarEstadoNovo();
+  const t0 = Date.parse('2026-11-23T10:00:00Z');
+  const r = ctx.radarAnalisarRevisoes(estado, [
+    { id: 'r1', ts: t0, texto: [MARC, 'Começo.'].join('\r\n') },
+    { id: 'r2', ts: t0 + 30 * SEG, texto: [MARC, 'Começo.', colado].join('\r\n') }   // +600 em 30 s
+  ], t0 + 60 * SEG);
+  assert.equal(r.novas, 2);
+  assert.equal(r.eventos.filter(e => e.estado === 'C').length, 1);
+  const alerta = estado.mapa.a[ctx.radarHash(colado)];
+  assert.equal(alerta.e, 'C');
+  assert.equal(alerta.f, 'revisao_servidor');
+  assert.equal(estado.rv.acesso, 'ok');
+});
+
+test('Revisões: digitação no ritmo normal e restauração de texto antigo não marcam nada', () => {
+  const { ctx } = montar();
+  const meu = frase('escrevi devagar', 600);
+  const t0 = Date.parse('2026-11-23T10:00:00Z');
+  const lento = ctx.radarEstadoNovo();
+  ctx.radarAnalisarRevisoes(lento, [
+    { id: 'a', ts: t0, texto: MARC },
+    { id: 'b', ts: t0 + 20 * 60 * SEG, texto: [MARC, meu].join('\n') }               // 600 em 20 min
+  ], t0);
+  assert.deepEqual(Object.keys(lento.mapa.a), []);
+  const restaurado = ctx.radarEstadoNovo();
+  ctx.radarAnalisarRevisoes(restaurado, [
+    { id: 'a', ts: t0, texto: [MARC, meu].join('\n') },
+    { id: 'b', ts: t0 + 60 * SEG, texto: MARC },
+    { id: 'c', ts: t0 + 70 * SEG, texto: [MARC, meu].join('\n') }                    // voltou (desfazer)
+  ], t0);
+  assert.deepEqual(Object.keys(restaurado.mapa.a), []);
+});
+
+test('Revisões: medição que não bate com o tamanho da revisão conta como divergência', () => {
+  const { ctx } = montar();
+  const t0 = Date.parse('2026-11-23T10:00:00Z');
+  const estado = ctx.radarEstadoNovo();
+  estado.hist = [[t0 - 30 * SEG, 40]];                                              // painel disse ~40 chars
+  const r = ctx.radarAnalisarRevisoes(estado, [{ id: 'r1', ts: t0, texto: [MARC, frase('texto', 2000)].join('\n') }], t0);
+  assert.equal(r.divergencias, 1);
+  assert.equal(r.eventos[0].estado, 'DIVERGENCIA');
+  assert.equal(estado.rv.divergencias, 1);
+  // Medição coerente (diferença pequena): sem divergência
+  const ok = ctx.radarEstadoNovo();
+  ok.hist = [[t0, MARC.length + 1990]];
+  assert.equal(ctx.radarAnalisarRevisoes(ok, [{ id: 'r1', ts: t0, texto: [MARC, frase('texto', 2000)].join('\n') }], t0).divergencias, 0);
+  // Medição longe da revisão (fora da janela de 3 min): não compara
+  const longe = ctx.radarEstadoNovo();
+  longe.hist = [[t0 - 30 * 60 * SEG, 40]];
+  assert.equal(ctx.radarAnalisarRevisoes(longe, [{ id: 'r1', ts: t0, texto: frase('x', 2000) }], t0).divergencias, 0);
+});
+
+test('Revisões já analisadas não são contadas de novo', () => {
+  const { ctx } = montar();
+  const t0 = Date.parse('2026-11-23T10:00:00Z');
+  const estado = ctx.radarEstadoNovo();
+  const revs = [{ id: 'a', ts: t0, texto: MARC }, { id: 'b', ts: t0 + 60 * SEG, texto: MARC + '\nOi.' }];
+  ctx.radarAnalisarRevisoes(estado, revs, t0);
+  const r = ctx.radarAnalisarRevisoes(estado, revs, t0 + 60 * 60 * SEG);
+  assert.equal(r.novas, 0);
+  assert.equal(estado.rv.lidas, 2);
+});
+
+test('Intervalo da conferência: 30 min normal, 5 min logo depois de ficar sem acesso', () => {
+  const { ctx } = montar();
+  const agora = 10 * 60 * 60 * SEG;
+  assert.equal(ctx.radarHoraDeConferir(ctx.radarEstadoNovo(), agora, 30 * 60 * SEG), true);
+  const ok = { rv: { em: agora - 10 * 60 * SEG, acesso: 'ok' } };
+  assert.equal(ctx.radarHoraDeConferir(ok, agora, 30 * 60 * SEG), false);
+  const sem = { rv: { em: agora - 6 * 60 * SEG, acesso: 'sem_acesso' } };
+  assert.equal(ctx.radarHoraDeConferir(sem, agora, 30 * 60 * SEG), true);
+});
+
+test('Sem acesso às revisões: a resposta pede ao painel para compartilhar com a conta do servidor', () => {
+  const o = {};
+  const { ctx, ss } = montar(o);
+  const r = ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC, medicoes: [med(ctx, ctx.__agora, [MARC, 'oi'])] }, {}, ALUNO, '');
+  assert.equal(r.data.precisaAcesso, true);
+  assert.equal(r.data.contaServidor, 'servidor@x.com');
+  assert.equal(o.pedidosDrive[0].auth, 'Bearer TOKEN-SERVIDOR', 'lê o Drive com a conta do servidor, não com a do aluno');
+  assert.equal(ss.abas.Radar_Estado.linhas[1][12], 'sem_acesso');
+});
+
+test('Com acesso: medições e revisões conferidas; o radar do professor mostra o resultado', () => {
+  const colado = frase('internet', 500);
+  const t0 = Date.parse('2026-11-23T11:58:00Z');
+  const o = { drive: { revisoes: [
+    { id: 'r1', ts: t0, texto: MARC },
+    { id: 'r2', ts: t0 + 20 * SEG, texto: [MARC, colado].join('\n') }
+  ] } };
+  const { ctx, ss } = montar(o);
+  // O painel mandou só uma medição "lenta" e pequena (forjada): a revisão mostra a colagem.
+  const r = ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC,
+    medicoes: [med(ctx, t0 + 25 * SEG, [MARC, 'só isso'])] }, {}, ALUNO, '');
+  assert.equal(r.data.precisaAcesso, undefined);
+  const linha = ss.abas.Radar_Estado.linhas[1];
+  assert.equal(linha[10], 2, 'Revisoes_Lidas');
+  assert.equal(linha[11], 1, 'Divergencias');
+  assert.equal(linha[12], 'ok');
+  const eventos = ss.abas.Radar_Eventos.linhas.slice(1).map(e => e[3]);
+  assert.ok(eventos.includes('C') && eventos.includes('DIVERGENCIA'), eventos.join(','));
+
+  const radar = ctx.handleRadarDocumento({ professorEmail: PROF, docId: DOC }, {});
+  const a = radar.data.alunos[0];
+  assert.equal(a.revisoes.lidas, 2);
+  assert.equal(a.revisoes.divergencias, 1);
+  assert.equal(a.revisoes.acesso, 'ok');
+  assert.equal(a.mapa.a[ctx.radarHash(colado)].f, 'revisao_servidor');
+  assert.equal(radar.data.contaServidor, 'servidor@x.com');
+});
+
+test('Histórico de tamanhos guarda só medições com mudança, com teto', () => {
+  const { ctx } = montar();
+  const estado = ctx.radarEstadoNovo();
+  ctx.radarRegistrarHistorico(estado, { ts: 1, igual: true });
+  ctx.radarRegistrarHistorico(estado, { ts: 2, l: [3, 4] });
+  assert.deepEqual(JSON.parse(JSON.stringify(estado.hist)), [[2, 7]]);
+  for (let i = 0; i < 900; i++) ctx.radarRegistrarHistorico(estado, { ts: 10 + i, l: [i] });
+  assert.equal(estado.hist.length, 800);
 });

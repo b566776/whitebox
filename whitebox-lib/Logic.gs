@@ -1080,6 +1080,32 @@ function getDocumentAuraMap() {
 }
 
 /**
+ * Etapa 3 do Radar: compartilha este documento, como LEITOR, com a conta do servidor, para
+ * o servidor conferir as medições com o histórico de revisões do Drive usando a conta dele.
+ * Document.addViewer usa só o escopo documents.currentonly que o painel já tem: nada de
+ * escopo restrito (regra do projeto). A conta vem da resposta do servidor (URL fixa em
+ * BRAIN_PROXY_URL). Nunca lança.
+ * @param {string} conta - e-mail da conta do servidor
+ * @returns {{ ok: boolean, jaTinha?: boolean, erro?: string }}
+ */
+function compartilharComServidor(conta) {
+  conta = String(conta || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(conta)) return { ok: false, erro: 'CONTA_INVALIDA' };
+  try {
+    const doc = DocumentApp.getActiveDocument();
+    const ja = doc.getViewers().concat(doc.getEditors())
+      .some(u => String(u.getEmail() || '').toLowerCase() === conta);
+    if (!ja) doc.addViewer(conta);
+    PropertiesService.getDocumentProperties().setProperty(DOC_PROP_SERVIDOR_COMPARTILHADO, conta);
+    return { ok: true, jaTinha: ja };
+  } catch (e) {
+    // Ex.: a escola bloqueia compartilhar com contas de fora do domínio.
+    Logger.log('[Whitebox] compartilharComServidor: ' + e);
+    return { ok: false, erro: String(e && e.message || e) };
+  }
+}
+
+/**
  * Radar guardado no servidor para este documento (rota radar_documento). Usa o aluno com
  * mais medições; outros e-mails que mandaram medições para o mesmo documento viram aviso.
  * @returns {{ aluno: object|null, outros: string[], erro: string|null }}
@@ -1094,7 +1120,14 @@ function _radarDoServidor(docId) {
     if (!res || res.error) return { aluno: null, outros: [], erro: (res && (res.message || res.error)) || 'sem resposta' };
     const alunos = (res.alunos || []).filter(a => a && a.mapa && a.mapa.a);
     if (alunos.length === 0) return { aluno: null, outros: [], erro: null };
-    return { aluno: alunos[0], outros: alunos.slice(1).map(a => a.email), erro: null };
+    const aluno = alunos[0];
+    // Etapa 3: o servidor ainda não lê as revisões desta cópia. O professor (editor)
+    // compartilha com a conta do servidor, caso o painel do aluno não tenha conseguido.
+    let compartilhou = null;
+    if ((!aluno.revisoes || aluno.revisoes.acesso !== 'ok') && res.contaServidor) {
+      compartilhou = compartilharComServidor(res.contaServidor);
+    }
+    return { aluno: aluno, outros: alunos.slice(1).map(a => a.email), erro: null, compartilhou: compartilhou };
   } catch (e) {
     Logger.log('[Whitebox] _radarDoServidor: ' + e);
     return { aluno: null, outros: [], erro: String(e && e.message || e) };
@@ -1115,6 +1148,23 @@ function _avisoFonteServidor(r) {
            '(relógio errado ou envio forjado).';
   }
   if (r.outros.length > 0) txt += ' Outros e-mails também enviaram medições deste documento: ' + r.outros.join(', ') + '.';
+  const rv = a.revisoes;
+  if (rv && rv.acesso === 'ok') {
+    txt += ' O servidor conferiu ' + rv.lidas + ' revisão(ões) do Drive' +
+           (rv.em ? ' (última conferência ' + data(rv.em) + ')' : '') + ': ' +
+           (rv.divergencias > 0
+             ? rv.divergencias + ' divergência(s) entre o texto das revisões e as medições do painel ' +
+               '(medição forjada, painel adulterado ou texto mexido sem o painel). Veja a aba Radar_Eventos.'
+             : 'as medições batem com as revisões.');
+  } else if (r.compartilhou && r.compartilhou.ok) {
+    txt += ' A cópia acabou de ser compartilhada com o servidor; a conferência pelas revisões do Drive ' +
+           'aparece na próxima abertura do radar (em até 10 min).';
+  } else {
+    txt += ' O servidor ainda não consegue ler as revisões desta cópia no Drive' +
+           (r.compartilhou && r.compartilhou.erro ? ' (o compartilhamento falhou: ' + r.compartilhou.erro + ')' : '') +
+           ', então as medições não foram conferidas. Se a escola bloqueia compartilhar com contas de fora, ' +
+           'veja a etapa 3 em whitebox-server/DEPLOY.md.';
+  }
   if (a.origem === 'addon') {
     txt += ' As medições vieram do add-on do Whitebox, que o aluno não edita.';
   } else if (a.origem) {

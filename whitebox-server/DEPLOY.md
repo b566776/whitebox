@@ -99,6 +99,29 @@ Script Properties do servidor ligadas a isso:
 Na aba Config, `seed_document_id_addon` é o semente sem script vinculado usado nos mestres
 das escolas em modo `addon`.
 
+## Radar: conferência pelas revisões do Drive (etapa 3)
+
+O servidor confere as medições que o painel do aluno manda com o histórico de revisões do
+Drive da cópia, lido com a **conta do servidor** (a dona do Web App). Isso marca colagens
+vistas entre revisões e conta divergências entre o tamanho do texto de cada revisão e a
+medição mais próxima. Resultado: colunas `Revisoes_Conferidas_Em`, `Revisoes_Lidas`,
+`Divergencias` e `Acesso_Revisoes` da aba `Radar_Estado`, eventos `C` e `DIVERGENCIA` em
+`Radar_Eventos`, e um aviso no radar do professor.
+
+- **Quando roda:** a cada 30 min por cópia, no envio de medições do aluno, e a cada 10 min
+  quando o professor abre o radar. Lê no máximo as 20 revisões mais novas por vez.
+- **Acesso:** o servidor precisa ser leitor da cópia. O painel do aluno compartilha a
+  cópia com a conta do servidor (`Document.addViewer`, escopo `documents.currentonly`, que o
+  painel já tem); se não conseguir, o painel do professor tenta. Nenhum escopo novo nem
+  restrito para os usuários. A conta do servidor aparece na lista de compartilhamento da
+  cópia como leitora.
+- **Escolas com Workspace:** se o domínio bloquear compartilhar com contas de fora, a
+  conferência fica em `sem_acesso` e o professor vê o aviso. Saídas: o administrador da
+  escola libera a conta do servidor (domínios confiáveis/lista de permissões de
+  compartilhamento) ou o servidor passa para uma conta da organização.
+- *A confirmar no primeiro teste real:* que `addViewer` funciona com `documents.currentonly`
+  nas cópias do Classroom e não manda e-mail de aviso à conta do servidor.
+
 ## Configurar a IA (Script Properties do Brain Proxy)
 
 A IA global atende os professores com `UsaChaveGlobal: Sim`. Configure em

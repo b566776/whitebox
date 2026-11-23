@@ -194,3 +194,6 @@ const ROUTE_RADAR_DOCUMENTO = 'radar_documento';
 
 /** A partir desta porcentagem de texto não observado (estado N), o radar avisa o professor. */
 const RADAR_AVISO_NAO_OBSERVADO_PCT = 25;
+
+/** Conta do servidor com quem esta cópia já foi compartilhada como leitora (etapa 3 do Radar). */
+const DOC_PROP_SERVIDOR_COMPARTILHADO = 'WHITEBOX_SERVIDOR_COMPARTILHADO';
