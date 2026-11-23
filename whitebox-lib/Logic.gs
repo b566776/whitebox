@@ -1083,32 +1083,45 @@ function getDocumentAuraMap() {
  * Etapa 3 do Radar: compartilha este documento, como LEITOR, com a conta do servidor, para
  * o servidor conferir as medições com o histórico de revisões do Drive usando a conta dele.
  * Document.addViewer usa só o escopo documents.currentonly que o painel já tem: nada de
- * escopo restrito (regra do projeto). A conta vem da resposta do servidor (URL fixa em
- * BRAIN_PROXY_URL). Nunca lança.
- * @param {string} conta - e-mail da conta do servidor
- * @returns {{ ok: boolean, jaTinha?: boolean, erro?: string }}
+ * escopo restrito (regra do projeto).
+ *
+ * A conta não vem do navegador: a biblioteca pergunta ao servidor (rota ping, URL fixa em
+ * BRAIN_PROXY_URL), que só a informa com a conferência ligada (RADAR_REVISOES_ATIVO). Assim
+ * esta função não compartilha o documento com um endereço qualquer. Nunca lança.
+ * @returns {{ ok: boolean, conta?: string, jaTinha?: boolean, novo?: boolean, erro?: string }}
  */
-function compartilharComServidor(conta) {
-  conta = String(conta || '').trim().toLowerCase();
+function compartilharComServidor() {
+  let conta = '';
+  try {
+    const ping = callProxy('ping', {});
+    conta = String((ping && ping.contaServidor) || '').trim().toLowerCase();
+  } catch (e) {
+    return { ok: false, erro: String(e && e.message || e) };
+  }
+  if (!conta) return { ok: false, erro: 'CONFERENCIA_DESLIGADA' };
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(conta)) return { ok: false, erro: 'CONTA_INVALIDA' };
   try {
+    const props = PropertiesService.getDocumentProperties();
     const doc = DocumentApp.getActiveDocument();
     const ja = doc.getViewers().concat(doc.getEditors())
       .some(u => String(u.getEmail() || '').toLowerCase() === conta);
     if (!ja) doc.addViewer(conta);
-    PropertiesService.getDocumentProperties().setProperty(DOC_PROP_SERVIDOR_COMPARTILHADO, conta);
-    return { ok: true, jaTinha: ja };
+    // novo: primeira vez com esta conta neste documento (o painel avisa o aluno uma vez).
+    const novo = props.getProperty(DOC_PROP_SERVIDOR_COMPARTILHADO) !== conta;
+    if (novo) props.setProperty(DOC_PROP_SERVIDOR_COMPARTILHADO, conta);
+    return { ok: true, conta: conta, jaTinha: ja, novo: novo };
   } catch (e) {
     // Ex.: a escola bloqueia compartilhar com contas de fora do domínio.
     Logger.log('[Whitebox] compartilharComServidor: ' + e);
-    return { ok: false, erro: String(e && e.message || e) };
+    return { ok: false, conta: conta, erro: String(e && e.message || e) };
   }
 }
 
 /**
  * Radar guardado no servidor para este documento (rota radar_documento). Usa o aluno com
  * mais medições; outros e-mails que mandaram medições para o mesmo documento viram aviso.
- * @returns {{ aluno: object|null, outros: string[], erro: string|null }}
+ * Não compartilha nada: quem compartilha a cópia é o painel do aluno, que o avisa.
+ * @returns {{ aluno: object|null, outros: string[], erro: string|null, contaServidor?: string }}
  * @private
  */
 function _radarDoServidor(docId) {
@@ -1120,14 +1133,8 @@ function _radarDoServidor(docId) {
     if (!res || res.error) return { aluno: null, outros: [], erro: (res && (res.message || res.error)) || 'sem resposta' };
     const alunos = (res.alunos || []).filter(a => a && a.mapa && a.mapa.a);
     if (alunos.length === 0) return { aluno: null, outros: [], erro: null };
-    const aluno = alunos[0];
-    // Etapa 3: o servidor ainda não lê as revisões desta cópia. O professor (editor)
-    // compartilha com a conta do servidor, caso o painel do aluno não tenha conseguido.
-    let compartilhou = null;
-    if ((!aluno.revisoes || aluno.revisoes.acesso !== 'ok') && res.contaServidor) {
-      compartilhou = compartilharComServidor(res.contaServidor);
-    }
-    return { aluno: aluno, outros: alunos.slice(1).map(a => a.email), erro: null, compartilhou: compartilhou };
+    return { aluno: alunos[0], outros: alunos.slice(1).map(a => a.email), erro: null,
+             contaServidor: String(res.contaServidor || '') };
   } catch (e) {
     Logger.log('[Whitebox] _radarDoServidor: ' + e);
     return { aluno: null, outros: [], erro: String(e && e.message || e) };
@@ -1148,33 +1155,43 @@ function _avisoFonteServidor(r) {
            '(relógio errado ou envio forjado).';
   }
   if (r.outros.length > 0) txt += ' Outros e-mails também enviaram medições deste documento: ' + r.outros.join(', ') + '.';
-  const rv = a.revisoes;
-  if (rv && rv.acesso === 'ok') {
-    txt += ' O servidor conferiu ' + rv.lidas + ' revisão(ões) do Drive' +
-           (rv.em ? ' (última conferência ' + data(rv.em) + ')' : '') + ': ' +
-           (rv.divergencias > 0
-             ? rv.divergencias + ' divergência(s) entre o texto das revisões e as medições do painel ' +
-               '(medição forjada, painel adulterado ou texto mexido sem o painel). Veja a aba Radar_Eventos.'
-             : 'as medições batem com as revisões.');
-    if (rv.suprimidas > 0) {
-      txt += ' ' + rv.suprimidas + ' parágrafo(s) aparecem nas revisões do Drive com o painel aberto, mas ' +
-             'nunca vieram nas medições (sinal de medições escondidas): estão marcados como não observados.';
-    }
-  } else if (r.compartilhou && r.compartilhou.ok) {
-    txt += ' A cópia acabou de ser compartilhada com o servidor; a conferência pelas revisões do Drive ' +
-           'aparece na próxima abertura do radar (em até 10 min).';
-  } else {
-    txt += ' O servidor ainda não consegue ler as revisões desta cópia no Drive' +
-           (r.compartilhou && r.compartilhou.erro ? ' (o compartilhamento falhou: ' + r.compartilhou.erro + ')' : '') +
-           ', então as medições não foram conferidas. Se a escola bloqueia compartilhar com contas de fora, ' +
-           'veja a etapa 3 em whitebox-server/DEPLOY.md.';
-  }
+  txt += _avisoRevisoes(a.revisoes, r.contaServidor, data);
   if (a.origem === 'addon') {
     txt += ' As medições vieram do add-on do Whitebox, que o aluno não edita.';
   } else if (a.origem) {
     txt += ' As medições vieram do script copiado com o documento, que o aluno pode editar.';
   }
   return txt;
+}
+
+/** Frase sobre a conferência das medições com as revisões do Drive (etapa 3). @private */
+function _avisoRevisoes(rv, conta, data) {
+  if (rv && rv.acesso === 'desligada') return '';
+  if (rv && rv.acesso === 'ok') {
+    let t = ' O servidor conferiu ' + rv.lidas + ' revisão(ões) do Drive' +
+            (rv.em ? ' (última conferência ' + data(rv.em) + ')' : '') + ': ' +
+            (rv.divergencias > 0
+              ? rv.divergencias + ' divergência(s) entre o tamanho do texto nas revisões e as medições do painel ' +
+                'feitas logo antes e logo depois (medição forjada ou painel adulterado). Veja a aba Radar_Eventos.'
+              : 'as medições batem com as revisões.');
+    if (rv.suprimidas > 0) {
+      t += ' ' + rv.suprimidas + ' parágrafo(s) aparecem nas revisões do Drive com o painel aberto, mas ' +
+           'nunca vieram nas medições (sinal de medições escondidas): estão marcados como não observados.';
+    }
+    return t;
+  }
+  const quem = conta ? ' (' + conta + ')' : '';
+  if (rv && rv.acesso === 'sem_acesso') {
+    return ' O servidor não consegue ler as revisões desta cópia no Drive, então as medições não foram ' +
+           'conferidas. O painel do aluno compartilha a cópia com a conta do Whitebox' + quem + ' quando é aberto; ' +
+           'se a escola bloqueia compartilhar com contas de fora, peça ao administrador da escola para permitir ' +
+           'compartilhar com essa conta.';
+  }
+  if (rv && rv.acesso === 'erro') {
+    return ' A última tentativa de conferir as medições com as revisões do Drive falhou; o servidor tenta de novo.';
+  }
+  return ' As medições ainda não foram conferidas com as revisões do Drive (isso acontece depois que o aluno ' +
+         'abre o painel e a cópia é compartilhada com a conta do Whitebox' + quem + ').';
 }
 
 // =====================================================

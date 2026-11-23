@@ -421,40 +421,56 @@ test('Medições vão ao servidor pela rota registrar_medicoes, sem o texto', ()
 
 // ---- Etapa 3: compartilhar a cópia com o servidor ------------------------------------
 
-test('compartilharComServidor adiciona a conta do servidor como leitora uma vez só', () => {
-  const m = montar({ paragrafos: [MARCADOR, 'Texto.'] });
-  const r = m.ctx.compartilharComServidor('Servidor@X.com');
+/** Servidor simulado: ping devolve a conta (conferência ligada) ou '' (desligada). */
+const servidorComConta = (conta, extra) => pedido =>
+  pedido.route === 'ping' ? { ok: true, contaServidor: conta } : (extra ? extra(pedido) : {});
+
+test('compartilharComServidor usa a conta que o servidor informa, uma vez só, e avisa só na primeira', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: servidorComConta('Servidor@X.com') });
+  const r = m.ctx.compartilharComServidor('qualquer@intruso.com');   // argumento ignorado
   assert.equal(r.ok, true);
+  assert.equal(r.novo, true);
   assert.deepEqual(m.estado.leitores, ['servidor@x.com']);
   assert.equal(m.store.WHITEBOX_SERVIDOR_COMPARTILHADO, 'servidor@x.com');
-  assert.equal(m.ctx.compartilharComServidor('servidor@x.com').jaTinha, true);
+  const de2 = m.ctx.compartilharComServidor();
+  assert.equal(de2.jaTinha, true);
+  assert.equal(de2.novo, false, 'o aviso ao aluno aparece só na primeira vez');
   assert.equal(m.estado.leitores.length, 1);
-  assert.equal(m.ctx.compartilharComServidor('não é e-mail').erro, 'CONTA_INVALIDA');
+});
+
+test('compartilharComServidor não faz nada com a conferência desligada nem com conta inválida', () => {
+  const desl = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: servidorComConta('') });
+  assert.equal(desl.ctx.compartilharComServidor().erro, 'CONFERENCIA_DESLIGADA');
+  assert.equal(desl.estado.leitores, undefined);
+  const inval = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: servidorComConta('não é e-mail') });
+  assert.equal(inval.ctx.compartilharComServidor().erro, 'CONTA_INVALIDA');
 });
 
 test('compartilharComServidor não lança quando o domínio bloqueia', () => {
-  const m = montar({ paragrafos: [MARCADOR, 'Texto.'], bloqueiaCompartilhar: true });
-  const r = m.ctx.compartilharComServidor('servidor@x.com');
+  const m = montar({ paragrafos: [MARCADOR, 'Texto.'], bloqueiaCompartilhar: true, servidor: servidorComConta('s@x.com') });
+  const r = m.ctx.compartilharComServidor();
   assert.equal(r.ok, false);
   assert.match(r.erro, /bloqueado/);
 });
 
-test('Radar do professor: mostra a conferência das revisões e compartilha se o servidor não tem acesso', () => {
+test('Radar do professor: mostra a conferência das revisões e nunca compartilha a cópia', () => {
   const base = { email: 'aluno@x.com', medicoes: 5, inconsistencias: 0, mapa: { v: 2, a: {} } };
-  const ok = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: () => ({ contaServidor: 's@x.com',
-    alunos: [Object.assign({ revisoes: { lidas: 12, divergencias: 2, suprimidas: 1, acesso: 'ok', em: '2026-11-23T12:00:00Z' } }, base)] }) });
+  const radar = (revisoes) => montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: servidorComConta('s@x.com', () => ({
+    contaServidor: 's@x.com', alunos: [Object.assign({ revisoes: revisoes }, base)] })) });
+
+  const ok = radar({ lidas: 12, divergencias: 2, suprimidas: 1, acesso: 'ok', em: '2026-11-23T12:00:00Z' });
   const av = ok.ctx.getDocumentAuraMap().avisos.join(' ');
   assert.match(av, /1 parágrafo\(s\) aparecem nas revisões do Drive com o painel aberto/);
   assert.match(av, /conferiu 12 revisão\(ões\) do Drive/);
   assert.match(av, /2 divergência\(s\)/);
-  assert.equal(ok.estado.leitores, undefined, 'com acesso não compartilha de novo');
+  assert.equal(ok.estado.leitores, undefined);
 
-  const sem = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: () => ({ contaServidor: 's@x.com',
-    alunos: [Object.assign({ revisoes: { lidas: 0, divergencias: 0, acesso: 'sem_acesso' } }, base)] }) });
-  assert.match(sem.ctx.getDocumentAuraMap().avisos.join(' '), /acabou de ser compartilhada com o servidor/);
-  assert.deepEqual(sem.estado.leitores, ['s@x.com']);
+  const sem = radar({ lidas: 0, divergencias: 0, acesso: 'sem_acesso' });
+  const avSem = sem.ctx.getDocumentAuraMap().avisos.join(' ');
+  assert.match(avSem, /não consegue ler as revisões[\s\S]*s@x\.com[\s\S]*administrador da escola/);
+  assert.doesNotMatch(avSem, /DEPLOY\.md/, 'o professor não tem o repositório');
+  assert.equal(sem.estado.leitores, undefined, 'o painel do professor não compartilha');
 
-  const bloq = montar({ paragrafos: [MARCADOR, 'Texto.'], bloqueiaCompartilhar: true, servidor: () => ({ contaServidor: 's@x.com',
-    alunos: [Object.assign({ revisoes: null }, base)] }) });
-  assert.match(bloq.ctx.getDocumentAuraMap().avisos.join(' '), /não consegue ler as revisões[\s\S]*bloqueado/);
+  assert.match(radar(null).ctx.getDocumentAuraMap().avisos.join(' '), /ainda não foram conferidas/);
+  assert.doesNotMatch(radar({ acesso: 'desligada' }).ctx.getDocumentAuraMap().avisos.join(' '), /revisões do Drive/);
 });

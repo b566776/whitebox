@@ -23,7 +23,9 @@ const RADAR_ESTADO_HEADERS = [
   'Revisoes_Conferidas_Em', 'Revisoes_Lidas', 'Divergencias', 'Acesso_Revisoes'
 ];
 const RADAR_EVENTOS_HEADERS = [
-  'Recebido_Em', 'DocId', 'Email_Aluno', 'Estado', 'Hash', 'Medido_Em', 'Crescimento', 'Decorrido_s'
+  'Recebido_Em', 'DocId', 'Email_Aluno', 'Estado', 'Hash', 'Medido_Em', 'Crescimento', 'Decorrido_s',
+  // Fonte: medicao | painel_fechado | revisao_servidor | revisao_nao_medido; Revisao: ID no Drive
+  'Fonte', 'Revisao'
 ];
 
 /** Máximo de medições num envio (o painel manda a cada ~2 min, uma por pulso de 15 s). */
@@ -94,15 +96,36 @@ function radarAplicarMedicoes(estado, medicoes, agora, ultimoRecebimento) {
   return res;
 }
 
-/** Aba com cabeçalho, criada se faltar. @private */
+/** Aba com cabeçalho, criada se faltar; cabeçalho antigo ganha as colunas novas. @private */
 function _radarAba(ss, nome, headers) {
   let sheet = ss.getSheetByName(nome);
   if (!sheet) {
     sheet = ss.insertSheet(nome);
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    return sheet;
+  }
+  const atual = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+  if (headers.some((h, i) => String(atual[i] || '') !== h)) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
   return sheet;
+}
+
+/** Linha de Radar_Eventos. A fonte padrão vem do estado (eventos das medições). @private */
+function _radarLinhaEvento(agora, docId, aluno, e) {
+  const fonte = e.fonte || (e.estado === RADAR_ESTADO_COLAGEM ? 'medicao' : 'painel_fechado');
+  return [
+    new Date(agora), docId, aluno, e.estado, e.h || '', new Date(e.ts), e.crescimento,
+    e.decorridoMs >= 0 ? Math.round(e.decorridoMs / 1000) : '', fonte, e.revisao || ''
+  ];
+}
+
+/** Acrescenta eventos em Radar_Eventos. @private */
+function _radarGravarEventos(ss, agora, docId, aluno, eventos) {
+  const ev = _radarAba(ss, SHEET_RADAR_EVENTOS, RADAR_EVENTOS_HEADERS);
+  const linhas = eventos.map(e => _radarLinhaEvento(agora, docId, aluno, e));
+  ev.getRange(ev.getLastRow() + 1, 1, linhas.length, linhas[0].length).setValues(linhas);
 }
 
 /** Linhas (1-based) de Radar_Estado do documento, por e-mail. @private */
@@ -176,20 +199,13 @@ function handleRegistrarMedicoes(body, cfg, callerEmail, clientId) {
       new Date(agora),
       total + r.aceitas,
       inconsist + r.inconsistentes,
-      JSON.stringify(r.estado),
+      radarEstadoJson(r.estado),
       origem.origem
     ]];
     if (linha) sheet.getRange(linha, 1, 1, valores[0].length).setValues(valores);
     else sheet.appendRow(valores[0]);
 
-    if (r.eventos.length > 0) {
-      const ev = _radarAba(ss, SHEET_RADAR_EVENTOS, RADAR_EVENTOS_HEADERS);
-      const linhas = r.eventos.map(e => [
-        new Date(agora), docId, aluno, e.estado, e.h, new Date(e.ts), e.crescimento,
-        e.decorridoMs >= 0 ? Math.round(e.decorridoMs / 1000) : ''
-      ]);
-      ev.getRange(ev.getLastRow() + 1, 1, linhas.length, linhas[0].length).setValues(linhas);
-    }
+    if (r.eventos.length > 0) _radarGravarEventos(ss, agora, docId, aluno, r.eventos);
     resposta = { success: true, aceitas: r.aceitas, inconsistentes: r.inconsistentes, alertas: r.eventos.length };
     ssGravada = ss;
   } finally {
@@ -197,6 +213,8 @@ function handleRegistrarMedicoes(body, cfg, callerEmail, clientId) {
   }
 
   // Etapa 3: de vez em quando, confere as revisões do Drive (fora da trava das medições).
+  // Desligada (RADAR_REVISOES_ATIVO), não confere nem pede compartilhamento.
+  if (!radarRevisoesAtivas()) return jsonResponse(resposta);
   const rv = radarConferirSeHoraDe(ssGravada, docId, aluno, RADAR_REV_INTERVALO_MS);
   const estadoRv = rv || _radarRvAtual(ssGravada, docId, aluno);
   if (!estadoRv || estadoRv.acesso !== 'ok') {
@@ -230,15 +248,20 @@ function handleRadarDocumento(body, cfg) {
   }
   const registro = buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId);
   if (!registro || !registro.spreadsheetId) return jsonResponse({ alunos: [] });
-  const sheet = SpreadsheetApp.openById(registro.spreadsheetId).getSheetByName(SHEET_RADAR_ESTADO);
+  const ss    = SpreadsheetApp.openById(registro.spreadsheetId);
+  const sheet = ss.getSheetByName(SHEET_RADAR_ESTADO);
   if (!sheet) return jsonResponse({ alunos: [], modoPainel: _modoPainelDoRegistro(registro, cfg) });
 
-  const ss     = SpreadsheetApp.openById(registro.spreadsheetId);
   const linhas = _radarLinhasDoDocumento(sheet, docId);
-  // Etapa 3: o professor abrindo o radar também dispara a conferência pelas revisões.
-  Object.keys(linhas).forEach(function(email) {
-    radarConferirSeHoraDe(ss, docId, email, RADAR_REV_INTERVALO_PROFESSOR_MS);
-  });
+  const ativas = radarRevisoesAtivas();
+  // Etapa 3: o professor abrindo o radar também dispara a conferência pelas revisões, só
+  // do aluno que o painel mostra (o de mais medições), para a resposta não demorar.
+  const emails = Object.keys(linhas);
+  if (ativas && emails.length > 0) {
+    const principal = emails.reduce((a, b) =>
+      (Number(sheet.getRange(linhas[b], 6).getValue()) || 0) > (Number(sheet.getRange(linhas[a], 6).getValue()) || 0) ? b : a);
+    radarConferirSeHoraDe(ss, docId, principal, RADAR_REV_INTERVALO_PROFESSOR_MS);
+  }
   const alunos = Object.keys(linhas).map(function(email) {
     const v = sheet.getRange(linhas[email], 1, 1, RADAR_ESTADO_HEADERS.length).getValues()[0];
     let estado = null;
@@ -251,7 +274,7 @@ function handleRadarDocumento(body, cfg) {
       medicoes:        Number(v[5]) || 0,
       inconsistencias: Number(v[6]) || 0,
       origem:          String(v[8] || ''),
-      revisoes:        (estado && estado.rv) ? {
+      revisoes:        !ativas ? { acesso: 'desligada' } : (estado && estado.rv) ? {
         em:           data(v[9]) || (estado.rv.em ? new Date(estado.rv.em).toISOString() : null),
         lidas:        Number(estado.rv.lidas) || 0,
         divergencias: Number(estado.rv.divergencias) || 0,
@@ -262,7 +285,7 @@ function handleRadarDocumento(body, cfg) {
     };
   }).sort((a, b) => b.medicoes - a.medicoes);
   return jsonResponse({ alunos: alunos, modoPainel: _modoPainelDoRegistro(registro, cfg),
-                        contaServidor: radarContaServidor() });
+                        contaServidor: ativas ? radarContaServidor() : '' });
 }
 
 /** Modo do painel da escola do professor (Escolas.gs). @private */

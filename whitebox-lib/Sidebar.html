@@ -629,6 +629,11 @@
         Sua escola usa o add-on do Whitebox. Feche este painel e abra pelo menu
         <b>Extensões &gt; Whitebox &gt; Abrir painel</b>, senão sua escrita não fica registrada.
       </div>
+      <div id="compartilhamento-aviso" class="alert alert-success hidden" role="status" style="font-size: 12px;">
+        Para conferir o seu processo de escrita com o histórico de versões do Google Docs, este
+        documento foi compartilhado, só para leitura, com a conta do Whitebox
+        (<span id="compartilhamento-conta"></span>). O resultado só aparece para o seu professor.
+      </div>
       <div class="card">
         <h2>🧑‍🎓 Suas Evidências
           <span class="dot" id="sync-dot"></span>
@@ -1265,9 +1270,17 @@
             // Servidor ocupado ou fora do ar: tenta de novo no próximo envio.
             if (res && (res.error === 'OCUPADO' || res.error === 'PROXY_INVALID_RESPONSE')) devolver();
             // Etapa 3: o servidor pede leitura da cópia para conferir as revisões do Drive.
-            if (res && res.precisaAcesso && res.contaServidor && !compartilhamentoTentado) {
+            // A biblioteca pergunta a conta ao servidor; o aluno é avisado na primeira vez.
+            if (res && res.precisaAcesso && !compartilhamentoTentado) {
               compartilhamentoTentado = true;
-              google.script.run.withFailureHandler(function() {}).compartilharComServidor(res.contaServidor);
+              google.script.run
+                .withSuccessHandler(function(r) {
+                  if (!r || !r.ok || !r.novo) return;
+                  document.getElementById('compartilhamento-conta').textContent = r.conta;
+                  document.getElementById('compartilhamento-aviso').classList.remove('hidden');
+                })
+                .withFailureHandler(function() {})
+                .compartilharComServidor();
             }
             // Escola em modo add-on e o painel veio do script da cópia: o servidor recusa.
             if (res && res.error === 'ORIGEM_NAO_AUTORIZADA') {

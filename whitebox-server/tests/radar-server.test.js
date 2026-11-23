@@ -55,6 +55,9 @@ function montar(o) {
     SpreadsheetApp: { openById: () => ss },
     LockService: { getScriptLock: () => ({ tryLock: () => o.lockOk !== false, releaseLock: () => {} }) },
     Session: { getEffectiveUser: () => ({ getEmail: () => 'Servidor@x.com' }) },
+    // Conferência ligada por padrão nos testes; o.revisoesDesligadas a desliga.
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: k => (k === 'RADAR_REVISOES_ATIVO' && !o.revisoesDesligadas ? 'sim' : null) }) },
     ScriptApp: { getOAuthToken: () => 'TOKEN-SERVIDOR' },
     // Drive simulado: o.drive = { codigo, revisoes: [{ id, ts, texto }] } ou ausente (403).
     UrlFetchApp: (() => {
@@ -70,6 +73,7 @@ function montar(o) {
         },
         fetchAll: reqs => reqs.map(q => {
           const r = o.drive.revisoes.find(x => 'exp://' + x.id === q.url);
+          if (r && (o.drive.falhaExport || []).includes(r.id)) return resp(429, '');
           return resp(r ? 200 : 404, r ? '\uFEFF' + r.texto : '');
         })
       };
@@ -308,80 +312,208 @@ test('ping devolve o ID de cliente do token e se ele é o do add-on', () => {
 
 // ---- Etapa 3: conferência pelas revisões do Drive (RadarRevisoes.gs) ----
 
+const MIN = 60 * SEG;
+const T0 = Date.parse('2026-11-23T10:00:00Z');
+const rev = (id, ts, linhas) => ({ id, ts, texto: linhas.join('\n') });
+/** Estado com as medições dadas (processadas e no histórico de tamanhos). */
+function estadoMedido(ctx, meds) {
+  const e = ctx.radarEstadoNovo();
+  meds.forEach(m => { ctx.radarProcessarMedicao(e, m); ctx.radarRegistrarHistorico(e, m); });
+  return e;
+}
+
+test('Export: comentários e marcadores de lista saem; célula de tabela é reconhecida', () => {
+  const { ctx } = montar();
+  const l = ctx.radarLinhasDaRevisao('﻿Texto com nota[a] do professor.\n1. Item numerado\n\nA\tB\n[a]Comentário do professor');
+  assert.deepEqual(Array.from(l, x => x.t), ['Texto com nota do professor.', '1. Item numerado', 'A\tB']);
+  assert.equal(l[1].hs, ctx.radarHash('Item numerado'));
+  assert.equal(l[2].tabela, true);
+});
+
 test('Revisões: colagem entre duas revisões vira alerta com o mesmo hash das medições', () => {
   const { ctx } = montar();
   const colado = frase('copiado da internet', 600);
   const estado = ctx.radarEstadoNovo();
-  const t0 = Date.parse('2026-11-23T10:00:00Z');
   const r = ctx.radarAnalisarRevisoes(estado, [
-    { id: 'r1', ts: t0, texto: [MARC, 'Começo.'].join('\r\n') },
-    { id: 'r2', ts: t0 + 30 * SEG, texto: [MARC, 'Começo.', colado].join('\r\n') }   // +600 em 30 s
-  ], t0 + 60 * SEG);
+    rev('r1', T0, [MARC, 'Começo.']), rev('r2', T0 + 30 * SEG, [MARC, 'Começo.', colado])
+  ], T0 + MIN);
   assert.equal(r.novas, 2);
-  assert.equal(r.eventos.filter(e => e.estado === 'C').length, 1);
-  const alerta = estado.mapa.a[ctx.radarHash(colado)];
-  assert.equal(alerta.e, 'C');
-  assert.equal(alerta.f, 'revisao_servidor');
+  const c = r.eventos.filter(e => e.estado === 'C');
+  assert.equal(c.length, 1);
+  assert.equal(c[0].fonte, 'revisao_servidor');
+  assert.equal(c[0].revisao, 'r2');
+  assert.equal(estado.mapa.a[ctx.radarHash(colado)].f, 'revisao_servidor');
   assert.equal(estado.rv.acesso, 'ok');
+});
+
+test('Revisões: colagem num parágrafo não marca o parágrafo vizinho que só foi editado', () => {
+  const { ctx } = montar();
+  const meu = frase('meu parágrafo antigo', 300);
+  const colado = frase('copiado', 500);
+  const estado = ctx.radarEstadoNovo();
+  ctx.radarAnalisarRevisoes(estado, [
+    rev('a', T0, [MARC, meu]), rev('b', T0 + 20 * SEG, [MARC, meu + ' Com vírgula.', colado])
+  ], T0);
+  assert.equal(estado.mapa.a[ctx.radarHash(colado)].e, 'C');
+  assert.equal(estado.mapa.a[ctx.radarHash(meu + ' Com vírgula.')], undefined);
+});
+
+test('Revisões: item de lista colado gera alerta também com o hash sem o marcador', () => {
+  const { ctx } = montar();
+  const item = frase('item colado', 300);
+  const estado = ctx.radarEstadoNovo();
+  ctx.radarAnalisarRevisoes(estado, [rev('a', T0, [MARC]), rev('b', T0 + 10 * SEG, [MARC, '1. ' + item])], T0);
+  assert.equal(estado.mapa.a[ctx.radarHash(item)].e, 'C', 'o getText do parágrafo não tem o "1."');
 });
 
 test('Revisões: digitação no ritmo normal e restauração de texto antigo não marcam nada', () => {
   const { ctx } = montar();
   const meu = frase('escrevi devagar', 600);
-  const t0 = Date.parse('2026-11-23T10:00:00Z');
   const lento = ctx.radarEstadoNovo();
-  ctx.radarAnalisarRevisoes(lento, [
-    { id: 'a', ts: t0, texto: MARC },
-    { id: 'b', ts: t0 + 20 * 60 * SEG, texto: [MARC, meu].join('\n') }               // 600 em 20 min
-  ], t0);
+  ctx.radarAnalisarRevisoes(lento, [rev('a', T0, [MARC]), rev('b', T0 + 20 * MIN, [MARC, meu])], T0);
   assert.deepEqual(Object.keys(lento.mapa.a), []);
   const restaurado = ctx.radarEstadoNovo();
   ctx.radarAnalisarRevisoes(restaurado, [
-    { id: 'a', ts: t0, texto: [MARC, meu].join('\n') },
-    { id: 'b', ts: t0 + 60 * SEG, texto: MARC },
-    { id: 'c', ts: t0 + 70 * SEG, texto: [MARC, meu].join('\n') }                    // voltou (desfazer)
-  ], t0);
+    rev('a', T0, [MARC, meu]), rev('b', T0 + MIN, [MARC]), rev('c', T0 + 70 * SEG, [MARC, meu])
+  ], T0);
   assert.deepEqual(Object.keys(restaurado.mapa.a), []);
 });
 
-test('Revisões: medição que não bate com o tamanho da revisão conta como divergência', () => {
+test('Divergência: só com medições antes e depois da revisão, e fora da faixa delas', () => {
   const { ctx } = montar();
-  const t0 = Date.parse('2026-11-23T10:00:00Z');
-  const estado = ctx.radarEstadoNovo();
-  estado.hist = [[t0 - 30 * SEG, 40]];                                              // painel disse ~40 chars
-  const r = ctx.radarAnalisarRevisoes(estado, [{ id: 'r1', ts: t0, texto: [MARC, frase('texto', 2000)].join('\n') }], t0);
+  const grande = [MARC, frase('texto', 2000)];
+  const tam = MARC.length + 2000;
+  const com = (hist) => { const e = ctx.radarEstadoNovo(); e.hist = hist; return ctx.radarAnalisarRevisoes(e, [rev('r1', T0, grande)], T0); };
+  const r = com([[T0 - 30 * SEG, 40], [T0 + 30 * SEG, 45]]);
   assert.equal(r.divergencias, 1);
-  assert.equal(r.eventos[0].estado, 'DIVERGENCIA');
-  assert.equal(estado.rv.divergencias, 1);
-  // Medição coerente (diferença pequena): sem divergência
-  const ok = ctx.radarEstadoNovo();
-  ok.hist = [[t0, MARC.length + 1990]];
-  assert.equal(ctx.radarAnalisarRevisoes(ok, [{ id: 'r1', ts: t0, texto: [MARC, frase('texto', 2000)].join('\n') }], t0).divergencias, 0);
-  // Medição longe da revisão (fora da janela de 3 min): não compara
-  const longe = ctx.radarEstadoNovo();
-  longe.hist = [[t0 - 30 * 60 * SEG, 40]];
-  assert.equal(ctx.radarAnalisarRevisoes(longe, [{ id: 'r1', ts: t0, texto: frase('x', 2000) }], t0).divergencias, 0);
+  const ev = r.eventos.find(e => e.estado === 'DIVERGENCIA');
+  assert.equal(ev.revisao, 'r1');
+  assert.equal(ev.h, '', 'o ID da revisão vai na coluna Revisao, não em Hash');
+  assert.equal(com([[T0 - 30 * SEG, tam - 100], [T0 + 30 * SEG, tam + 50]]).divergencias, 0, 'dentro da faixa');
+  assert.equal(com([[T0 - 30 * SEG, 40]]).divergencias, 0, 'painel fechado depois da revisão');
+  assert.equal(com([[T0 - 30 * MIN, 40], [T0 + 30 * MIN, 40]]).divergencias, 0, 'medições longe');
+});
+
+test('Divergência: comentários do professor no export não contam', () => {
+  const { ctx } = montar();
+  const texto = frase('aluno', 300);
+  const tam = MARC.length + texto.length;
+  const e = ctx.radarEstadoNovo();
+  e.hist = [[T0 - 30 * SEG, tam], [T0 + 30 * SEG, tam]];
+  const comentario = '[a]' + frase('comentário longo do professor', 900);
+  const r = ctx.radarAnalisarRevisoes(e, [rev('r1', T0, [MARC, texto + '[a]', comentario])], T0);
+  assert.equal(r.divergencias, 0);
 });
 
 test('Revisões já analisadas não são contadas de novo', () => {
   const { ctx } = montar();
-  const t0 = Date.parse('2026-11-23T10:00:00Z');
   const estado = ctx.radarEstadoNovo();
-  const revs = [{ id: 'a', ts: t0, texto: MARC }, { id: 'b', ts: t0 + 60 * SEG, texto: MARC + '\nOi.' }];
-  ctx.radarAnalisarRevisoes(estado, revs, t0);
-  const r = ctx.radarAnalisarRevisoes(estado, revs, t0 + 60 * 60 * SEG);
+  const revs = [rev('a', T0, [MARC]), rev('b', T0 + MIN, [MARC, 'Oi.'])];
+  ctx.radarAnalisarRevisoes(estado, revs, T0);
+  const r = ctx.radarAnalisarRevisoes(estado, revs, T0 + 60 * MIN);
   assert.equal(r.novas, 0);
   assert.equal(estado.rv.lidas, 2);
 });
 
 test('Intervalo da conferência: 30 min normal, 5 min logo depois de ficar sem acesso', () => {
   const { ctx } = montar();
-  const agora = 10 * 60 * 60 * SEG;
-  assert.equal(ctx.radarHoraDeConferir(ctx.radarEstadoNovo(), agora, 30 * 60 * SEG), true);
-  const ok = { rv: { em: agora - 10 * 60 * SEG, acesso: 'ok' } };
-  assert.equal(ctx.radarHoraDeConferir(ok, agora, 30 * 60 * SEG), false);
-  const sem = { rv: { em: agora - 6 * 60 * SEG, acesso: 'sem_acesso' } };
-  assert.equal(ctx.radarHoraDeConferir(sem, agora, 30 * 60 * SEG), true);
+  const agora = 10 * 60 * MIN;
+  assert.equal(ctx.radarHoraDeConferir(ctx.radarEstadoNovo(), agora, 30 * MIN), true);
+  assert.equal(ctx.radarHoraDeConferir({ rv: { em: agora - 10 * MIN, acesso: 'ok' } }, agora, 30 * MIN), false);
+  assert.equal(ctx.radarHoraDeConferir({ rv: { em: agora - 6 * MIN, acesso: 'sem_acesso' } }, agora, 30 * MIN), true);
+});
+
+test('Medição suprimida: parágrafo parado, painel medindo um texto menor no intervalo', () => {
+  const { ctx } = montar();
+  const escondido = frase('parágrafo escondido das medições', 300);
+  const estado = estadoMedido(ctx, [med(ctx, T0 + 5 * MIN, [MARC, 'curto'])]);
+  const revs = [rev('a', T0 + MIN, [MARC, escondido]), rev('b', T0 + 10 * MIN, [MARC, escondido])];
+  const r = ctx.radarAnalisarRevisoes(estado, revs, T0 + 11 * MIN);
+  assert.equal(r.suprimidas, 1);
+  const alerta = estado.mapa.a[ctx.radarHash(escondido)];
+  assert.equal(alerta.e, 'N');
+  assert.equal(alerta.f, 'revisao_nao_medido');
+  assert.equal(alerta.p, '', 'sem prefixo: não pinta versões editadas');
+  assert.equal(r.eventos.find(e => e.estado === 'N').fonte, 'revisao_nao_medido');
+});
+
+test('Medição suprimida não dispara: painel fechado, parágrafo medido, ou medição perto da revisão (relógio)', () => {
+  const { ctx } = montar();
+  const texto = frase('parágrafo normal do aluno', 300);
+  const revs = [rev('a', T0 + MIN, [MARC, texto]), rev('b', T0 + 10 * MIN, [MARC, texto])];
+  assert.equal(ctx.radarAnalisarRevisoes(ctx.radarEstadoNovo(), revs, T0).suprimidas, 0, 'sem medição');
+  const medido = estadoMedido(ctx, [med(ctx, T0 + 5 * MIN, [MARC, texto])]);
+  assert.equal(ctx.radarAnalisarRevisoes(medido, revs, T0).suprimidas, 0, 'medido');
+  // Medição 1 min depois da primeira revisão: com relógio adiantado, pode ser de antes dela.
+  const cedo = estadoMedido(ctx, [med(ctx, T0 + 2 * MIN, [MARC, 'curto'])]);
+  assert.equal(ctx.radarAnalisarRevisoes(cedo, revs, T0).suprimidas, 0, 'dentro da folga do relógio');
+});
+
+test('Medição suprimida não dispara quando o export quebra o parágrafo (Shift+Enter, lista, tabela)', () => {
+  const { ctx } = montar();
+  // No documento é um parágrafo só, com quebra suave; no export viram duas linhas.
+  const l1 = frase('primeira linha do parágrafo', 150), l2 = frase('segunda linha após shift enter', 150);
+  const lista = frase('item de lista numerada', 120);
+  const paragrafoDoc = l1 + '\r' + l2;
+  const estado = estadoMedido(ctx, [med(ctx, T0 + 5 * MIN, [MARC, paragrafoDoc, lista, 'A B'])]);
+  const linhas = [MARC, l1, l2, '1. ' + lista, 'A\tB'];
+  const r = ctx.radarAnalisarRevisoes(estado, [rev('a', T0 + MIN, linhas), rev('b', T0 + 10 * MIN, linhas)], T0);
+  assert.equal(r.suprimidas, 0);
+});
+
+test('Histórico de tamanhos guarda só medições com mudança, com teto', () => {
+  const { ctx } = montar();
+  const estado = ctx.radarEstadoNovo();
+  ctx.radarRegistrarHistorico(estado, { ts: 1, igual: true });
+  ctx.radarRegistrarHistorico(estado, { ts: 2, l: [3, 4] });
+  assert.deepEqual(JSON.parse(JSON.stringify(estado.hist)), [[2, 7]]);
+  for (let i = 0; i < 900; i++) ctx.radarRegistrarHistorico(estado, { ts: 10 + i, l: [i] });
+  assert.equal(estado.hist.length, 300);
+});
+
+test('Estado_JSON cabe numa célula: corta histórico e vistos antes de gravar', () => {
+  const { ctx } = montar();
+  const estado = ctx.radarEstadoNovo();
+  estado.antH = Array.from({ length: 2000 }, (_, i) => 'h' + i + '.abcdefghij');
+  estado.vistos = Array.from({ length: 400 }, (_, i) => 'v' + i + '.abcdefgh');
+  estado.hist = Array.from({ length: 300 }, (_, i) => [1763900000000 + i, 123456]);
+  const json = ctx.radarEstadoJson(estado);
+  assert.ok(json.length <= 45000, String(json.length));
+  assert.ok(JSON.parse(json).antH.length === 2000, 'a última medição fica inteira');
+  assert.ok(JSON.parse(json).hist.length < 300, 'cortou o histórico');
+});
+
+test('Exportação que falha no meio: para nela e lê o resto na próxima, sem buraco', () => {
+  const colado = frase('colado', 500);
+  const o = { drive: { falhaExport: ['r2'], revisoes: [
+    rev('r1', T0, [MARC]), rev('r2', T0 + 20 * SEG, [MARC, colado]), rev('r3', T0 + 10 * MIN, [MARC, colado])
+  ] } };
+  const { ctx } = montar(o);
+  const lido = ctx.radarLerRevisoesDoDrive('DOC', 0);
+  assert.equal(lido.acesso, 'ok');
+  assert.equal(lido.incompleta, true);
+  assert.deepEqual(Array.from(lido.revisoes, r => r.id), ['r1']);
+  const estado = ctx.radarEstadoNovo();
+  ctx.radarAnalisarRevisoes(estado, lido.revisoes, T0);
+  o.drive.falhaExport = [];
+  const de2 = ctx.radarLerRevisoesDoDrive('DOC', estado.rv.ultimoTs);
+  assert.deepEqual(Array.from(de2.revisoes, r => r.id), ['r1', 'r2', 'r3'], 'r1 volta como referência');
+  ctx.radarAnalisarRevisoes(estado, de2.revisoes, T0 + 11 * MIN);
+  assert.equal(estado.mapa.a[ctx.radarHash(colado)].e, 'C', 'a colagem em r2 não se perdeu');
+  // Todas as novas falhando: erro, não "ok" com nada lido.
+  o.drive.falhaExport = ['r2', 'r3'];
+  assert.equal(ctx.radarLerRevisoesDoDrive('DOC', T0).acesso, 'erro');
+});
+
+test('Conferência desligada (padrão): não lê o Drive nem pede compartilhamento', () => {
+  const o = { revisoesDesligadas: true };
+  const { ctx } = montar(o);
+  const r = ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC, medicoes: [med(ctx, ctx.__agora, [MARC, 'oi'])] }, {}, ALUNO, '');
+  assert.equal(r.data.precisaAcesso, undefined);
+  assert.equal(o.pedidosDrive, undefined);
+  const radar = ctx.handleRadarDocumento({ professorEmail: PROF, docId: DOC }, {});
+  assert.equal(radar.data.alunos[0].revisoes.acesso, 'desligada');
+  assert.equal(radar.data.contaServidor, '');
 });
 
 test('Sem acesso às revisões: a resposta pede ao painel para compartilhar com a conta do servidor', () => {
@@ -394,24 +526,41 @@ test('Sem acesso às revisões: a resposta pede ao painel para compartilhar com 
   assert.equal(ss.abas.Radar_Estado.linhas[1][12], 'sem_acesso');
 });
 
+test('Acesso perdido: o servidor tinha acesso e deixou de ter vira evento', () => {
+  const o = { drive: { revisoes: [rev('r1', T0, [MARC])] } };
+  const { ctx, ss } = montar(o);
+  const body = { professorEmail: PROF, docId: DOC, medicoes: [med(ctx, ctx.__agora, [MARC, 'oi'])] };
+  ctx.handleRegistrarMedicoes(body, {}, ALUNO, '');
+  assert.equal(ss.abas.Radar_Estado.linhas[1][12], 'ok');
+  delete o.drive;                                   // aluno tirou o servidor do compartilhamento
+  ctx.__agora += 31 * MIN;
+  body.medicoes = [med(ctx, ctx.__agora, [MARC, 'oi de novo'])];
+  ctx.handleRegistrarMedicoes(body, {}, ALUNO, '');
+  const ev = ss.abas.Radar_Eventos.linhas;
+  assert.equal(ev[ev.length - 1][3], 'ACESSO_PERDIDO');
+  assert.equal(ev[ev.length - 1][8], 'revisao_servidor');
+});
+
 test('Com acesso: medições e revisões conferidas; o radar do professor mostra o resultado', () => {
   const colado = frase('internet', 500);
   const t0 = Date.parse('2026-11-23T11:58:00Z');
-  const o = { drive: { revisoes: [
-    { id: 'r1', ts: t0, texto: MARC },
-    { id: 'r2', ts: t0 + 20 * SEG, texto: [MARC, colado].join('\n') }
-  ] } };
+  const o = { drive: { revisoes: [rev('r1', t0, [MARC]), rev('r2', t0 + 20 * SEG, [MARC, colado])] } };
   const { ctx, ss } = montar(o);
-  // O painel mandou só uma medição "lenta" e pequena (forjada): a revisão mostra a colagem.
+  // O painel mandou medições pequenas antes e depois da revisão (forjadas): a revisão mostra a colagem.
   const r = ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC,
-    medicoes: [med(ctx, t0 + 25 * SEG, [MARC, 'só isso'])] }, {}, ALUNO, '');
+    medicoes: [med(ctx, t0 + 10 * SEG, [MARC, 'só']), med(ctx, t0 + 25 * SEG, [MARC, 'só isso'])] }, {}, ALUNO, '');
   assert.equal(r.data.precisaAcesso, undefined);
   const linha = ss.abas.Radar_Estado.linhas[1];
   assert.equal(linha[10], 2, 'Revisoes_Lidas');
   assert.equal(linha[11], 1, 'Divergencias');
   assert.equal(linha[12], 'ok');
-  const eventos = ss.abas.Radar_Eventos.linhas.slice(1).map(e => e[3]);
-  assert.ok(eventos.includes('C') && eventos.includes('DIVERGENCIA'), eventos.join(','));
+  const ev = ss.abas.Radar_Eventos.linhas;
+  assert.deepEqual(Array.from(ev[0]).slice(8), ['Fonte', 'Revisao']);
+  const porEstado = {};
+  ev.slice(1).forEach(e => { porEstado[e[3]] = e; });
+  assert.equal(porEstado.C[8], 'revisao_servidor');
+  assert.equal(porEstado.C[9], 'r2');
+  assert.equal(porEstado.DIVERGENCIA[9], 'r2');
 
   const radar = ctx.handleRadarDocumento({ professorEmail: PROF, docId: DOC }, {});
   const a = radar.data.alunos[0];
@@ -422,52 +571,36 @@ test('Com acesso: medições e revisões conferidas; o radar do professor mostra
   assert.equal(radar.data.contaServidor, 'servidor@x.com');
 });
 
-test('Histórico de tamanhos guarda só medições com mudança, com teto', () => {
-  const { ctx } = montar();
-  const estado = ctx.radarEstadoNovo();
-  ctx.radarRegistrarHistorico(estado, { ts: 1, igual: true });
-  ctx.radarRegistrarHistorico(estado, { ts: 2, l: [3, 4] });
-  assert.deepEqual(JSON.parse(JSON.stringify(estado.hist)), [[2, 7]]);
-  for (let i = 0; i < 900; i++) ctx.radarRegistrarHistorico(estado, { ts: 10 + i, l: [i] });
-  assert.equal(estado.hist.length, 800);
+test('Eventos das medições ganham a fonte; aba antiga ganha as colunas novas no cabeçalho', () => {
+  const { ctx, ss } = montar();
+  // Abas criadas pela versão anterior, com o cabeçalho curto.
+  ss.insertSheet('Radar_Estado').appendRow(['DocId', 'Email_Aluno', 'Primeira_Medicao', 'Ultima_Medicao',
+    'Ultimo_Recebimento', 'Medicoes', 'Inconsistencias', 'Estado_JSON', 'Ultima_Origem']);
+  ss.insertSheet('Radar_Eventos').appendRow(['Recebido_Em', 'DocId', 'Email_Aluno', 'Estado', 'Hash', 'Medido_Em', 'Crescimento', 'Decorrido_s']);
+  const t0 = ctx.__agora - MIN;
+  ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC,
+    medicoes: [med(ctx, t0, [MARC, '']), med(ctx, t0 + 15 * SEG, [MARC, frase('colado', 400)])] }, {}, ALUNO, '');
+  assert.equal(ss.abas.Radar_Estado.linhas[0][12], 'Acesso_Revisoes');
+  const ev = ss.abas.Radar_Eventos.linhas;
+  assert.equal(ev[0][8], 'Fonte');
+  assert.equal(ev[1][3], 'C');
+  assert.equal(ev[1][8], 'medicao');
 });
 
-test('Medição suprimida: parágrafo igual em duas revisões, painel medindo e nunca com ele, vira não observado', () => {
-  const { ctx } = montar();
-  const escondido = frase('parágrafo escondido das medições', 300);
-  const t0 = Date.parse('2026-11-23T10:00:00Z');
-  const estado = ctx.radarEstadoNovo();
-  // O painel mediu no intervalo, mas só o marcador e um texto curto.
-  const m = med(ctx, t0 + 2 * 60 * SEG, [MARC, 'curto']);
-  ctx.radarProcessarMedicao(estado, m);
-  ctx.radarRegistrarHistorico(estado, m);
-  const revs = [
-    { id: 'a', ts: t0 + 60 * SEG, texto: [MARC, escondido].join('\n') },
-    { id: 'b', ts: t0 + 4 * 60 * SEG, texto: [MARC, escondido].join('\n') }
-  ];
-  const r = ctx.radarAnalisarRevisoes(estado, revs, t0 + 5 * 60 * SEG);
-  assert.equal(r.suprimidas, 1);
-  const alerta = estado.mapa.a[ctx.radarHash(escondido)];
-  assert.equal(alerta.e, 'N');
-  assert.equal(alerta.f, 'revisao_nao_medido');
-  assert.equal(estado.rv.suprimidas, 1);
-});
-
-test('Medição suprimida não dispara sem medição no intervalo nem para parágrafo que o painel mediu', () => {
-  const { ctx } = montar();
-  const texto = frase('parágrafo normal do aluno', 300);
-  const t0 = Date.parse('2026-11-23T10:00:00Z');
-  const revs = [
-    { id: 'a', ts: t0 + 60 * SEG, texto: [MARC, texto].join('\n') },
-    { id: 'b', ts: t0 + 4 * 60 * SEG, texto: [MARC, texto].join('\n') }
-  ];
-  // Painel fechado no intervalo (nenhuma medição): não é supressão.
-  const fechado = ctx.radarEstadoNovo();
-  assert.equal(ctx.radarAnalisarRevisoes(fechado, revs, t0).suprimidas, 0);
-  // Painel mediu o parágrafo: nada a marcar.
-  const medido = ctx.radarEstadoNovo();
-  const m = med(ctx, t0 + 2 * 60 * SEG, [MARC, texto]);
-  ctx.radarProcessarMedicao(medido, m);
-  ctx.radarRegistrarHistorico(medido, m);
-  assert.equal(ctx.radarAnalisarRevisoes(medido, revs, t0).suprimidas, 0);
+test('Radar do professor confere só o aluno que o painel mostra (o de mais medições)', () => {
+  const o = { drive: { revisoes: [rev('r1', T0, [MARC])] } };
+  const { ctx, ss } = montar(o);
+  const body = (n) => ({ professorEmail: PROF, docId: DOC,
+    medicoes: Array.from({ length: n }, (_, i) => med(ctx, ctx.__agora - (n - i) * SEG, [MARC, 'x' + i])) });
+  o.revisoesDesligadas = true;                       // envios sem conferir
+  ctx.handleRegistrarMedicoes(body(1), {}, 'outro@x.com', '');
+  ctx.handleRegistrarMedicoes(body(3), {}, ALUNO, '');
+  o.revisoesDesligadas = false;
+  o.pedidosDrive = [];
+  ctx.handleRadarDocumento({ professorEmail: PROF, docId: DOC }, {});
+  assert.equal(o.pedidosDrive.length, 1);
+  const linhas = ss.abas.Radar_Estado.linhas;
+  const de = email => linhas.find(l => l[1] === email);
+  assert.equal(de(ALUNO)[12], 'ok');
+  assert.equal(de('outro@x.com')[12] || '', '');
 });

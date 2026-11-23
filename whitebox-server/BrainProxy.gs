@@ -862,6 +862,8 @@ function doPost(e) {
         // (ADDON_CLIENT_IDS), e registra no log: é a conferência do passo 7 do guia do add-on.
         const ping = respostaPing(callerEmail, token ? token.clientId : '', idsDoAddon());
         if (!isAdmin) Logger.log('[ping] ' + ping.email + ' | clientId=' + ping.clientId + ' | origem=' + ping.origem);
+        // Etapa 3 do Radar: a conta com quem o painel compartilha a cópia (só se ligada).
+        ping.contaServidor = radarRevisoesAtivas() ? radarContaServidor() : '';
         return jsonResponse(ping);
       }
 

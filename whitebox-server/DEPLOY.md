@@ -102,25 +102,42 @@ das escolas em modo `addon`.
 ## Radar: conferência pelas revisões do Drive (etapa 3)
 
 O servidor confere as medições que o painel do aluno manda com o histórico de revisões do
-Drive da cópia, lido com a **conta do servidor** (a dona do Web App). Isso marca colagens
-vistas entre revisões e conta divergências entre o tamanho do texto de cada revisão e a
-medição mais próxima. Resultado: colunas `Revisoes_Conferidas_Em`, `Revisoes_Lidas`,
-`Divergencias` e `Acesso_Revisoes` da aba `Radar_Estado`, eventos `C` e `DIVERGENCIA` em
-`Radar_Eventos`, e um aviso no radar do professor.
+Drive da cópia, lido com a **conta do servidor** (a dona do Web App). Resultado: colunas
+`Revisoes_Conferidas_Em`, `Revisoes_Lidas`, `Divergencias` e `Acesso_Revisoes` da aba
+`Radar_Estado`; eventos com a coluna `Fonte` em `Radar_Eventos`; e um aviso no radar do
+professor. Três sinais:
+
+- **Colagem entre revisões** (`C`, fonte `revisao_servidor`): crescimento acima de 8
+  caracteres/s, parágrafo a parágrafo (um parágrafo só editado não é marcado; texto
+  restaurado não conta).
+- **Divergência** (`DIVERGENCIA`): o tamanho do texto de uma revisão fica fora da faixa das
+  medições feitas até 3 min antes **e** depois dela. Com o painel fechado logo depois, não
+  compara. Comentários do professor não entram na conta.
+- **Medição suprimida** (`N`, fonte `revisao_nao_medido`): um parágrafo igual em duas
+  revisões, nunca medido, e as medições do intervalo (com 2 min de folga para o relógio do
+  aluno) menores que a revisão em pelo menos 80% do tamanho dele. Lista numerada, tabela e
+  Shift+Enter não disparam, porque nesses casos os tamanhos batem.
+- `ACESSO_PERDIDO`: o servidor tinha acesso à cópia e perdeu (alguém tirou a conta dele do
+  compartilhamento).
+
+**Ligar:** Script Property `RADAR_REVISOES_ATIVO = sim`. Desligada (padrão), o servidor não
+confere, não pede compartilhamento e o painel não compartilha nada. Com acesso, o servidor
+lê o **texto** das revisões (não só hashes e tamanhos): ligue só com o servidor numa conta da
+organização e os termos de uso do aluno atualizados (`docs/Termos de Uso - Aluno.md`).
 
 - **Quando roda:** a cada 30 min por cópia, no envio de medições do aluno, e a cada 10 min
-  quando o professor abre o radar. Lê no máximo as 20 revisões mais novas por vez.
-- **Acesso:** o servidor precisa ser leitor da cópia. O painel do aluno compartilha a
-  cópia com a conta do servidor (`Document.addViewer`, escopo `documents.currentonly`, que o
-  painel já tem); se não conseguir, o painel do professor tenta. Nenhum escopo novo nem
-  restrito para os usuários. A conta do servidor aparece na lista de compartilhamento da
-  cópia como leitora.
+  quando o professor abre o radar (só para o aluno que o radar mostra). Lê no máximo as 20
+  revisões mais novas por vez; se a exportação de uma falhar, as seguintes ficam para a
+  próxima conferência.
+- **Acesso:** o servidor precisa ser leitor da cópia. O painel do aluno pergunta a conta ao
+  servidor (rota `ping`) e compartilha a cópia com ela (`Document.addViewer`, escopo
+  `documents.currentonly`, que o painel já tem), avisando o aluno na primeira vez. O painel do
+  professor não compartilha nada. Nenhum escopo novo nem restrito para os usuários.
 - **Escolas com Workspace:** se o domínio bloquear compartilhar com contas de fora, a
-  conferência fica em `sem_acesso` e o professor vê o aviso. Saídas: o administrador da
-  escola libera a conta do servidor (domínios confiáveis/lista de permissões de
-  compartilhamento) ou o servidor passa para uma conta da organização.
+  conferência fica em `sem_acesso` e o professor vê o aviso com a conta a liberar.
 - *A confirmar no primeiro teste real:* que `addViewer` funciona com `documents.currentonly`
-  nas cópias do Classroom e não manda e-mail de aviso à conta do servidor.
+  nas cópias do Classroom e não manda e-mail de aviso à conta do servidor; e o formato do
+  texto exportado (marcadores de lista, tabelas, comentários).
 
 ## Configurar a IA (Script Properties do Brain Proxy)
 
