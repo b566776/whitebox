@@ -23,6 +23,7 @@
  *   v1 - Schema base (Assinaturas, Config, Tarefas_Globais, Ranking_Instituicao)
  *   v2 - Adicionado DataCadastro na aba Assinaturas
  *   v3 - Adicionado Historico_Templates na Planilha Global (módulo Template Distribution)
+ *   v4 - Aba Escolas (Tipo_Conta e Modo_Painel por escola, ver Escolas.gs)
  */
 
 // SCHEMA_VERSION_ATUAL → ver Constants.gs
@@ -57,7 +58,9 @@ const SCHEMA_GLOBAL = {
   'Historico_Templates': [
     'ID_Distribuicao', 'Admin_Email', 'Template_ID', 'Template_Nome',
     'Destinatarios', 'Docs_Criados', 'Falhas', 'Mensagem', 'Data_Criacao'
-  ]
+  ],
+  // v4: modo do painel por escola (Escolas.gs)
+  'Escolas': ['Instituicao', 'Tipo_Conta', 'Modo_Painel', 'Observacao']
 };
 
 /**
@@ -283,6 +286,12 @@ function migrarSchemaSeNecessario(adminSpreadsheetId) {
     gravarVersaoSchema(ss, 3);
   }
 
+  // ---- Migração v3 → v4: Criar aba Escolas ----
+  if (versaoAtual < 4) {
+    migracoes.push(..._migrarV3ParaV4(ss));
+    gravarVersaoSchema(ss, 4);
+  }
+
   const versaoFinal = lerVersaoSchema(ss);
   Logger.log('[SchemaManager] Migração concluída. Versão final: v' + versaoFinal);
   return { migracoes, versaoFinal };
@@ -351,6 +360,42 @@ function _migrarV2ParaV3(ss) {
   sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
 
   log.push('v2→v3: Aba Historico_Templates criada com ' + headers.length + ' colunas.');
+  Logger.log('[SchemaManager] ' + log[0]);
+  return log;
+}
+
+/**
+ * Migração v3 → v4: cria a aba 'Escolas' com uma linha por instituição já cadastrada em
+ * Assinaturas, no modo antigo (workspace + script_vinculado): nada muda até o
+ * administrador trocar o modo de uma escola.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
+ * @returns {string[]} Log das ações executadas
+ */
+function _migrarV3ParaV4(ss) {
+  const log = [];
+  if (ss.getSheetByName('Escolas')) {
+    log.push('v3→v4: Aba Escolas já existente — nada a fazer.');
+    return log;
+  }
+  const headers = SCHEMA_GLOBAL['Escolas'];
+  const sheet = ss.insertSheet('Escolas');
+  sheet.appendRow(headers);
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+
+  const nomes = {};
+  const ass = ss.getSheetByName(SHEET_ASSINATURAS);
+  if (ass && ass.getLastRow() >= 2) {
+    const data = ass.getDataRange().getValues();
+    const col  = data[0].indexOf('Instituicao');
+    for (let i = 1; col !== -1 && i < data.length; i++) {
+      const nome = String(data[i][col] || '').trim();
+      if (nome && !nomes[nome.toLowerCase()]) nomes[nome.toLowerCase()] = nome;
+    }
+  }
+  const linhas = Object.keys(nomes).map(k => [nomes[k], 'workspace', 'script_vinculado', 'Criada na migração v4']);
+  if (linhas.length > 0) sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+  log.push('v3→v4: Aba Escolas criada com ' + linhas.length + ' escola(s) no modo script_vinculado.');
   Logger.log('[SchemaManager] ' + log[0]);
   return log;
 }

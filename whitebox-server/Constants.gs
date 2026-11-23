@@ -327,8 +327,10 @@ const TOKEN_PREFIX              = 'WBX-';
  * Histórico:
  *   v1 - Schema base (Assinaturas, Config, Tarefas_Globais, Ranking_Instituicao)
  *   v2 - Adicionado DataCadastro na aba Assinaturas
+ *   v3 - Aba Historico_Templates
+ *   v4 - Aba Escolas (Tipo_Conta e Modo_Painel por escola, ver Escolas.gs)
  */
-const SCHEMA_VERSION_ATUAL      = 2;
+const SCHEMA_VERSION_ATUAL      = 4;
 
 /** Chave da aba Config que armazena a versão do schema */
 const CONFIG_KEY_VERSAO_SCHEMA  = 'VersaoSchema';

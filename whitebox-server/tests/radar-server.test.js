@@ -56,14 +56,17 @@ function montar(o) {
     __agora: o.agora || Date.parse('2026-11-23T12:00:00Z')
   };
   vm.createContext(ctx);
-  for (const f of ['RadarCore.gs', 'RadarServer.gs']) {
+  for (const f of ['RadarCore.gs', 'RadarServer.gs', 'Escolas.gs']) {
     vm.runInContext(fs.readFileSync(path.join(SERVER, f), 'utf8'), ctx, { filename: f });
   }
   vm.runInContext(`
     function jsonResponse(data, code) { return { data: data, code: code || 200 }; }
-    function buscarRegistroProfessor() { return { spreadsheetId: 'SS', status: 'Ativo' }; }
+    function buscarRegistroProfessor() { return { spreadsheetId: 'SS', status: 'Ativo', escola: 'Escola X' }; }
     Date.now = () => __agora;
   `, ctx);
+  // Escola e IDs do add-on controlados pelo teste.
+  ctx.configEscola = () => ctx.resolverConfigEscola('Escola X', o.escola || null, !!o.gmailLiberado);
+  ctx.idsDoAddon = () => (o.idsAddon || []).slice();
   return { ctx, ss };
 }
 
@@ -178,4 +181,94 @@ test('Roteador: registrar_medicoes aberta a alunos; radar_documento exige o prof
   for (const r of ['registrar_medicoes', 'radar_documento']) {
     assert.ok(lib.includes("'" + r + "'") && srv.includes("'" + r + "'"), r);
   }
+});
+
+// ---- Modo do painel por escola (Escolas.gs) ----
+
+test('Escola sem linha na aba Escolas fica no modo antigo (script vinculado)', () => {
+  const { ctx } = montar();
+  const c = ctx.resolverConfigEscola('E', null, false);
+  assert.equal(c.tipoConta, 'workspace');
+  assert.equal(c.modoPainel, 'script_vinculado');
+  assert.equal(c.travado, false);
+});
+
+test('Workspace + addon vale na hora; @gmail + addon fica travado até liberar', () => {
+  const { ctx } = montar();
+  assert.equal(ctx.resolverConfigEscola('E', ['E', 'Workspace', 'ADDON'], false).modoPainel, 'addon');
+  const travada = ctx.resolverConfigEscola('E', ['E', 'gmail', 'addon'], false);
+  assert.equal(travada.modoPainel, 'script_vinculado');
+  assert.equal(travada.modoPedido, 'addon');
+  assert.equal(travada.travado, true);
+  assert.match(travada.motivo, /verificação/);
+  assert.equal(ctx.resolverConfigEscola('E', ['E', 'gmail', 'addon'], true).modoPainel, 'addon');
+  assert.equal(ctx.resolverConfigEscola('E', ['E', 'gmail', 'script_vinculado'], false).travado, false);
+});
+
+test('Modo addon: medições do script vinculado são recusadas; do add-on, aceitas', () => {
+  const { ctx, ss } = montar({ escola: ['Escola X', 'workspace', 'addon'], idsAddon: ['ADDON.apps'] });
+  const body = { professorEmail: PROF, docId: DOC, medicoes: [med(ctx, ctx.__agora, [MARC, 'oi'])] };
+  const r1 = ctx.handleRegistrarMedicoes(body, {}, ALUNO, 'SCRIPT-DA-COPIA.apps');
+  assert.equal(r1.code, 403);
+  assert.equal(r1.data.error, 'ORIGEM_NAO_AUTORIZADA');
+  assert.equal(ss.abas.Radar_Estado, undefined, 'nada gravado');
+  const r2 = ctx.handleRegistrarMedicoes(body, {}, ALUNO, 'ADDON.apps');
+  assert.equal(r2.data.aceitas, 1);
+  assert.equal(ss.abas.Radar_Estado.linhas[1][8], 'addon', 'Ultima_Origem');
+  const radar = ctx.handleRadarDocumento({ professorEmail: PROF, docId: DOC }, {});
+  assert.equal(radar.data.alunos[0].origem, 'addon');
+  assert.equal(radar.data.modoPainel, 'addon');
+});
+
+test('Modo addon sem ADDON_CLIENT_IDS recusa tudo e diz por quê', () => {
+  const { ctx } = montar({ escola: ['Escola X', 'workspace', 'addon'], idsAddon: [] });
+  const r = ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC, medicoes: [med(ctx, ctx.__agora, [MARC])] }, {}, ALUNO, 'ADDON.apps');
+  assert.equal(r.code, 403);
+  assert.equal(r.data.error, 'ADDON_NAO_CONFIGURADO');
+});
+
+test('Modo script vinculado aceita qualquer origem e registra qual foi', () => {
+  const { ctx, ss } = montar({ idsAddon: ['ADDON.apps'] });
+  ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC, medicoes: [med(ctx, ctx.__agora, [MARC, 'oi'])] }, {}, ALUNO, 'OUTRO.apps');
+  assert.equal(ss.abas.Radar_Estado.linhas[1][8], 'script_vinculado');
+});
+
+test('@gmail travado continua aceitando o script vinculado', () => {
+  const { ctx } = montar({ escola: ['Escola X', 'gmail', 'addon'], idsAddon: ['ADDON.apps'] });
+  const r = ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC, medicoes: [med(ctx, ctx.__agora, [MARC, 'oi'])] }, {}, ALUNO, 'OUTRO.apps');
+  assert.equal(r.data.aceitas, 1);
+});
+
+test('Semente do mestre: modo addon usa o semente sem script; sem ele, cai no comum e avisa', () => {
+  const { ctx } = montar();
+  const addon = ctx.resolverConfigEscola('E', ['E', 'workspace', 'addon'], false);
+  const script = ctx.resolverConfigEscola('E', null, false);
+  assert.equal(ctx.escolherSemente(addon, 'COMUM', 'SEM-SCRIPT').seedId, 'SEM-SCRIPT');
+  const sem = ctx.escolherSemente(addon, 'COMUM', '');
+  assert.equal(sem.seedId, 'COMUM');
+  assert.match(sem.aviso, /seed_document_id_addon/);
+  assert.equal(ctx.escolherSemente(script, 'COMUM', 'SEM-SCRIPT').seedId, 'COMUM');
+  assert.equal(ctx.escolherSemente(null, 'COMUM', 'SEM-SCRIPT').seedId, 'COMUM');
+});
+
+test('tokeninfo: ID do cliente vem de azp (ou aud); e-mail não verificado é recusado', () => {
+  const ctx = { Logger: { log: () => {} } };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(SERVER, 'Utils.gs'), 'utf8'), ctx, { filename: 'Utils.gs' });
+  const r = ctx.interpretarTokenInfo({ email: 'A@X.com', azp: 'ADDON.apps', aud: 'OUTRO', email_verified: 'true', expires_in: '3500' });
+  assert.equal(r.email, 'a@x.com');
+  assert.equal(r.clientId, 'ADDON.apps');
+  assert.equal(ctx.interpretarTokenInfo({ email: 'a@x.com', aud: 'AUD.apps' }).clientId, 'AUD.apps');
+  assert.equal(ctx.interpretarTokenInfo({ email: 'a@x.com', email_verified: 'false' }), null);
+  assert.equal(ctx.interpretarTokenInfo({ azp: 'x' }), null);
+});
+
+test('Schema v4: aba Escolas no SCHEMA_GLOBAL, migração e versão atual', () => {
+  const sm = fs.readFileSync(path.join(SERVER, 'SchemaManager.gs'), 'utf8');
+  const c  = fs.readFileSync(path.join(SERVER, 'Constants.gs'), 'utf8');
+  assert.match(c, /SCHEMA_VERSION_ATUAL\s*=\s*4;/);
+  assert.match(sm, /'Escolas': \['Instituicao', 'Tipo_Conta', 'Modo_Painel', 'Observacao'\]/);
+  assert.match(sm, /versaoAtual < 4[\s\S]*_migrarV3ParaV4/);
+  const esc = fs.readFileSync(path.join(SERVER, 'Escolas.gs'), 'utf8');
+  assert.match(esc, /ESCOLAS_HEADERS = \['Instituicao', 'Tipo_Conta', 'Modo_Painel', 'Observacao'\]/);
 });

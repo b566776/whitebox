@@ -137,7 +137,13 @@ function getActiveDocInfo() {
 //  CONTEXTO E STATS
 // =====================================================
 
-function getContext() {
+/**
+ * @param {{ addon?: boolean }} [opcoes] addon = chamado pelo add-on publicado
+ *        (whitebox-addon), que aparece em qualquer documento. Nesse caso, num documento sem
+ *        designação, quem não é professor recebe o papel 'fora': o painel só mostra um aviso
+ *        e não mede nada. No script vinculado o documento é sempre do Whitebox.
+ */
+function getContext(opcoes) {
   const doc       = DocumentApp.getActiveDocument();
   let userEmail   = Session.getActiveUser().getEmail();
   if (!userEmail) {
@@ -191,9 +197,10 @@ function getContext() {
   // de rede ou licença force o professor a ver a UI de aluno.
   // O papel aqui só decide qual UI aparece: quem autoriza as rotas de professor
   // é o servidor (doPost exige cadastro Ativo para o e-mail verificado via OAuth).
-  const role = isDesignated ? 'teacher'
+  let role = isDesignated ? 'teacher'
     : (isRegisteredProfessor && (!hasDesignation || isOwner || isProfessor)) ? 'teacher'
     : 'student';
+  if (role === 'student' && !hasDesignation && opcoes && opcoes.addon === true) role = 'fora';
 
   // Cópia de aluno de um modelo sem a linha MARCADOR_INICIO_ALUNO: guarda o texto que veio
   // do modelo para não contá-lo como escrito pelo aluno.
@@ -920,6 +927,8 @@ function getAdvancedItem3Data() {
 /** Lê do Drive a pasta, o dono da pasta e o número de revisões. @private */
 function _lerItem3(docId, email) {
   let gradeLevel    = 'NAO_IDENTIFICADO';
+  // A escola vem do cadastro do professor no servidor (Instituicao), nunca do domínio do
+  // e-mail: contas @gmail não dizem a escola. Campo mantido por compatibilidade.
   let institutionId = 'NAO_IDENTIFICADO';
   let professorEmail = 'NAO_IDENTIFICADO';
   let revisionsCount = 0;
@@ -928,9 +937,6 @@ function _lerItem3(docId, email) {
   let driveAccess    = false;
 
   try {
-    if (email.includes('@')) {
-      institutionId = email.split('@')[1].toUpperCase().replace(/\./g, '_');
-    }
     const file    = DriveApp.getFileById(docId);
     const parents = file.getParents();
     if (parents.hasNext()) {
@@ -977,6 +983,8 @@ function getDocumentAuraMap() {
 
   // Parágrafos do modelo ficam fora do Radar: no documento mestre ele fica vazio.
   const modelo = _mascaraDoModelo(textos);
+  // Antes da medição abaixo: ela cria o snapshot e apagaria o sinal de "painel nunca rodou".
+  const painelJaRodou = !!props.getProperty(DOC_PROP_SNAPSHOT_TS);
 
   _comTrava(function() {
     _checkAndUpdatePasteSnapshot(paragraphs, modelo);
@@ -992,6 +1000,10 @@ function getDocumentAuraMap() {
   // Documento mestre ou cópia ainda sem texto do aluno: nada a buscar no servidor.
   const temTextoDoAluno = textos.some((t, i) => t && !modelo[i]);
   const doServidor = temTextoDoAluno ? _radarDoServidor(docId) : { aluno: null, outros: [], erro: null, pulado: true };
+  // Nenhuma medição do aluno em lugar nenhum: o servidor respondeu sem histórico, ou nem o
+  // painel local rodou. Sem isso o texto todo apareceria sem alerta, como se observado.
+  const nuncaObservado = temTextoDoAluno && !doServidor.aluno &&
+    ((!doServidor.pulado && !doServidor.erro) || !painelJaRodou);
   let mapa;
   if (doServidor.aluno) {
     // Fonte principal: o histórico do servidor, que o aluno não altera. Do mapa local só
@@ -1004,13 +1016,20 @@ function getDocumentAuraMap() {
     avisos.push(_avisoFonteServidor(doServidor));
   } else {
     mapa = local;
-    if (!doServidor.pulado) avisos.push(doServidor.erro
-      ? 'Não foi possível ler o histórico do servidor (' + doServidor.erro + '). O radar abaixo usa só ' +
-        'os dados guardados no documento, que o aluno pode alterar.'
-      : 'O servidor ainda não recebeu medições do painel do aluno para este documento. O radar abaixo ' +
-        'usa só os dados guardados no documento, que o aluno pode alterar.');
+    if (nuncaObservado) {
+      avisos.push('O painel do aluno nunca registrou a escrita deste documento (não foi aberto ou o ' +
+                  'add-on não está instalado para ele). Todo o texto aparece como não observado.');
+    } else if (doServidor.erro) {
+      avisos.push('Não foi possível ler o histórico do servidor (' + doServidor.erro + '). O radar abaixo usa só ' +
+                  'os dados guardados no documento, que o aluno pode alterar.');
+    }
   }
   const estados  = _estadosDoRadar(textos, modelo, mapa).filter(Boolean);
+  if (nuncaObservado) {
+    estados.forEach(function(e) {
+      if (e.estado === RADAR_ESTADO_SEM_ALERTA) { e.estado = RADAR_ESTADO_NAO_OBSERVADO; e.fonte = 'nunca_observado'; }
+    });
+  }
   const resumo   = { total: estados.length, S: 0, C: 0, E: 0, N: 0, L: 0 };
   const segmentos = estados.map(function(e) {
     resumo[e.estado] = (resumo[e.estado] || 0) + 1;
@@ -1036,6 +1055,16 @@ function getDocumentAuraMap() {
   if (resumo.L > 0) {
     avisos.push(resumo.L + ' alerta(s) vêm da versão anterior do painel, que guardava a posição ' +
                 'do parágrafo: confira o trecho antes de concluir algo.');
+  }
+
+  // Parte do texto que o painel não viu ser escrita (estado N): painel fechado, aluno sem
+  // abrir o painel ou add-on não instalado. Não é acusação, é falta de evidência.
+  const charsTotal = segmentos.reduce((s, g) => s + g.charCount, 0);
+  const charsN     = segmentos.reduce((s, g) => s + (g.estado === RADAR_ESTADO_NAO_OBSERVADO ? g.charCount : 0), 0);
+  resumo.naoObservadoPct = charsTotal > 0 ? Math.round(100 * charsN / charsTotal) : 0;
+  if (!nuncaObservado && resumo.naoObservadoPct >= RADAR_AVISO_NAO_OBSERVADO_PCT) {
+    avisos.push(resumo.naoObservadoPct + '% do texto do aluno apareceu sem o painel observar ' +
+                '(painel fechado ou nunca aberto). Para esse trecho o radar não tem evidência de processo.');
   }
 
   return { segmentos: segmentos, resumo: resumo, avisos: avisos };
@@ -1077,6 +1106,11 @@ function _avisoFonteServidor(r) {
            '(relógio errado ou envio forjado).';
   }
   if (r.outros.length > 0) txt += ' Outros e-mails também enviaram medições deste documento: ' + r.outros.join(', ') + '.';
+  if (a.origem === 'addon') {
+    txt += ' As medições vieram do add-on do Whitebox, que o aluno não edita.';
+  } else if (a.origem) {
+    txt += ' As medições vieram do script copiado com o documento, que o aluno pode editar.';
+  }
   return txt;
 }
 

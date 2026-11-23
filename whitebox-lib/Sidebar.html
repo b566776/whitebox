@@ -605,8 +605,30 @@
       <button class="btn btn-outline" id="btn-switch-teacher" onclick="manualSwitchRole('teacher')" style="flex: 1; padding: 6px; font-weight: 600; margin: 0; font-size: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s;">👩‍🏫 Professor</button>
     </div>
 
+    <!-- Aviso de várias contas Google: o Apps Script pode rodar o painel com a conta padrão
+         do navegador em vez da conta que abriu o documento. Aparece quando o contexto falha. -->
+    <div id="multi-conta-aviso" class="alert alert-warning hidden" role="status">
+      <b>Não foi possível identificar sua conta.</b> Se mais de uma conta Google estiver conectada
+      neste navegador, o painel pode usar a conta errada. Abra o documento numa janela anônima
+      (ou num perfil do navegador) só com a conta da escola e recarregue.
+    </div>
+
+    <!-- VIEW: FORA (add-on aberto num documento que não é atividade do Whitebox) -->
+    <div id="fora-view" class="hidden">
+      <div class="card">
+        <h2>Este documento não é uma atividade do Whitebox</h2>
+        <p>O painel só registra o processo de escrita nas cópias distribuídas pelo professor.
+           Nada deste documento é medido ou enviado.</p>
+        <p>Se você é professor e ainda não tem cadastro, peça ao administrador do Whitebox da sua escola.</p>
+      </div>
+    </div>
+
     <!-- VIEW: STUDENT -->
     <div id="student-view" class="hidden">
+      <div id="origem-aviso" class="alert alert-warning hidden" role="status">
+        Sua escola usa o add-on do Whitebox. Feche este painel e abra pelo menu
+        <b>Extensões &gt; Whitebox &gt; Abrir painel</b>, senão sua escrita não fica registrada.
+      </div>
       <div class="card">
         <h2>🧑‍🎓 Suas Evidências
           <span class="dot" id="sync-dot"></span>
@@ -970,7 +992,8 @@
         // Fallback: garante UI mínima funcional se o backend demorar muito
         startupFallback = setTimeout(function() {
           if (document.getElementById('student-view').classList.contains('hidden') &&
-              document.getElementById('teacher-view').classList.contains('hidden')) {
+              document.getElementById('teacher-view').classList.contains('hidden') &&
+              document.getElementById('fora-view').classList.contains('hidden')) {
             // Mostra a visão do aluno, mas sem registrar: se quem abriu for o professor,
             // a telemetria sairia em nome dele. O rastreio começa quando o papel chegar.
             console.warn('[Whitebox] getContext() demorou demais. Mostrando a visão do aluno sem registrar ainda.');
@@ -982,7 +1005,21 @@
           .withSuccessHandler(function(ctx) {
             clearTimeout(startupFallback);
             console.log('[Whitebox] getContext result:', ctx);
+            if (!ctx || ctx.error) {
+              // A biblioteca falhou (comum com várias contas conectadas): mesmo caminho da falha.
+              falhaNoContexto(ctx && (ctx.message || ctx.error));
+              return;
+            }
             realRole = ctx.initialRole || 'student';
+
+            // Add-on num documento que não é atividade do Whitebox: só o aviso, sem registrar.
+            if (realRole === 'fora') {
+              if (window.WB_ABERTURA_AUTOMATICA) { google.script.host.close(); return; }
+              document.getElementById('student-view').classList.add('hidden');
+              document.getElementById('teacher-view').classList.add('hidden');
+              document.getElementById('fora-view').classList.remove('hidden');
+              return;
+            }
             currentRole = realRole;
 
             // Aberto pelo gatilho "ao abrir" do aluno, mas quem abriu não é aluno (ex.: o
@@ -1020,12 +1057,18 @@
           })
           .withFailureHandler(function(err) {
             clearTimeout(startupFallback);
-            console.error('[Whitebox] getContext() falhou:', err);
-            showErrorBanner('Erro ao carregar contexto. Usando modo offline.');
-            realRole = 'student';
-            manualSwitchRole('student');
+            falhaNoContexto(err);
           })
           .getContext();
+      }
+
+      /** O contexto não carregou: avisa (inclusive sobre várias contas) e mostra a visão do aluno. */
+      function falhaNoContexto(err) {
+        console.error('[Whitebox] getContext() falhou:', err);
+        document.getElementById('multi-conta-aviso').classList.remove('hidden');
+        showErrorBanner('Erro ao carregar contexto. Usando modo offline.');
+        realRole = 'student';
+        manualSwitchRole('student');
       }
 
       function manualSwitchRole(role) {
@@ -1219,6 +1262,10 @@
             enviandoMedicoes = false;
             // Servidor ocupado ou fora do ar: tenta de novo no próximo envio.
             if (res && (res.error === 'OCUPADO' || res.error === 'PROXY_INVALID_RESPONSE')) devolver();
+            // Escola em modo add-on e o painel veio do script da cópia: o servidor recusa.
+            if (res && res.error === 'ORIGEM_NAO_AUTORIZADA') {
+              document.getElementById('origem-aviso').classList.remove('hidden');
+            }
           })
           .withFailureHandler(function() { enviandoMedicoes = false; devolver(); })
           .sendToBackend({ medicoes: lote });

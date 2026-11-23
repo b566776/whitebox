@@ -261,7 +261,7 @@ test('Linha de base vem da 1ª revisão: texto colado antes de abrir o painel co
   assert.deepEqual(mascara, [true, true, false, true, false]);
   const radar = m.ctx.getDocumentAuraMap();
   assert.deepEqual(radar.segmentos.map(s => s.index), [2, 4]);
-  assert.equal(radar.avisos.filter(a => !/servidor/.test(a)).length, 0);
+  assert.equal(radar.avisos.filter(a => !/servidor|nunca registrou/.test(a)).length, 0);
 });
 
 test('Sem Drive, a linha de base da abertura avisa o professor', () => {
@@ -346,10 +346,51 @@ test('Radar do professor usa o histórico do servidor, mesmo com o documento lim
 });
 
 test('Sem histórico no servidor, o radar avisa que usa os dados do documento', () => {
+  // O painel do aluno rodou aqui (há snapshot local), mas o servidor não tem medições.
   const m = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ alunos: [] }) });
-  assert.match(m.ctx.getDocumentAuraMap().avisos.join(' '), /ainda não recebeu medições/);
+  m.ctx.getDocumentStats();
+  const r = m.ctx.getDocumentAuraMap();
+  assert.match(r.avisos.join(' '), /nunca registrou/, 'servidor respondeu sem histórico: nunca observado');
   const m2 = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ error: 'PROFESSOR_INATIVO', message: 'Licença inativa' }) });
-  assert.match(m2.ctx.getDocumentAuraMap().avisos.join(' '), /Licença inativa/);
+  m2.ctx.getDocumentStats();
+  const r2 = m2.ctx.getDocumentAuraMap();
+  assert.match(r2.avisos.join(' '), /Licença inativa/);
+  assert.equal(r2.segmentos[0].estado, 'S', 'painel local rodou e o servidor falhou: usa o local');
+});
+
+test('Painel do aluno nunca aberto: todo o texto aparece como não observado, não como sem alerta', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Primeiro parágrafo.', frase('segundo', 300)], servidor: () => ({ alunos: [] }) });
+  const r = m.ctx.getDocumentAuraMap();
+  assert.equal(r.segmentos.map(s => s.estado).join(''), 'NN');
+  assert.equal(r.segmentos[0].fonte, 'nunca_observado');
+  assert.equal(r.resumo.naoObservadoPct, 100);
+  assert.equal(r.avisos.filter(a => /nunca registrou/.test(a)).length, 1);
+  assert.equal(r.avisos.filter(a => /sem o painel observar/.test(a)).length, 0, 'sem aviso duplicado');
+  // Sem servidor (falha de rede) e sem painel local: também não observado
+  const m2 = montar({ paragrafos: [MARCADOR, 'Texto.'] });
+  assert.equal(m2.ctx.getDocumentAuraMap().segmentos[0].estado, 'N');
+});
+
+test('Porcentagem de texto não observado entra no resumo e avisa a partir de 25%', () => {
+  const visto = frase('visto', 300), fechado = frase('fechado', 200);
+  const mapa = { v: 2, a: {} };
+  const m = montar({
+    paragrafos: [MARCADOR, visto, fechado],
+    servidor: () => ({ alunos: [{ email: 'aluno@x.com', medicoes: 5, inconsistencias: 0, origem: 'addon', mapa: mapa }] })
+  });
+  m.ctx.radarRegistrarAlerta(mapa, m.ctx.radarHash(fechado), m.ctx.radarHashPrefixo(fechado), 'N', 'painel_fechado', 1);
+  const r = m.ctx.getDocumentAuraMap();
+  assert.equal(r.resumo.naoObservadoPct, 40);
+  assert.match(r.avisos.join(' '), /40% do texto do aluno apareceu sem o painel observar/);
+  assert.match(r.avisos.join(' '), /add-on do Whitebox, que o aluno não edita/);
+});
+
+test('Aviso diz quando as medições vieram do script que o aluno pode editar', () => {
+  const m = montar({
+    paragrafos: [MARCADOR, 'Texto.'],
+    servidor: () => ({ alunos: [{ email: 'aluno@x.com', medicoes: 5, inconsistencias: 0, origem: 'script_vinculado', mapa: { v: 2, a: {} } }] })
+  });
+  assert.match(m.ctx.getDocumentAuraMap().avisos.join(' '), /script copiado com o documento, que o aluno pode editar/);
 });
 
 test('Documento mestre não consulta o servidor', () => {

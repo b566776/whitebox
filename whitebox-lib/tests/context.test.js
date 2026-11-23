@@ -89,7 +89,21 @@ test('Drive negado: item3 degrada com driveAccess=false e sem erro', () => {
   assert.equal(item3.gradeLevel, 'NAO_IDENTIFICADO');
   assert.equal(item3.professorEmail, 'NAO_IDENTIFICADO');
   assert.equal(item3.revisionsCount, 0);
-  assert.equal(item3.institutionId, 'IES_EDU_BR');
+  // A escola vem do cadastro no servidor, nunca do domínio do e-mail (@gmail não diz a escola).
+  assert.equal(item3.institutionId, 'NAO_IDENTIFICADO');
+});
+
+test('Add-on num documento sem designação: aluno recebe o papel fora', () => {
+  const { ctx } = montar({ driveOk: false, userEmail: 'aluno@ies.edu.br', designados: [] });
+  assert.equal(ctx.getContext({ addon: true }).initialRole, 'fora');
+  assert.equal(ctx.getContext().initialRole, 'student', 'script vinculado: o documento é sempre do Whitebox');
+});
+
+test('Add-on: professor cadastrado no mestre continua teacher; aluno na cópia designada continua student', () => {
+  const p = montar({ driveOk: false, userEmail: 'prof@ies.edu.br', designados: [], licenca: 'ATIVO' });
+  assert.equal(p.ctx.getContext({ addon: true }).initialRole, 'teacher');
+  const a = montar({ driveOk: false, userEmail: 'aluno@ies.edu.br', designados: ['prof@ies.edu.br'] });
+  assert.equal(a.ctx.getContext({ addon: true }).initialRole, 'student');
 });
 
 test('Professor cadastrado em documento sem designação e sem Drive é teacher', () => {

@@ -191,3 +191,6 @@ const ROUTE_REGISTRAR_MEDICOES = 'registrar_medicoes';
 
 /** Rota do servidor que devolve o Radar calculado com esse histórico (só o professor). */
 const ROUTE_RADAR_DOCUMENTO = 'radar_documento';
+
+/** A partir desta porcentagem de texto não observado (estado N), o radar avisa o professor. */
+const RADAR_AVISO_NAO_OBSERVADO_PCT = 25;

@@ -274,7 +274,16 @@ function distribuirMestreParaProfessor(email, token) {
   validarEmail(email);
 
   const uiData = getAdminUIData(token);
-  const seedId = uiData.seedId;
+  // Escola em modo add-on recebe o mestre sem script vinculado (Escolas.gs).
+  const cfg      = getConfig();
+  const registro = buscarRegistroProfessor(email, cfg.adminSpreadsheetId);
+  const semente  = escolherSemente(
+    registro ? configEscola(registro.escola, cfg.adminSpreadsheetId) : null,
+    uiData.seedId,
+    lerConfigGlobal(cfg.adminSpreadsheetId, CONFIG_KEY_SEED_DOC_ID_ADDON)
+  );
+  if (semente.aviso) Logger.log('[distribuirMestre] ' + semente.aviso);
+  const seedId = semente.seedId;
 
   if (!seedId) throw new Error('ID do Documento Semente não configurado.');
 
@@ -772,7 +781,8 @@ function doPost(e) {
     // A. Admin via SHARED_TOKEN — credencial exclusiva do Admin, nunca distribuída a clientes.
     const isAdmin = !!cfg.sharedToken && body.token === cfg.sharedToken;
     // B. Cliente (professor ou aluno) via OAuth Token — identidade verificada pelo Google.
-    const callerEmail = isAdmin ? null : verificarEmailOAuth(body.oauthToken);
+    const token       = isAdmin ? null : verificarTokenOAuth(body.oauthToken);
+    const callerEmail = token ? token.email : null;
 
     if (!isAdmin && !callerEmail) {
       return jsonResponse({ error: 'UNAUTHORIZED', message: 'Token inválido ou não autorizado.' }, 401);
@@ -826,7 +836,7 @@ function doPost(e) {
       case ROUTE_RESUMO_PROCESSO:
         return handleResumoProcesso(body, cfg, callerEmail);
       case ROUTE_REGISTRAR_MEDICOES:
-        return handleRegistrarMedicoes(body, cfg, callerEmail);
+        return handleRegistrarMedicoes(body, cfg, callerEmail, token ? token.clientId : '');
       case ROUTE_RADAR_DOCUMENTO:
         return handleRadarDocumento(body, cfg);
 
@@ -887,9 +897,21 @@ function handleStatusLicenca(body, cfg) {
   const temChave = (usaGlobalBoolean && iaGlobalDisponivel(cfg)) ? true :
                    (chaveIndividual && chaveIndividual.trim().length > 0) ? true : false;
 
+  // Modo do painel da escola (Escolas.gs): o painel usa para avisar o professor.
+  let modoPainel = MODO_PAINEL_SCRIPT, tipoConta = TIPO_CONTA_WORKSPACE;
+  try {
+    const ce = configEscola(escola, cfg.adminSpreadsheetId);
+    modoPainel = ce.modoPainel;
+    tipoConta  = ce.tipoConta;
+  } catch (e) {
+    Logger.log('[BrainProxy] configEscola falhou: ' + e);
+  }
+
   return jsonResponse({
     status: 'ATIVO',
     escola: escola,
+    modoPainel: modoPainel,
+    tipoConta: tipoConta,
     modoIA: temChave,
     tipoChave: usaGlobalBoolean ? 'global' : (chaveIndividual ? 'individual' : 'nenhuma')
   });

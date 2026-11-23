@@ -75,6 +75,30 @@ adicionarProfessor("vip@escola.com.br", "Escola XYZ", true, ""); // Chave Global
 
 ---
 
+## Modo do painel por escola (aba Escolas)
+
+Cada escola tem uma linha na aba **Escolas** da Planilha Global (criada pela migração v4;
+rode `executarMigracoes` pelo Dashboard depois de publicar o servidor):
+
+| Coluna | Valores | Efeito |
+|---|---|---|
+| `Instituicao` | igual à coluna Instituicao da aba Assinaturas | liga professores à escola (nunca pelo domínio do e-mail) |
+| `Tipo_Conta` | `workspace` ou `gmail` | contas da escola ou contas pessoais |
+| `Modo_Painel` | `script_vinculado` ou `addon` | de onde vem o painel do aluno |
+
+Sem linha, a escola fica em `workspace` + `script_vinculado` (o modo de sempre).
+
+Script Properties do servidor ligadas a isso:
+
+- `ADDON_CLIENT_IDS`: IDs de cliente OAuth do add-on publicado, separados por vírgula.
+  Numa escola em modo `addon`, o servidor só aceita medições do Radar com um desses IDs no
+  token; sem a propriedade, recusa todas (`ADDON_NAO_CONFIGURADO`).
+- `GMAIL_ADDON_LIBERADO`: `sim` libera `gmail` + `addon`. Até lá essas escolas seguem no
+  modo `script_vinculado`. Ver as condições em `whitebox-addon/PUBLICACAO.md`.
+
+Na aba Config, `seed_document_id_addon` é o semente sem script vinculado usado nos mestres
+das escolas em modo `addon`.
+
 ## Configurar a IA (Script Properties do Brain Proxy)
 
 A IA global atende os professores com `UsaChaveGlobal: Sim`. Configure em

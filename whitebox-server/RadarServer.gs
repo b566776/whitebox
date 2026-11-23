@@ -10,11 +10,15 @@
  *   - Radar_Eventos: uma linha por alerta, só acrescentada (trilha de auditoria).
  * O aluno é dono da cópia e do script vinculado e pode apagar o que fica no documento,
  * mas não o que já está aqui. O professor lê este histórico pela rota radar_documento.
+ *
+ * Origem: nas escolas em modo 'addon' (Escolas.gs), só o add-on publicado manda medições;
+ * o script vinculado (que o aluno pode editar) é recusado. Ultima_Origem guarda de onde
+ * veio o último envio aceito ('addon' ou 'script_vinculado').
  */
 
 const RADAR_ESTADO_HEADERS = [
   'DocId', 'Email_Aluno', 'Primeira_Medicao', 'Ultima_Medicao', 'Ultimo_Recebimento',
-  'Medicoes', 'Inconsistencias', 'Estado_JSON'
+  'Medicoes', 'Inconsistencias', 'Estado_JSON', 'Ultima_Origem'
 ];
 const RADAR_EVENTOS_HEADERS = [
   'Recebido_Em', 'DocId', 'Email_Aluno', 'Estado', 'Hash', 'Medido_Em', 'Crescimento', 'Decorrido_s'
@@ -114,8 +118,9 @@ function _radarLinhasDoDocumento(sheet, docId) {
  * Rota registrar_medicoes (aberta a alunos). O aluno é sempre o e-mail verificado do
  * chamador, nunca o que vem no corpo.
  * @param {object} body - { professorEmail, docId, medicoes }
+ * @param {string} clientId - ID de cliente OAuth do token (verificarTokenOAuth)
  */
-function handleRegistrarMedicoes(body, cfg, callerEmail) {
+function handleRegistrarMedicoes(body, cfg, callerEmail, clientId) {
   const professorEmail = String(body.professorEmail || '').trim().toLowerCase();
   const docId          = String(body.docId || '').trim();
   const aluno          = String(callerEmail || '').trim().toLowerCase();
@@ -132,6 +137,10 @@ function handleRegistrarMedicoes(body, cfg, callerEmail) {
       message: 'O professor deste documento não está cadastrado no Whitebox ou ainda não tem planilha de registros.'
     }, 404);
   }
+  const escola = configEscola(registro.escola, cfg.adminSpreadsheetId);
+  const origem = origemDoRadar(escola, clientId, idsDoAddon());
+  if (!origem.ok) return jsonResponse({ error: origem.erro, message: origem.message }, 403);
+
   const medicoes = radarValidarMedicoes(body.medicoes);
   if (medicoes.length === 0) return jsonResponse({ success: true, aceitas: 0 });
 
@@ -163,7 +172,8 @@ function handleRegistrarMedicoes(body, cfg, callerEmail) {
       new Date(agora),
       total + r.aceitas,
       inconsist + r.inconsistentes,
-      JSON.stringify(r.estado)
+      JSON.stringify(r.estado),
+      origem.origem
     ]];
     if (linha) sheet.getRange(linha, 1, 1, valores[0].length).setValues(valores);
     else sheet.appendRow(valores[0]);
@@ -198,7 +208,7 @@ function handleRadarDocumento(body, cfg) {
   const registro = buscarRegistroProfessor(professorEmail, cfg.adminSpreadsheetId);
   if (!registro || !registro.spreadsheetId) return jsonResponse({ alunos: [] });
   const sheet = SpreadsheetApp.openById(registro.spreadsheetId).getSheetByName(SHEET_RADAR_ESTADO);
-  if (!sheet) return jsonResponse({ alunos: [] });
+  if (!sheet) return jsonResponse({ alunos: [], modoPainel: _modoPainelDoRegistro(registro, cfg) });
 
   const linhas = _radarLinhasDoDocumento(sheet, docId);
   const alunos = Object.keys(linhas).map(function(email) {
@@ -212,8 +222,14 @@ function handleRadarDocumento(body, cfg) {
       ultima:          data(v[3]),
       medicoes:        Number(v[5]) || 0,
       inconsistencias: Number(v[6]) || 0,
+      origem:          String(v[8] || ''),
       mapa:            (estado && estado.mapa) || { v: 2, a: {} }
     };
   }).sort((a, b) => b.medicoes - a.medicoes);
-  return jsonResponse({ alunos: alunos });
+  return jsonResponse({ alunos: alunos, modoPainel: _modoPainelDoRegistro(registro, cfg) });
+}
+
+/** Modo do painel da escola do professor (Escolas.gs). @private */
+function _modoPainelDoRegistro(registro, cfg) {
+  return configEscola(registro.escola, cfg.adminSpreadsheetId).modoPainel;
 }

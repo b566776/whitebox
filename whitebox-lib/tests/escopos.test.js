@@ -1,6 +1,6 @@
 // REGRA DO PROJETO (Marcelo, 2026-11-23): nenhuma mudança pode empurrar o app para
 // escopos RESTRITOS do Google (verificação de ~6 semanas + auditoria de segurança paga
-// anual, CASA). Este teste falha se a biblioteca ou o cliente, que pedem autorização aos
+// anual, CASA). Este teste falha se a biblioteca, o cliente ou o add-on, que pedem autorização aos
 // usuários, declararem um escopo restrito.
 // Lista: https://support.google.com/cloud/answer/13464325 (consultada em 2026-11-23).
 // O servidor fica de fora: é um Web App executado como a conta dona (USER_DEPLOYING), e os
@@ -26,7 +26,7 @@ const RESTRITOS = [
 ];
 const PREFIXOS_RESTRITOS = [G + 'fitness.', G + 'dataportability.', G + 'photosambient.', G + 'googlehealth.'];
 
-for (const projeto of ['whitebox-lib', 'whitebox-client']) {
+for (const projeto of ['whitebox-lib', 'whitebox-client', 'whitebox-addon']) {
   test(projeto + ': nenhum escopo restrito no appsscript.json', () => {
     const manifesto = JSON.parse(fs.readFileSync(path.join(RAIZ, projeto, 'appsscript.json'), 'utf8'));
     const escopos = manifesto.oauthScopes;
