@@ -143,7 +143,7 @@ function _radarLinhasDoDocumento(sheet, docId) {
 /**
  * Rota registrar_medicoes (aberta a alunos). O aluno é sempre o e-mail verificado do
  * chamador, nunca o que vem no corpo.
- * @param {object} body - { professorEmail, docId, medicoes }
+ * @param {object} body - { professorEmail, docId, medicoes, final? } (final = entrega do trabalho)
  * @param {string} clientId - ID de cliente OAuth do token (verificarTokenOAuth)
  */
 function handleRegistrarMedicoes(body, cfg, callerEmail, clientId) {
@@ -212,15 +212,20 @@ function handleRegistrarMedicoes(body, cfg, callerEmail, clientId) {
     lock.releaseLock();
   }
 
-  // Etapa 3: de vez em quando, confere as revisões do Drive (fora da trava das medições).
-  // Desligada (RADAR_REVISOES_ATIVO), não confere nem pede compartilhamento.
+  // Etapa 3: de vez em quando, e só se o texto mudou, confere as revisões do Drive (fora da
+  // trava das medições). Na entrega do trabalho, confere sempre. Desligada
+  // (RADAR_REVISOES_ATIVO), não confere nem pede compartilhamento.
   if (!radarRevisoesAtivas()) return jsonResponse(resposta);
-  const rv = radarConferirSeHoraDe(ssGravada, docId, aluno, RADAR_REV_INTERVALO_MS);
+  const rv = body.final === true
+    ? radarConferirSeHoraDe(ssGravada, docId, aluno, 0)
+    : radarConferirSeHoraDe(ssGravada, docId, aluno, RADAR_REV_INTERVALO_MS, { exigirMudanca: true });
   const estadoRv = rv || _radarRvAtual(ssGravada, docId, aluno);
   if (!estadoRv || estadoRv.acesso !== 'ok') {
-    // O painel compartilha a cópia com esta conta (leitor) para a próxima conferência.
+    // A biblioteca compartilha a cópia (leitor) com a conta que a rota ping informa. Se o
+    // servidor já teve acesso, alguém o removeu: o painel do aluno não compartilha de novo
+    // em silêncio (o professor vê o evento ACESSO_PERDIDO).
     resposta.precisaAcesso = true;
-    resposta.contaServidor = radarContaServidor();
+    resposta.jaTeveAcesso = !!(estadoRv && estadoRv.jaTeveAcesso);
   }
   return jsonResponse(resposta);
 }

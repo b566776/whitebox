@@ -30,7 +30,7 @@ function montar(o) {
     getId: () => 'DOC123',
     getTabs: () => [{ asDocumentTab: () => ({ getNamedRanges: () => ranges }) }],
     getNamedRanges: () => ranges,
-    getBody: () => ({ getParagraphs: () => [] })
+    getBody: () => ({ getParagraphs: () => (o.paragrafos || []).map(t => ({ getText: () => t })) })
   };
   const file = {
     getOwner: () => ({ getEmail: () => o.ownerEmail || '' }),
@@ -100,8 +100,13 @@ test('Add-on num documento sem designação: aluno recebe o papel fora', () => {
 });
 
 test('Add-on: professor cadastrado no mestre continua teacher; aluno na cópia designada continua student', () => {
-  const p = montar({ driveOk: false, userEmail: 'prof@ies.edu.br', designados: [], licenca: 'ATIVO' });
+  const p = montar({ driveOk: false, userEmail: 'prof@ies.edu.br', designados: [], licenca: 'ATIVO',
+                     paragrafos: ['Instruções', 'ESCREVA O SEU TRABALHO ABAIXO DESTA LINHA', ''] });
   assert.equal(p.ctx.getContext({ addon: true }).initialRole, 'teacher');
+  // Documento pessoal do professor (sem a linha marcador): o add-on fica fora.
+  const pessoal = montar({ driveOk: false, userEmail: 'prof@ies.edu.br', designados: [], licenca: 'ATIVO', paragrafos: ['Minha lista de compras'] });
+  assert.equal(pessoal.ctx.getContext({ addon: true }).initialRole, 'fora');
+  assert.equal(pessoal.ctx.getContext().initialRole, 'teacher', 'no script vinculado nada muda');
   const a = montar({ driveOk: false, userEmail: 'aluno@ies.edu.br', designados: ['prof@ies.edu.br'] });
   assert.equal(a.ctx.getContext({ addon: true }).initialRole, 'student');
 });

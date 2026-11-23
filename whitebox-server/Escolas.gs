@@ -123,6 +123,26 @@ function configEscola(instituicao, adminSpreadsheetId) {
 }
 
 /**
+ * Apaga o cache de 5 min de configEscola para todas as escolas da aba Escolas, para uma
+ * troca de modo valer na hora. Roda junto com migrarSchemaAgora (editor do servidor).
+ * @returns {number} quantas escolas tiveram o cache apagado
+ */
+function limparCacheEscolas(adminSpreadsheetId) {
+  try {
+    const sheet = SpreadsheetApp.openById(adminSpreadsheetId).getSheetByName(SHEET_ESCOLAS);
+    if (!sheet || sheet.getLastRow() < 2) return 0;
+    const chaves = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues()
+      .map(v => _chaveEscola(v[0])).filter(Boolean)
+      .map(c => 'ESCOLA_' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, c)));
+    CacheService.getScriptCache().removeAll(chaves);
+    return chaves.length;
+  } catch (e) {
+    Logger.log('[Escolas] Erro ao limpar o cache: ' + e);
+    return 0;
+  }
+}
+
+/**
  * De onde veio uma chamada do painel (puro, testável).
  * @param {string} clientId           - ID de cliente OAuth do token (azp/aud)
  * @param {string[]} idsDoAddon       - Script Property ADDON_CLIENT_IDS

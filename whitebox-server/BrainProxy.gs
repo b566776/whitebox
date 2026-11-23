@@ -861,7 +861,8 @@ function doPost(e) {
         // Diz ao chamador qual ID de cliente OAuth veio no token e se é o do add-on
         // (ADDON_CLIENT_IDS), e registra no log: é a conferência do passo 7 do guia do add-on.
         const ping = respostaPing(callerEmail, token ? token.clientId : '', idsDoAddon());
-        if (!isAdmin) Logger.log('[ping] ' + ping.email + ' | clientId=' + ping.clientId + ' | origem=' + ping.origem);
+        // Sem o e-mail: o log não guarda dados pessoais de quem confere a conexão.
+        if (!isAdmin) Logger.log('[ping] clientId=' + ping.clientId + ' | origem=' + ping.origem);
         // Etapa 3 do Radar: a conta com quem o painel compartilha a cópia (só se ligada).
         ping.contaServidor = radarRevisoesAtivas() ? radarContaServidor() : '';
         return jsonResponse(ping);
@@ -905,11 +906,13 @@ function handleStatusLicenca(body, cfg) {
                    (chaveIndividual && chaveIndividual.trim().length > 0) ? true : false;
 
   // Modo do painel da escola (Escolas.gs): o painel usa para avisar o professor.
-  let modoPainel = MODO_PAINEL_SCRIPT, tipoConta = TIPO_CONTA_WORKSPACE;
+  let modoPainel = MODO_PAINEL_SCRIPT, tipoConta = TIPO_CONTA_WORKSPACE, travado = false, motivo = '';
   try {
     const ce = configEscola(escola, cfg.adminSpreadsheetId);
     modoPainel = ce.modoPainel;
     tipoConta  = ce.tipoConta;
+    travado    = ce.travado;
+    motivo     = ce.motivo;
   } catch (e) {
     Logger.log('[BrainProxy] configEscola falhou: ' + e);
   }
@@ -919,6 +922,9 @@ function handleStatusLicenca(body, cfg) {
     escola: escola,
     modoPainel: modoPainel,
     tipoConta: tipoConta,
+    // Pediu add-on para contas @gmail e ainda não foi liberado: o painel mostra o motivo.
+    modoTravado: travado,
+    motivoModo: motivo,
     modoIA: temChave,
     tipoChave: usaGlobalBoolean ? 'global' : (chaveIndividual ? 'individual' : 'nenhuma')
   });

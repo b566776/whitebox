@@ -59,6 +59,11 @@ function montar(o) {
     PropertiesService: { getScriptProperties: () => ({
       getProperty: k => (k === 'RADAR_REVISOES_ATIVO' && !o.revisoesDesligadas ? 'sim' : null) }) },
     ScriptApp: { getOAuthToken: () => 'TOKEN-SERVIDOR' },
+    // Cache do servidor (contador diário de chamadas da conferência).
+    CacheService: { getScriptCache: () => {
+      const c = o.cache = o.cache || {};
+      return { get: k => (k in c ? c[k] : null), put: (k, v) => { c[k] = String(v); } };
+    } },
     // Drive simulado: o.drive = { codigo, revisoes: [{ id, ts, texto }] } ou ausente (403).
     UrlFetchApp: (() => {
       const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => body });
@@ -521,7 +526,8 @@ test('Sem acesso às revisões: a resposta pede ao painel para compartilhar com 
   const { ctx, ss } = montar(o);
   const r = ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC, medicoes: [med(ctx, ctx.__agora, [MARC, 'oi'])] }, {}, ALUNO, '');
   assert.equal(r.data.precisaAcesso, true);
-  assert.equal(r.data.contaServidor, 'servidor@x.com');
+  assert.equal(r.data.jaTeveAcesso, false);
+  assert.equal(r.data.contaServidor, undefined, 'a conta vem só pela rota ping');
   assert.equal(o.pedidosDrive[0].auth, 'Bearer TOKEN-SERVIDOR', 'lê o Drive com a conta do servidor, não com a do aluno');
   assert.equal(ss.abas.Radar_Estado.linhas[1][12], 'sem_acesso');
 });
@@ -533,9 +539,10 @@ test('Acesso perdido: o servidor tinha acesso e deixou de ter vira evento', () =
   ctx.handleRegistrarMedicoes(body, {}, ALUNO, '');
   assert.equal(ss.abas.Radar_Estado.linhas[1][12], 'ok');
   delete o.drive;                                   // aluno tirou o servidor do compartilhamento
-  ctx.__agora += 31 * MIN;
+  ctx.__agora += 61 * MIN;
   body.medicoes = [med(ctx, ctx.__agora, [MARC, 'oi de novo'])];
-  ctx.handleRegistrarMedicoes(body, {}, ALUNO, '');
+  const r = ctx.handleRegistrarMedicoes(body, {}, ALUNO, '');
+  assert.equal(r.data.jaTeveAcesso, true, 'o painel do aluno não compartilha de novo em silêncio');
   const ev = ss.abas.Radar_Eventos.linhas;
   assert.equal(ev[ev.length - 1][3], 'ACESSO_PERDIDO');
   assert.equal(ev[ev.length - 1][8], 'revisao_servidor');
@@ -603,4 +610,55 @@ test('Radar do professor confere só o aluno que o painel mostra (o de mais medi
   const de = email => linhas.find(l => l[1] === email);
   assert.equal(de(ALUNO)[12], 'ok');
   assert.equal(de('outro@x.com')[12] || '', '');
+});
+
+test('Cota: texto parado não confere de novo; entrega confere na hora; teto diário pausa', () => {
+  const o = { drive: { revisoes: [rev('r1', T0, [MARC])] } };
+  const { ctx } = montar(o);
+  const body = { professorEmail: PROF, docId: DOC, medicoes: [med(ctx, ctx.__agora, [MARC, 'oi'])] };
+  ctx.handleRegistrarMedicoes(body, {}, ALUNO, '');
+  const listagens = () => o.pedidosDrive.length;
+  assert.equal(listagens(), 1);
+  // 2 h depois, só pulsos "igual" (texto parado): não confere.
+  ctx.__agora += 120 * MIN;
+  ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC, medicoes: [{ ts: ctx.__agora, igual: true }] }, {}, ALUNO, '');
+  assert.equal(listagens(), 1);
+  // Entrega: confere mesmo sem intervalo nem mudança.
+  ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC, final: true,
+    medicoes: [{ ts: ctx.__agora + SEG, igual: true }] }, {}, ALUNO, '');
+  assert.equal(listagens(), 2);
+  // Texto mudou, intervalo passou, mas a cota do dia acabou: pausa.
+  ctx.__agora += 61 * MIN;
+  Object.keys(o.cache).forEach(k => { o.cache[k] = '999999'; });
+  ctx.handleRegistrarMedicoes({ professorEmail: PROF, docId: DOC, medicoes: [med(ctx, ctx.__agora, [MARC, 'mudou'])] }, {}, ALUNO, '');
+  assert.equal(listagens(), 2);
+});
+
+test('Revisões novas demais: lê as mais antigas primeiro e deixa o resto para a próxima conferência', () => {
+  const revisoes = [];
+  for (let i = 0; i < 30; i++) revisoes.push(rev('r' + i, T0 + i * MIN, [MARC, 'linha ' + i]));
+  const o = { drive: { revisoes } };
+  const { ctx } = montar(o);
+  const lido = ctx.radarLerRevisoesDoDrive(DOC, 0);
+  assert.equal(lido.revisoes[0].id, 'r0');
+  assert.equal(lido.revisoes.length, 21);
+  assert.equal(lido.pendentes, true);
+  const resto = ctx.radarLerRevisoesDoDrive(DOC, lido.revisoes[20].ts);
+  assert.equal(resto.revisoes[0].id, 'r20', 'a última lida serve de referência');
+  assert.equal(resto.revisoes[resto.revisoes.length - 1].id, 'r29');
+  assert.equal(resto.pendentes, false);
+  // Com revisões pendentes, a próxima conferência vem em 5 min, não em 1 h.
+  const estado = { rv: { em: T0, acesso: 'ok', pendentes: true }, hist: [] };
+  assert.equal(ctx.radarHoraDeConferir(estado, T0 + 6 * MIN, 60 * MIN, true), true);
+  estado.rv.pendentes = false;
+  assert.equal(ctx.radarHoraDeConferir(estado, T0 + 6 * MIN, 60 * MIN, true), false);
+});
+
+test('ping não grava o e-mail no log; status de licença diz se o modo da escola está travado', () => {
+  const src = fs.readFileSync(path.join(SERVER, 'BrainProxy.gs'), 'utf8');
+  const ping = src.match(/case 'ping':[\s\S]*?return jsonResponse\(ping\);/)[0];
+  assert.doesNotMatch(ping, /Logger\.log\([^)]*ping\.email/);
+  assert.match(src, /modoTravado: travado,[\s\S]*motivoModo: motivo/);
+  const schema = fs.readFileSync(path.join(SERVER, 'SchemaManager.gs'), 'utf8');
+  assert.match(schema, /function migrarSchemaAgora\(\)[\s\S]*?limparCacheEscolas\(adminId\)/);
 });

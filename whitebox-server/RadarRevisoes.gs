@@ -33,11 +33,16 @@ const PROP_RADAR_REVISOES_ATIVO = 'RADAR_REVISOES_ATIVO';
 /** Revisões lidas por conferência (as mais recentes). */
 const RADAR_REV_MAX = 20;
 /** Intervalo mínimo entre conferências do mesmo documento disparadas pelo painel do aluno. */
-const RADAR_REV_INTERVALO_MS = 30 * 60 * 1000;
+const RADAR_REV_INTERVALO_MS = 60 * 60 * 1000;
 /** Intervalo quando a conferência anterior ficou sem acesso (o painel acabou de compartilhar). */
 const RADAR_REV_INTERVALO_SEM_ACESSO_MS = 5 * 60 * 1000;
 /** Intervalo mínimo quando quem pede é o radar do professor. */
 const RADAR_REV_INTERVALO_PROFESSOR_MS = 10 * 60 * 1000;
+/**
+ * Chamadas de UrlFetch por dia reservadas à conferência (a cota da conta é 20 mil, dividida
+ * com a IA e o resto do servidor). Perto do teto, a conferência pausa até o dia seguinte.
+ */
+const RADAR_REV_COTA_DIA = 10000;
 /** Pontos guardados do histórico de tamanhos (uma entrada por medição com mudança). */
 const RADAR_HIST_MAX = 300;
 /** Distância máxima entre uma revisão e as medições usadas para compará-la. */
@@ -227,6 +232,7 @@ function radarAnalisarRevisoes(estado, revisoes, agora) {
   rv.suprimidas += res.suprimidas;
   rv.em = agora;
   rv.acesso = 'ok';
+  if (!rv.jaTeveAcesso) rv.jaTeveAcesso = agora;
   delete rv.erro;
   // O histórico só precisa cobrir as revisões que ainda vão chegar.
   if (Array.isArray(estado.hist)) {
@@ -237,12 +243,41 @@ function radarAnalisarRevisoes(estado, revisoes, agora) {
   return res;
 }
 
-/** true se já é hora de conferir de novo (puro, testável). */
-function radarHoraDeConferir(estado, agora, intervaloMs) {
+/**
+ * true se já é hora de conferir de novo (puro, testável).
+ * @param {boolean} [exigirMudanca] - painel do aluno: só confere se chegou medição com
+ *        mudança depois da última conferência (texto parado não gasta cota)
+ */
+function radarHoraDeConferir(estado, agora, intervaloMs, exigirMudanca) {
   const rv = estado && estado.rv;
   if (!rv || !rv.em) return true;
-  const intervalo = rv.acesso === 'ok' ? intervaloMs : Math.min(intervaloMs, RADAR_REV_INTERVALO_SEM_ACESSO_MS);
-  return agora - rv.em >= intervalo;
+  // Sem acesso, com erro ou com revisões deixadas para depois: tenta de novo mais cedo.
+  const atrasado = rv.acesso !== 'ok' || !!rv.pendentes;
+  const intervalo = atrasado ? Math.min(intervaloMs, RADAR_REV_INTERVALO_SEM_ACESSO_MS) : intervaloMs;
+  if (agora - rv.em < intervalo) return false;
+  if (exigirMudanca && !atrasado) {
+    const hist = estado.hist || [];
+    const ult = hist[hist.length - 1];
+    if (!ult || ult[0] <= rv.em) return false;
+  }
+  return true;
+}
+
+/** Chave do contador diário de chamadas da conferência. @private */
+function _radarChaveCota(agora) {
+  return 'RADAR_REV_CHAMADAS_' + new Date(agora).toISOString().substring(0, 10);
+}
+
+/** Chamadas de UrlFetch já gastas hoje pela conferência. */
+function radarCotaUsada(agora) {
+  try { return Number(CacheService.getScriptCache().get(_radarChaveCota(agora))) || 0; } catch (e) { return 0; }
+}
+
+/** Soma chamadas ao contador do dia (aproximado: é só um freio). @private */
+function _radarGastarCota(agora, n) {
+  try {
+    CacheService.getScriptCache().put(_radarChaveCota(agora), String(radarCotaUsada(agora) + n), 26 * 60 * 60);
+  } catch (e) { /* sem cache, segue sem o freio */ }
 }
 
 /**
@@ -276,17 +311,20 @@ function radarLerRevisoesDoDrive(docId, ultimoTs) {
     '/revisions?pageSize=1000&fields=revisions(id,modifiedTime,exportLinks)',
     { headers: auth, muteHttpExceptions: true });
   const code = resp.getResponseCode();
-  if (code === 403 || code === 404) return { acesso: 'sem_acesso' };
-  if (code !== 200) return { acesso: 'erro', erro: 'Drive respondeu ' + code };
+  if (code === 403 || code === 404) return { acesso: 'sem_acesso', chamadas: 1 };
+  if (code !== 200) return { acesso: 'erro', erro: 'Drive respondeu ' + code, chamadas: 1 };
 
   const todas = (JSON.parse(resp.getContentText()).revisions || [])
     .map(r => ({ id: r.id, ts: Date.parse(r.modifiedTime), link: r.exportLinks && r.exportLinks['text/plain'] }))
     .filter(r => r.link && isFinite(r.ts))
     .sort((a, b) => a.ts - b.ts);
   let ini = todas.findIndex(r => r.ts > (ultimoTs || 0));
-  if (ini === -1) return { acesso: 'ok', revisoes: [] };
+  if (ini === -1) return { acesso: 'ok', revisoes: [], chamadas: 1 };
   ini = Math.max(0, ini - 1);                               // a anterior serve de referência
-  const janela = todas.slice(ini).slice(-(RADAR_REV_MAX + 1));
+  // As mais antigas primeiro: depois de dias sem conferência, as do meio não se perdem; o
+  // resto fica para a próxima conferência (pendentes).
+  const janela = todas.slice(ini, ini + RADAR_REV_MAX + 1);
+  const pendentes = ini + janela.length < todas.length;
   const resps = UrlFetchApp.fetchAll(janela.map(r => ({ url: r.link, headers: auth, muteHttpExceptions: true })));
   const revisoes = [];
   let falhou = false;
@@ -298,17 +336,19 @@ function radarLerRevisoesDoDrive(docId, ultimoTs) {
     revisoes.push({ id: janela[i].id, ts: janela[i].ts, texto: resps[i].getContentText() });
   }
   const novasLidas = revisoes.filter(r => r.ts > (ultimoTs || 0)).length;
-  if (falhou && novasLidas === 0) return { acesso: 'erro', erro: 'A exportação das revisões falhou.' };
-  return { acesso: 'ok', revisoes: revisoes, incompleta: falhou };
+  const chamadas = 1 + janela.length;
+  if (falhou && novasLidas === 0) return { acesso: 'erro', erro: 'A exportação das revisões falhou.', chamadas: chamadas };
+  return { acesso: 'ok', revisoes: revisoes, incompleta: falhou, pendentes: pendentes || falhou, chamadas: chamadas };
 }
 
 /**
  * Confere as revisões de um documento e aluno, se já for hora, e grava o resultado.
  * A leitura do Drive fica fora da trava; a gravação relê a linha dentro dela.
  * Nunca lança: a conferência é um extra e não pode derrubar a rota que a chamou.
+ * @param {{ exigirMudanca?: boolean }} [opcoes] ver radarHoraDeConferir
  * @returns {object|null} estado.rv atualizado, ou null se não conferiu
  */
-function radarConferirSeHoraDe(ss, docId, aluno, intervaloMs) {
+function radarConferirSeHoraDe(ss, docId, aluno, intervaloMs, opcoes) {
   try {
     if (!radarRevisoesAtivas()) return null;
     const sheet = ss.getSheetByName(SHEET_RADAR_ESTADO);
@@ -317,9 +357,14 @@ function radarConferirSeHoraDe(ss, docId, aluno, intervaloMs) {
     if (!linha) return null;
     const agora = Date.now();
     let estado = _radarLerEstadoDaLinha(sheet, linha);
-    if (!estado || !radarHoraDeConferir(estado, agora, intervaloMs)) return null;
+    if (!estado || !radarHoraDeConferir(estado, agora, intervaloMs, !!(opcoes && opcoes.exigirMudanca))) return null;
+    if (radarCotaUsada(agora) >= RADAR_REV_COTA_DIA) {
+      Logger.log('[RadarRevisoes] Cota diária da conferência atingida; pausada até amanhã.');
+      return null;
+    }
 
     const lido = radarLerRevisoesDoDrive(docId, estado.rv && estado.rv.ultimoTs);
+    _radarGastarCota(agora, lido.chamadas || 1);
 
     const lock = LockService.getScriptLock();
     if (!lock.tryLock(15000)) return null;
@@ -329,6 +374,7 @@ function radarConferirSeHoraDe(ss, docId, aluno, intervaloMs) {
       let eventos = [];
       if (lido.acesso === 'ok') {
         eventos = radarAnalisarRevisoes(estado, lido.revisoes, agora).eventos;
+        estado.rv.pendentes = !!lido.pendentes;
         if (lido.incompleta) estado.rv.erro = 'Algumas revisões não puderam ser exportadas; ficam para a próxima conferência.';
       } else {
         estado.rv = Object.assign({ ultimoTs: 0, lidas: 0, divergencias: 0, suprimidas: 0 }, estado.rv || {},

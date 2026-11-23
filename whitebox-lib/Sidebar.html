@@ -919,6 +919,7 @@
             <span id="ai-mode-icon">🔴</span>
             <span id="ai-mode-text">Modo Offline — sem análise de IA</span>
           </div>
+          <div id="modo-painel-info" class="hidden" style="font-size: 12px; color: var(--text-muted); margin: 6px 0;"></div>
 
           <div id="config-key-section">
             <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px 0;">
@@ -1953,6 +1954,16 @@
         // Status ATIVO
         badge.className = 'license-badge ativo';
         badge.textContent = '✅ Licença Ativa' + (result.escola ? ' — ' + result.escola : '');
+
+        // Modo do painel da escola (aba Escolas do servidor) e, se pedido e travado, o motivo.
+        const modoInfo = document.getElementById('modo-painel-info');
+        if (result.modoPainel) {
+          modoInfo.textContent = 'Painel dos alunos: ' +
+            (result.modoPainel === 'addon' ? 'add-on do Whitebox (o aluno não edita)' : 'script copiado com o documento') +
+            (result.tipoConta === 'gmail' ? ' · contas @gmail' : '') +
+            (result.modoTravado && result.motivoModo ? '. ' + result.motivoModo : '');
+          modoInfo.classList.remove('hidden');
+        }
 
         if (result.modoIA) {
           indicator.className = 'ai-mode-indicator on';

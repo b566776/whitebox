@@ -209,7 +209,14 @@ function getContext(opcoes) {
   let role = isDesignated ? 'teacher'
     : (isRegisteredProfessor && (!hasDesignation || isOwner || isProfessor)) ? 'teacher'
     : 'student';
-  if (role === 'student' && !hasDesignation && opcoes && opcoes.addon === true) role = 'fora';
+  if (!hasDesignation && opcoes && opcoes.addon === true) {
+    // Add-on aparece em qualquer documento: sem designação, só é mestre do Whitebox o
+    // documento com a linha marcador. Os outros (documentos pessoais) ficam 'fora', também
+    // para o professor cadastrado.
+    const temMarcador = role === 'teacher' &&
+      _indiceDoMarcador(doc.getBody().getParagraphs().map(p => p.getText().trim())) !== -1;
+    if (!temMarcador) role = 'fora';
+  }
 
   // Cópia de aluno de um modelo sem a linha MARCADOR_INICIO_ALUNO: guarda o texto que veio
   // do modelo para não contá-lo como escrito pelo aluno.

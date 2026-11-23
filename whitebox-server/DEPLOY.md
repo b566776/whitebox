@@ -96,6 +96,11 @@ Script Properties do servidor ligadas a isso:
 - `GMAIL_ADDON_LIBERADO`: `sim` libera `gmail` + `addon`. Até lá essas escolas seguem no
   modo `script_vinculado`. Ver as condições em `whitebox-addon/PUBLICACAO.md`.
 
+Trocar o modo de uma escola leva até 5 min para valer (cache). Para valer na hora, rode
+`migrarSchemaAgora` no editor do servidor: ela também limpa esse cache. O painel do
+professor (aba Configurações) mostra o modo da escola e, se `gmail` + `addon` estiver
+travado, o motivo.
+
 Na aba Config, `seed_document_id_addon` é o semente sem script vinculado usado nos mestres
 das escolas em modo `addon`.
 
@@ -125,14 +130,20 @@ confere, não pede compartilhamento e o painel não compartilha nada. Com acesso
 lê o **texto** das revisões (não só hashes e tamanhos): ligue só com o servidor numa conta da
 organização e os termos de uso do aluno atualizados (`docs/Termos de Uso - Aluno.md`).
 
-- **Quando roda:** a cada 30 min por cópia, no envio de medições do aluno, e a cada 10 min
-  quando o professor abre o radar (só para o aluno que o radar mostra). Lê no máximo as 20
-  revisões mais novas por vez; se a exportação de uma falhar, as seguintes ficam para a
-  próxima conferência.
-- **Acesso:** o servidor precisa ser leitor da cópia. O painel do aluno pergunta a conta ao
-  servidor (rota `ping`) e compartilha a cópia com ela (`Document.addViewer`, escopo
-  `documents.currentonly`, que o painel já tem), avisando o aluno na primeira vez. O painel do
-  professor não compartilha nada. Nenhum escopo novo nem restrito para os usuários.
+- **Quando roda:** no envio de medições do aluno, no máximo a cada 60 min por cópia e só
+  se o texto mudou desde a última conferência; sempre na entrega do trabalho; e a cada 10 min
+  quando o professor abre o radar (só para o aluno que o radar mostra). Lê as revisões das
+  mais antigas para as mais novas, até 20 por vez; o resto (ou o que falhou na exportação)
+  fica para a próxima conferência, que então vem em 5 min.
+- **Cota:** cada conferência gasta 1 listagem mais 1 exportação por revisão, da mesma cota
+  diária de UrlFetch da IA (20 mil por dia numa conta pessoal). O servidor conta as chamadas
+  do dia e pausa a conferência em 10 mil, até o dia seguinte.
+- **Acesso:** o servidor precisa ser leitor da cópia. Quando o servidor pede acesso na
+  resposta das medições, a biblioteca (no Apps Script, sem passar pelo navegador) pergunta a
+  conta ao servidor (rota `ping`) e compartilha a cópia com ela (`Document.addViewer`, escopo
+  `documents.currentonly`, que o painel já tem), e o painel avisa o aluno na primeira vez. Se
+  o servidor já teve acesso e perdeu, o painel do aluno não compartilha de novo: fica o evento
+  `ACESSO_PERDIDO` para o professor. O painel do professor não compartilha nada. Nenhum escopo novo nem restrito para os usuários.
 - **Escolas com Workspace:** se o domínio bloquear compartilhar com contas de fora, a
   conferência fica em `sem_acesso` e o professor vê o aviso com a conta a liberar.
 - *A confirmar no primeiro teste real:* que `addViewer` funciona com `documents.currentonly`

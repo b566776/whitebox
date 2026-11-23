@@ -423,7 +423,9 @@ function getSchemaStatus(token) {
  * Escolas (v4).
  */
 function migrarSchemaAgora() {
-  const r = migrarSchemaSeNecessario(getConfig().adminSpreadsheetId);
+  const adminId = getConfig().adminSpreadsheetId;
+  const r = migrarSchemaSeNecessario(adminId);
+  r.escolasCacheLimpo = limparCacheEscolas(adminId);
   Logger.log('[SchemaManager] ' + JSON.stringify(r));
   return r;
 }
