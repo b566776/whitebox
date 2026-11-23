@@ -69,7 +69,23 @@ function montar(o) {
     console,
     DocumentApp: { getActiveDocument: () => doc, Attribute: { PAGE_BREAK_BEFORE: 'PB' } },
     PropertiesService: { getDocumentProperties: () => props, getScriptProperties: () => props },
-    CacheService: { getDocumentCache: () => ({ get: () => null, put: () => {} }) },
+    CacheService: {
+      getDocumentCache: () => ({ get: () => null, put: () => {} }),
+      // Cache do usuário em memória (fila de medições do Radar).
+      getUserCache: () => {
+        const c = estado.cache = estado.cache || {};
+        return {
+          get: k => (k in c ? c[k] : null),
+          put: (k, v) => {
+            if (String(v).length > 100000) throw new Error('valor grande demais para o cache');
+            c[k] = String(v);
+          },
+          getAll: ks => Object.fromEntries(ks.filter(k => k in c).map(k => [k, c[k]])),
+          remove: k => { delete c[k]; },
+          removeAll: ks => ks.forEach(k => { delete c[k]; })
+        };
+      }
+    },
     Logger: { log: () => {} },
     ScriptApp: { getOAuthToken: () => 'tok' },
     Session: { getActiveUser: () => ({ getEmail: () => 'aluno@x.com' }), getEffectiveUser: () => ({ getEmail: () => 'aluno@x.com' }) },
@@ -353,16 +369,29 @@ test('Radar do professor usa o histórico do servidor, mesmo com o documento lim
 });
 
 test('Sem histórico no servidor, o radar avisa que usa os dados do documento', () => {
-  // O painel do aluno rodou aqui (há snapshot local), mas o servidor não tem medições.
+  // O painel do aluno rodou aqui (atividade começada antes do histórico no servidor), mas o
+  // servidor não tem medições: não é "nunca observado".
   const m = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ alunos: [] }) });
   m.ctx.getDocumentStats();
   const r = m.ctx.getDocumentAuraMap();
-  assert.match(r.avisos.join(' '), /nunca registrou/, 'servidor respondeu sem histórico: nunca observado');
+  assert.doesNotMatch(r.avisos.join(' '), /nunca registrou/);
+  assert.match(r.avisos.join(' '), /ainda não tem medições deste documento/);
+  assert.equal(r.segmentos[0].estado, 'S');
   const m2 = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ error: 'PROFESSOR_INATIVO', message: 'Licença inativa' }) });
   m2.ctx.getDocumentStats();
   const r2 = m2.ctx.getDocumentAuraMap();
   assert.match(r2.avisos.join(' '), /Licença inativa/);
   assert.equal(r2.segmentos[0].estado, 'S', 'painel local rodou e o servidor falhou: usa o local');
+});
+
+test('O radar do professor não conta a própria medição como "o painel do aluno rodou"', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Texto do aluno.'], servidor: () => ({ alunos: [] }) });
+  assert.equal(m.ctx.getDocumentAuraMap().segmentos[0].estado, 'N');
+  // Segunda abertura do radar: o snapshot que existe agora é o do professor.
+  assert.equal(m.ctx.getDocumentAuraMap().segmentos[0].estado, 'N');
+  // O aluno abre o painel e mede (versão antiga, sem a marca): o radar percebe pelo snapshot.
+  m.medir(Date.now() + 60 * SEG);
+  assert.equal(m.ctx.getDocumentAuraMap().segmentos[0].estado, 'S');
 });
 
 test('Painel do aluno nunca aberto: todo o texto aparece como não observado, não como sem alerta', () => {
@@ -407,54 +436,106 @@ test('Documento mestre não consulta o servidor', () => {
   assert.equal(m.estado.pedidos, undefined);
 });
 
-test('Medições vão ao servidor pela rota registrar_medicoes, sem o texto', () => {
-  const m = montar({ paragrafos: [MARCADOR, 'Segredo do aluno'], servidor: () => ({ success: true, aceitas: 1 }) });
+test('Medições vão ao servidor pela rota registrar_medicoes, sem o texto e sem passar pelo navegador', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Segredo do aluno'], servidor: () => ({ success: true, aceitas: 2 }) });
   const stats = m.ctx.getDocumentStats();
-  assert.ok(!JSON.stringify(stats.medicao).includes('Segredo'));
-  const r = m.ctx.sendToBackend({ medicoes: [stats.medicao] });
-  assert.equal(r.aceitas, 1);
+  assert.equal(stats.medicao, undefined, 'a medição não volta ao navegador');
+  m.estado.paragrafos.push('Mais um parágrafo do aluno');
+  m.ctx.getDocumentStats();
+  m.ctx.getDocumentStats();                                   // igual: vira pulso "igual"
+  const r = m.ctx.enviarMedicoesPendentes(false);
+  assert.equal(r.aceitas, 2);
   const pedido = m.estado.pedidos[0];
   assert.equal(pedido.route, 'registrar_medicoes');
   assert.equal(pedido.professorEmail, 'prof@x.com');
+  assert.equal(pedido.medicoes.length, 3);
+  assert.equal(pedido.medicoes[2].igual, true);
   assert.ok(!JSON.stringify(pedido).includes('Segredo'));
+  assert.ok(m.store.WHITEBOX_PAINEL_ALUNO_TS, 'marca que o painel do aluno mediu');
+  // Fila vazia depois do envio
+  assert.equal(m.ctx.enviarMedicoesPendentes(true).vazio, true);
 });
 
-// ---- Etapa 3: compartilhar a cópia com o servidor ------------------------------------
+test('sendToBackend recusa medições vindas do navegador (console)', () => {
+  const m = montar({ paragrafos: [MARCADOR, 'Texto'], servidor: () => ({ success: true, aceitas: 1 }) });
+  const r = m.ctx.sendToBackend({ medicoes: [{ ts: 1, h: ['x'], l: [999] }] });
+  assert.equal(r.error, 'MEDICOES_SO_PELO_APPS_SCRIPT');
+  assert.equal(m.estado.pedidos, undefined, 'nada vai ao servidor');
+});
 
-test('compartilharComServidor adiciona a conta do servidor como leitora uma vez só', () => {
+test('Só pulsos "igual" esperam a próxima mudança; servidor ocupado devolve o lote à fila', () => {
+  let resposta = { error: 'OCUPADO' };
+  const m = montar({ paragrafos: [MARCADOR, 'Texto'], servidor: () => resposta });
+  m.ctx.getDocumentStats();
+  assert.equal(m.ctx.enviarMedicoesPendentes(false).error, 'OCUPADO');
+  resposta = { success: true, aceitas: 1 };
+  m.ctx.getDocumentStats();                                   // igual
+  const r = m.ctx.enviarMedicoesPendentes(false);
+  assert.equal(r.aceitas, 1);
+  assert.equal(m.estado.pedidos[1].medicoes.length, 2, 'lote devolvido + pulso igual');
+  m.ctx.getDocumentStats();
+  assert.equal(m.ctx.enviarMedicoesPendentes(false).vazio, true, 'só igual: espera');
+  assert.equal(m.ctx.enviarMedicoesPendentes(true).aceitas, 1, 'forçado: envia');
+});
+
+test('Compartilhar com o servidor: conta fixa na biblioteca, uma vez por cópia no painel do aluno', () => {
   const m = montar({ paragrafos: [MARCADOR, 'Texto.'] });
-  const r = m.ctx.compartilharComServidor('Servidor@X.com');
-  assert.equal(r.ok, true);
+  assert.equal(m.ctx._compartilharComServidor_().pulado, 'SEM_CONTA', 'sem conta escolhida, não compartilha');
+  m.ctx._contaServidor_ = () => 'servidor@x.com';
+  assert.equal(m.ctx._compartilharComServidor_({ umaVez: true }).ok, true);
   assert.deepEqual(m.estado.leitores, ['servidor@x.com']);
   assert.equal(m.store.WHITEBOX_SERVIDOR_COMPARTILHADO, 'servidor@x.com');
-  assert.equal(m.ctx.compartilharComServidor('servidor@x.com').jaTinha, true);
-  assert.equal(m.estado.leitores.length, 1);
-  assert.equal(m.ctx.compartilharComServidor('não é e-mail').erro, 'CONTA_INVALIDA');
+  // Alguém removeu o acesso: o painel do aluno não compartilha de novo em silêncio.
+  m.estado.leitores = [];
+  assert.equal(m.ctx._compartilharComServidor_({ umaVez: true }).pulado, 'JA_COMPARTILHADO_ANTES');
+  // O professor, sim.
+  assert.equal(m.ctx._compartilharComServidor_().ok, true);
+  const bloq = montar({ paragrafos: [MARCADOR, 'Texto.'], bloqueiaCompartilhar: true });
+  bloq.ctx._contaServidor_ = () => 'servidor@x.com';
+  assert.match(bloq.ctx._compartilharComServidor_().erro, /bloqueado/);
+  assert.equal(typeof m.ctx.compartilharComServidor, 'undefined', 'sem função pública');
 });
 
-test('compartilharComServidor não lança quando o domínio bloqueia', () => {
-  const m = montar({ paragrafos: [MARCADOR, 'Texto.'], bloqueiaCompartilhar: true });
-  const r = m.ctx.compartilharComServidor('servidor@x.com');
-  assert.equal(r.ok, false);
-  assert.match(r.erro, /bloqueado/);
+test('Envio de medições pede acesso: o painel do aluno compartilha uma vez, e não depois de removido', () => {
+  let resp = { success: true, aceitas: 1, precisaAcesso: true, jaTeveAcesso: false };
+  const m = montar({ paragrafos: [MARCADOR, 'Texto'], servidor: () => resp });
+  m.ctx._contaServidor_ = () => 's@x.com';
+  m.ctx.getDocumentStats();
+  assert.equal(m.ctx.enviarMedicoesPendentes(true).compartilhou.ok, true);
+  assert.deepEqual(m.estado.leitores, ['s@x.com']);
+  m.estado.leitores = [];
+  resp = { success: true, aceitas: 1, precisaAcesso: true, jaTeveAcesso: true };
+  m.ctx.getDocumentStats();
+  assert.equal(m.ctx.enviarMedicoesPendentes(true).compartilhou, undefined);
+  assert.deepEqual(m.estado.leitores, []);
 });
 
 test('Radar do professor: mostra a conferência das revisões e compartilha se o servidor não tem acesso', () => {
   const base = { email: 'aluno@x.com', medicoes: 5, inconsistencias: 0, mapa: { v: 2, a: {} } };
-  const ok = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: () => ({ contaServidor: 's@x.com',
-    alunos: [Object.assign({ revisoes: { lidas: 12, divergencias: 2, suprimidas: 1, acesso: 'ok', em: '2026-11-23T12:00:00Z' } }, base)] }) });
+  const comConta = m => { m.ctx._contaServidor_ = () => 's@x.com'; return m; };
+  const ok = comConta(montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: () => ({ revisoesAtivas: true,
+    alunos: [Object.assign({ revisoes: { lidas: 12, divergencias: 2, suprimidas: 1, acesso: 'ok', em: '2026-11-23T12:00:00Z' } }, base)] }) }));
   const av = ok.ctx.getDocumentAuraMap().avisos.join(' ');
   assert.match(av, /1 parágrafo\(s\) aparecem nas revisões do Drive com o painel aberto/);
   assert.match(av, /conferiu 12 revisão\(ões\) do Drive/);
   assert.match(av, /2 divergência\(s\)/);
   assert.equal(ok.estado.leitores, undefined, 'com acesso não compartilha de novo');
 
-  const sem = montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: () => ({ contaServidor: 's@x.com',
-    alunos: [Object.assign({ revisoes: { lidas: 0, divergencias: 0, acesso: 'sem_acesso' } }, base)] }) });
+  const sem = comConta(montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: () => ({ revisoesAtivas: true,
+    alunos: [Object.assign({ revisoes: { lidas: 0, divergencias: 0, acesso: 'sem_acesso' } }, base)] }) }));
   assert.match(sem.ctx.getDocumentAuraMap().avisos.join(' '), /acabou de ser compartilhada com o servidor/);
   assert.deepEqual(sem.estado.leitores, ['s@x.com']);
 
-  const bloq = montar({ paragrafos: [MARCADOR, 'Texto.'], bloqueiaCompartilhar: true, servidor: () => ({ contaServidor: 's@x.com',
-    alunos: [Object.assign({ revisoes: null }, base)] }) });
-  assert.match(bloq.ctx.getDocumentAuraMap().avisos.join(' '), /não consegue ler as revisões[\s\S]*bloqueado/);
+  const bloq = comConta(montar({ paragrafos: [MARCADOR, 'Texto.'], bloqueiaCompartilhar: true, servidor: () => ({ revisoesAtivas: true,
+    alunos: [Object.assign({ revisoes: null }, base)] }) }));
+  const avb = bloq.ctx.getDocumentAuraMap().avisos.join(' ');
+  assert.match(avb, /não consegue ler as revisões[\s\S]*bloqueado/);
+  assert.match(avb, /administrador da escola/);
+  assert.doesNotMatch(avb, /DEPLOY/);
+
+  // Etapa 3 desligada no servidor: não compartilha nem fala de revisões.
+  const desl = comConta(montar({ paragrafos: [MARCADOR, 'Texto.'], servidor: () => ({ revisoesAtivas: false,
+    alunos: [Object.assign({ revisoes: null }, base)] }) }));
+  assert.doesNotMatch(desl.ctx.getDocumentAuraMap().avisos.join(' '), /revisões/);
+  assert.equal(desl.estado.leitores, undefined);
 });

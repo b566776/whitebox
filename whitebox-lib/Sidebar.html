@@ -1223,59 +1223,30 @@
       let ultimoEnvioMs = 0;
       let envioPendente = false;
 
-      // Radar de Esforço: medições (hashes e tamanhos dos parágrafos, sem o texto) que o
-      // servidor guarda fora do alcance do aluno. Um pulso sem mudança vira só um "igual"
-      // com o horário (o servidor precisa saber que o painel estava olhando).
+      // Radar de Esforço: as medições (hashes e tamanhos dos parágrafos, sem o texto) são
+      // feitas e enfileiradas no Apps Script a cada getDocumentStats e enviadas também por
+      // ele (enviarMedicoesPendentes). O navegador só diz quando enviar: nada de medição
+      // passa por aqui, onde o aluno poderia trocá-la pelo console.
       const RADAR_ENVIO_MS = 2 * 60 * 1000;
-      const RADAR_FILA_MAX = 40;
-      let filaMedicoes = [];
-      let ultimaChaveMedicao = '';
       let ultimoEnvioMedicoesMs = 0;
       let enviandoMedicoes = false;
 
-      function enfileirarMedicao(stats) {
-        const med = stats && stats.medicao;
-        if (!med || !med.h) return;
-        const chave = med.h.join('|') + '#' + med.l.join(',');
-        if (chave === ultimaChaveMedicao) {
-          const ult = filaMedicoes[filaMedicoes.length - 1];
-          if (ult && ult.igual) ult.ts = med.ts; else filaMedicoes.push({ ts: med.ts, igual: true });
-        } else {
-          ultimaChaveMedicao = chave;
-          filaMedicoes.push(med);
-        }
-        while (filaMedicoes.length > RADAR_FILA_MAX) filaMedicoes.shift();
-      }
-
-      /** Uma tentativa por abertura do painel de compartilhar a cópia com o servidor. */
-      let compartilhamentoTentado = false;
-      function enviarMedicoes(forcar) {
-        if (enviandoMedicoes || filaMedicoes.length === 0) return;
+      function enviarMedicoes(forcar, final) {
+        if (enviandoMedicoes) return;
         if (!forcar && Date.now() - ultimoEnvioMedicoesMs < RADAR_ENVIO_MS) return;
-        // Só pulsos "igual": esperam junto com a próxima mudança.
-        if (!forcar && filaMedicoes.every(m => m.igual)) return;
-        const lote = filaMedicoes;
-        filaMedicoes = [];
         enviandoMedicoes = true;
         ultimoEnvioMedicoesMs = Date.now();
-        const devolver = function() { filaMedicoes = lote.concat(filaMedicoes).slice(-RADAR_FILA_MAX); };
         google.script.run
           .withSuccessHandler(function(res) {
             enviandoMedicoes = false;
-            // Servidor ocupado ou fora do ar: tenta de novo no próximo envio.
-            if (res && (res.error === 'OCUPADO' || res.error === 'PROXY_INVALID_RESPONSE')) devolver();
-            // Etapa 3: o servidor pede leitura da cópia para conferir as revisões do Drive.
-            if (res && res.precisaAcesso && res.contaServidor && !compartilhamentoTentado) {
-              compartilhamentoTentado = true;
-              google.script.run.withFailureHandler(function() {}).compartilharComServidor(res.contaServidor);
-            }
             // Escola em modo add-on e o painel veio do script da cópia: o servidor recusa.
             if (res && res.error === 'ORIGEM_NAO_AUTORIZADA') {
               document.getElementById('origem-aviso').classList.remove('hidden');
             }
           })
-          .withFailureHandler(function() { enviandoMedicoes = false; devolver(); })
-          .sendToBackend({ medicoes: lote });
+          .withFailureHandler(function() { enviandoMedicoes = false; })
+          // Via callLibrary: os scripts dos clientes já distribuídos não têm wrapper novo.
+          .callLibrary('enviarMedicoesPendentes', [!!forcar, !!final]);
       }
       // [P-1] Flag de proteção contra dupla execução de trackingPulse
       let isTracking = false;
@@ -1297,7 +1268,6 @@
         google.script.run
           .withSuccessHandler(function(stats) {
             if (stats && stats.paragraphLengths) {
-              enfileirarMedicao(stats);
               lastParagraphLengths = stats.paragraphLengths;
               lastTextLength = stats.length;
               // Palavras Escritas já mostra só o texto do aluno (sem o do modelo)
@@ -1321,7 +1291,6 @@
           
           if(document.getElementById('stu-words')) document.getElementById('stu-words').innerText = stats.wordCount;
 
-          enfileirarMedicao(stats);
           enviarMedicoes(false);
 
           // Colagens: detectadas no servidor (getDocumentStats), com o tempo entre as medições
@@ -1437,8 +1406,7 @@
           setFinalizedState();
           // Envio final forçado
           google.script.run.withSuccessHandler(function(stats) {
-            enfileirarMedicao(stats);
-            enviarMedicoes(true);
+            enviarMedicoes(true, true);
             sendBackgroundData(stats, true); // Flag isFinal = true
           }).getDocumentStats();
         }).markAsSubmitted();

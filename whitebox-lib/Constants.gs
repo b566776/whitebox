@@ -197,3 +197,31 @@ const RADAR_AVISO_NAO_OBSERVADO_PCT = 25;
 
 /** Conta do servidor com quem esta cópia já foi compartilhada como leitora (etapa 3 do Radar). */
 const DOC_PROP_SERVIDOR_COMPARTILHADO = 'WHITEBOX_SERVIDOR_COMPARTILHADO';
+
+/**
+ * Hora (ms) em que o painel do ALUNO mediu este documento pela última vez. Só o aluno grava
+ * (enviarMedicoesPendentes); o radar do professor também mede e não pode contar como
+ * "o painel do aluno rodou".
+ */
+const DOC_PROP_PAINEL_ALUNO_TS = 'WHITEBOX_PAINEL_ALUNO_TS';
+
+/** Valor de WHITEBOX_PARA_SNAPSHOT_TS deixado pela última medição do radar do professor. */
+const DOC_PROP_SNAPSHOT_PROFESSOR_TS = 'WHITEBOX_SNAPSHOT_PROFESSOR_TS';
+
+/**
+ * Fila de medições do Radar no cache do usuário, por documento. A medição é feita e
+ * enfileirada no Apps Script (getDocumentStats), com o relógio do Google, e enviada também
+ * pelo Apps Script (enviarMedicoesPendentes): nunca passa pelo navegador, onde o aluno
+ * poderia trocá-la pelo console.
+ */
+const RADAR_FILA_PREFIXO = 'WB_RADAR_FILA_';
+const RADAR_FILA_MAX     = 40;
+const RADAR_FILA_TTL_S   = 6 * 60 * 60;
+
+/**
+ * Conta do servidor (dona do Web App em BRAIN_PROXY_URL) com quem o painel compartilha a
+ * cópia como leitora, para a etapa 3 do Radar conferir as revisões do Drive. Fixa aqui, como
+ * a URL: nunca vem de uma resposta. Vazia = o painel não compartilha nada (etapa 3 sem
+ * conta escolhida). Ela passa a ler o texto dos alunos: usar uma conta dedicada ao servidor.
+ */
+const WHITEBOX_CONTA_SERVIDOR = '';

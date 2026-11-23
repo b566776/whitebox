@@ -114,7 +114,6 @@ function updatePasteMap(idx) { return callLibrary('updatePasteMap', [idx]); }
 function submitFinalQuiz(q, o) { return callLibrary('submitFinalQuiz', [q, o]); }
 function getStudentEmail() { return callLibrary('getStudentEmail', []); }
 function getProcessReport() { return callLibrary('getProcessReport', []); }
-function compartilharComServidor(c) { return callLibrary('compartilharComServidor', [c]); }
 
 // =====================================================
 //  ABERTURA AUTOMÁTICA DO PAINEL (Aluno)

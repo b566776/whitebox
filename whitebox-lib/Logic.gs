@@ -246,7 +246,9 @@ function getContext(opcoes) {
  * colagensNovas/charsColados vêm da detecção de colagem desta medição (com tempo, ver
  * _checkAndUpdatePasteSnapshot), e radarEstados é o estado de cada parágrafo do aluno no
  * Radar de Esforço (códigos RADAR_ESTADO_*, separados por vírgula) para o log.
- * medicao (hashes e tamanhos, sem o texto) vai para o histórico no servidor.
+ * A medição do Radar (hashes e tamanhos, sem o texto) fica numa fila no cache do usuário,
+ * com o horário do Google, e vai ao servidor por enviarMedicoesPendentes: não volta ao
+ * navegador, onde o aluno poderia trocá-la pelo console.
  */
 function getDocumentStats() {
   const doc        = DocumentApp.getActiveDocument();
@@ -260,7 +262,9 @@ function getDocumentStats() {
 
   const modelo = _mascaraDoModelo(textos);
   const medida = _comTrava(function() {
-    return _checkAndUpdatePasteSnapshot(paragraphs, modelo);
+    const m = _checkAndUpdatePasteSnapshot(paragraphs, modelo);
+    if (!m.ignorada) _radarEnfileirar_(doc.getId(), m.medicao);
+    return m;
   });
 
   let palavras = 0;
@@ -288,8 +292,6 @@ function getDocumentStats() {
     colagensNovas:      medida.colagensNovas,
     charsColados:       medida.charsColados,
     radarEstados:       radarEstados,
-    // Hashes e tamanhos (sem texto) que o painel manda ao servidor (registrar_medicoes)
-    medicao:            medida.medicao,
     fullTextChunk:      text.substring(0, 1000)
   };
 }
@@ -314,6 +316,139 @@ function _comTrava(fn) {
   } finally {
     if (ok) { try { lock.releaseLock(); } catch (e) {} }
   }
+}
+
+// =====================================================
+//  RADAR: fila de medições (só no Apps Script)
+// =====================================================
+
+/** Índice da fila: { seq, itens: [{ k } | { ts, igual: true }], chave }. @private */
+function _radarFilaLer_(cache, docId) {
+  try {
+    const v = JSON.parse(cache.get(RADAR_FILA_PREFIXO + docId) || 'null');
+    if (v && Array.isArray(v.itens)) return v;
+  } catch (e) { /* fila corrompida: recomeça */ }
+  return { seq: 0, itens: [], chave: '' };
+}
+
+/** @private */
+function _radarFilaGravar_(cache, docId, fila) {
+  cache.put(RADAR_FILA_PREFIXO + docId, JSON.stringify(fila), RADAR_FILA_TTL_S);
+}
+
+/**
+ * Enfileira uma medição. Igual à anterior vira só um pulso "igual" com o horário (o
+ * servidor precisa saber que o painel estava olhando). Cada medição fica numa chave própria
+ * do cache (limite de 100 KB por chave). Chamar com a trava do documento. Nunca lança.
+ * O sublinhado no fim deixa a função fora do alcance de callLibrary. @private
+ */
+function _radarEnfileirar_(docId, med) {
+  try {
+    if (!med || !med.h) return;
+    const cache = CacheService.getUserCache();
+    const fila  = _radarFilaLer_(cache, docId);
+    const chave = med.h.join('|') + '#' + med.l.join(',');
+    if (chave === fila.chave) {
+      const ult = fila.itens[fila.itens.length - 1];
+      if (ult && ult.igual) ult.ts = med.ts; else fila.itens.push({ ts: med.ts, igual: true });
+    } else {
+      fila.seq++;
+      const k = RADAR_FILA_PREFIXO + docId + '_' + fila.seq;
+      cache.put(k, JSON.stringify(med), RADAR_FILA_TTL_S);
+      fila.chave = chave;
+      fila.itens.push({ k: k });
+    }
+    while (fila.itens.length > RADAR_FILA_MAX) {
+      const fora = fila.itens.shift();
+      if (fora.k) cache.remove(fora.k);
+    }
+    _radarFilaGravar_(cache, docId, fila);
+  } catch (e) {
+    Logger.log('[Whitebox] fila do Radar: ' + e);
+  }
+}
+
+/**
+ * Tira da fila as medições a enviar. Sem forcar, só pulsos "igual" esperam a próxima
+ * mudança. Uma medição que o cache já descartou some (para o servidor, vira um intervalo
+ * sem observação). Chamar com a trava do documento. @private
+ * @returns {{ lote: Array, chaves: string[] }}
+ */
+function _radarFilaRetirar_(docId, forcar) {
+  const cache = CacheService.getUserCache();
+  const fila  = _radarFilaLer_(cache, docId);
+  if (fila.itens.length === 0) return { lote: [], chaves: [] };
+  if (!forcar && fila.itens.every(it => it.igual)) return { lote: [], chaves: [] };
+  const chaves = fila.itens.filter(it => it.k).map(it => it.k);
+  const salvas = chaves.length > 0 ? cache.getAll(chaves) : {};
+  const lote = [];
+  fila.itens.forEach(function(it) {
+    if (it.igual) { lote.push({ ts: it.ts, igual: true }); return; }
+    try { const m = JSON.parse(salvas[it.k] || 'null'); if (m) lote.push(m); } catch (e) { /* descartada */ }
+  });
+  _radarFilaGravar_(cache, docId, { seq: fila.seq, itens: [], chave: fila.chave });
+  return { lote: lote, chaves: chaves };
+}
+
+/** Devolve à frente da fila um lote que o servidor não aceitou (ocupado, fora do ar). @private */
+function _radarFilaDevolver_(docId, lote) {
+  const cache = CacheService.getUserCache();
+  const fila  = _radarFilaLer_(cache, docId);
+  const itens = lote.map(function(m) {
+    if (m.igual) return { ts: m.ts, igual: true };
+    fila.seq++;
+    const k = RADAR_FILA_PREFIXO + docId + '_' + fila.seq;
+    cache.put(k, JSON.stringify(m), RADAR_FILA_TTL_S);
+    return { k: k };
+  });
+  fila.itens = itens.concat(fila.itens);
+  while (fila.itens.length > RADAR_FILA_MAX) {
+    const fora = fila.itens.shift();
+    if (fora.k) cache.remove(fora.k);
+  }
+  _radarFilaGravar_(cache, docId, fila);
+}
+
+/**
+ * Envia ao servidor (rota registrar_medicoes) as medições enfileiradas por getDocumentStats.
+ * Sem parâmetros de medição: o navegador só diz "pode enviar". Chamado pelo painel do aluno
+ * via callLibrary (nenhum wrapper novo no script do cliente).
+ * @param {boolean} [forcar] - envia mesmo se só houver pulsos "igual" (entrega, fechamento)
+ * @param {boolean} [final]  - entrega do trabalho: o servidor confere as revisões na hora
+ * @returns {{ success?: boolean, aceitas?: number, error?: string, message?: string,
+ *             vazio?: boolean, compartilhou?: object }}
+ */
+function enviarMedicoesPendentes(forcar, final) {
+  const docId = DocumentApp.getActiveDocument().getId();
+  const tirado = _comTrava(function() { return _radarFilaRetirar_(docId, !!forcar); });
+  if (tirado.lote.length === 0) return { success: true, aceitas: 0, vazio: true };
+  const userEmail = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+  const professorEmail = resolverProfessorDoDocumento(userEmail, { initialRole: 'student' }, getAdvancedItem3Data());
+  if (!professorEmail || professorEmail === 'NAO_IDENTIFICADO') {
+    _comTrava(function() { _radarFilaDevolver_(docId, tirado.lote); });
+    return { error: 'PROFESSOR_NAO_IDENTIFICADO', message: 'Não foi possível identificar o professor deste documento.' };
+  }
+
+  const r = callProxy(ROUTE_REGISTRAR_MEDICOES, {
+    professorEmail: professorEmail,
+    docId:          docId,
+    medicoes:       tirado.lote,
+    final:          final === true
+  }) || {};
+  try { CacheService.getUserCache().removeAll(tirado.chaves); } catch (e) { /* expiram sozinhas */ }
+  if (r.error === 'OCUPADO' || r.error === 'PROXY_INVALID_RESPONSE') {
+    _comTrava(function() { _radarFilaDevolver_(docId, tirado.lote); });
+  }
+  // Quem mede aqui é o aluno (o servidor ignora o professor): o radar do professor usa
+  // esta marca para não chamar de "nunca observado" um texto que o painel do aluno viu.
+  if (!r.error && !r.ignorado) {
+    try { PropertiesService.getDocumentProperties().setProperty(DOC_PROP_PAINEL_ALUNO_TS, String(Date.now())); } catch (e) {}
+  }
+  const res = { success: !r.error, aceitas: r.aceitas || 0, error: r.error, message: r.message };
+  // Etapa 3: o servidor ainda não lê as revisões desta cópia. Compartilha uma vez por cópia;
+  // se o acesso já existiu e foi removido, não compartilha de novo em silêncio.
+  if (r.precisaAcesso && !r.jaTeveAcesso) res.compartilhou = _compartilharComServidor_({ umaVez: true });
+  return res;
 }
 
 /** @private */
@@ -571,6 +706,7 @@ function _checkAndUpdatePasteSnapshot(paragraphs, modelo, agora) {
     charsRestaurados: r.charsRestaurados,
     colagensNovas:    r.colagensNovas,
     charsColados:     r.charsColados,
+    ignorada:         r.ignorada,
     medicao:          med
   };
 }
@@ -669,23 +805,17 @@ function getProcessReport(opcoes) {
  * Chamado tanto para log de métricas quanto para análise de trecho
  */
 function sendToBackend(payload) {
+  // Medições do Radar vindas do navegador são recusadas: o aluno poderia forjá-las pelo
+  // console. Elas são medidas e enviadas só no Apps Script (enviarMedicoesPendentes).
+  if (payload && payload.medicoes !== undefined) {
+    return { error: 'MEDICOES_SO_PELO_APPS_SCRIPT',
+             message: 'As medições do Radar não são aceitas do navegador.' };
+  }
   const item3  = getAdvancedItem3Data();
   const userEmail      = Session.getActiveUser().getEmail();
   const ctx            = getContext();
   const professorEmail = resolverProfessorDoDocumento(userEmail, ctx, item3);
 
-  // Medições do Radar (hashes e tamanhos, sem texto): só guardar no servidor. Vem por aqui,
-  // e não por uma função nova, para não exigir atualizar o script do cliente.
-  if (payload && Array.isArray(payload.medicoes)) {
-    if (!professorEmail || professorEmail === 'NAO_IDENTIFICADO') {
-      return { error: 'PROFESSOR_NAO_IDENTIFICADO', message: 'Não foi possível identificar o professor deste documento.' };
-    }
-    return callProxy(ROUTE_REGISTRAR_MEDICOES, {
-      professorEmail: professorEmail,
-      docId:          DocumentApp.getActiveDocument().getId(),
-      medicoes:       payload.medicoes
-    });
-  }
   // Sem acesso ao Drive, gradeLevel é 'NAO_IDENTIFICADO' (truthy): a turma fica SEM_TURMA.
   const turma          = (item3.gradeLevel && item3.gradeLevel !== 'NAO_IDENTIFICADO')
                          ? item3.gradeLevel : TURMA_FALLBACK;
@@ -992,11 +1122,24 @@ function getDocumentAuraMap() {
 
   // Parágrafos do modelo ficam fora do Radar: no documento mestre ele fica vazio.
   const modelo = _mascaraDoModelo(textos);
-  // Antes da medição abaixo: ela cria o snapshot e apagaria o sinal de "painel nunca rodou".
-  const painelJaRodou = !!props.getProperty(DOC_PROP_SNAPSHOT_TS);
+  // O painel do aluno já mediu aqui? Marca gravada pelo envio do aluno, ou um snapshot que
+  // não foi o radar do professor que deixou (versões antigas da biblioteca não gravam a
+  // marca). Lido antes da medição abaixo, que também grava o snapshot.
+  const tsAntes = props.getProperty(DOC_PROP_SNAPSHOT_TS);
+  const painelDoAlunoRodou = !!props.getProperty(DOC_PROP_PAINEL_ALUNO_TS) ||
+    (tsAntes !== null && tsAntes !== props.getProperty(DOC_PROP_SNAPSHOT_PROFESSOR_TS));
 
   _comTrava(function() {
     _checkAndUpdatePasteSnapshot(paragraphs, modelo);
+    try {
+      if (painelDoAlunoRodou && !props.getProperty(DOC_PROP_PAINEL_ALUNO_TS)) {
+        props.setProperty(DOC_PROP_PAINEL_ALUNO_TS, String(tsAntes));
+      }
+      const tsDepois = props.getProperty(DOC_PROP_SNAPSHOT_TS);
+      if (tsDepois !== null) props.setProperty(DOC_PROP_SNAPSHOT_PROFESSOR_TS, tsDepois);
+    } catch (e) {
+      Logger.log('[Whitebox] marca do radar do professor: ' + e);
+    }
     try {
       _detectPasteFromRevisions(docId, textos, modelo);
     } catch (e) {
@@ -1009,10 +1152,11 @@ function getDocumentAuraMap() {
   // Documento mestre ou cópia ainda sem texto do aluno: nada a buscar no servidor.
   const temTextoDoAluno = textos.some((t, i) => t && !modelo[i]);
   const doServidor = temTextoDoAluno ? _radarDoServidor(docId) : { aluno: null, outros: [], erro: null, pulado: true };
-  // Nenhuma medição do aluno em lugar nenhum: o servidor respondeu sem histórico, ou nem o
-  // painel local rodou. Sem isso o texto todo apareceria sem alerta, como se observado.
-  const nuncaObservado = temTextoDoAluno && !doServidor.aluno &&
-    ((!doServidor.pulado && !doServidor.erro) || !painelJaRodou);
+  // Nenhuma medição do aluno em lugar nenhum: nem histórico no servidor nem o painel do
+  // aluno rodou neste documento. Sem isso o texto todo apareceria sem alerta, como se
+  // observado. Atividade começada antes do histórico no servidor (o painel do aluno rodou,
+  // mas o servidor não tem medições) não é "nunca observado": usa os dados do documento.
+  const nuncaObservado = temTextoDoAluno && !doServidor.aluno && !painelDoAlunoRodou;
   let mapa;
   if (doServidor.aluno) {
     // Fonte principal: o histórico do servidor, que o aluno não altera. Do mapa local só
@@ -1031,6 +1175,10 @@ function getDocumentAuraMap() {
     } else if (doServidor.erro) {
       avisos.push('Não foi possível ler o histórico do servidor (' + doServidor.erro + '). O radar abaixo usa só ' +
                   'os dados guardados no documento, que o aluno pode alterar.');
+    } else if (temTextoDoAluno) {
+      avisos.push('O servidor ainda não tem medições deste documento (atividade começada antes do histórico ' +
+                  'no servidor, ou o primeiro envio do painel do aluno ainda não chegou, em até 2 min). O radar ' +
+                  'abaixo usa só os dados guardados no documento, que o aluno pode alterar.');
     }
   }
   const estados  = _estadosDoRadar(textos, modelo, mapa).filter(Boolean);
@@ -1079,28 +1227,38 @@ function getDocumentAuraMap() {
   return { segmentos: segmentos, resumo: resumo, avisos: avisos };
 }
 
+/** Conta do servidor fixa na biblioteca (WHITEBOX_CONTA_SERVIDOR), em minúsculas. @private */
+function _contaServidor_() {
+  return String(WHITEBOX_CONTA_SERVIDOR || '').trim().toLowerCase();
+}
+
 /**
- * Etapa 3 do Radar: compartilha este documento, como LEITOR, com a conta do servidor, para
- * o servidor conferir as medições com o histórico de revisões do Drive usando a conta dele.
- * Document.addViewer usa só o escopo documents.currentonly que o painel já tem: nada de
- * escopo restrito (regra do projeto). A conta vem da resposta do servidor (URL fixa em
- * BRAIN_PROXY_URL). Nunca lança.
- * @param {string} conta - e-mail da conta do servidor
- * @returns {{ ok: boolean, jaTinha?: boolean, erro?: string }}
+ * Etapa 3 do Radar: compartilha este documento, como LEITOR, com a conta do servidor
+ * (WHITEBOX_CONTA_SERVIDOR, fixa na biblioteca), para o servidor conferir as medições com o
+ * histórico de revisões do Drive. Document.addViewer usa só o escopo documents.currentonly
+ * que o painel já tem: nada de escopo restrito (regra do projeto). Privada (sublinhado no
+ * fim): o navegador não chama, nem por callLibrary. Nunca lança.
+ * @param {{ umaVez?: boolean }} [opcoes] umaVez: não repete numa cópia já compartilhada
+ *        antes (se o acesso sumiu, alguém o removeu, e o painel do aluno não insiste)
+ * @returns {{ ok: boolean, jaTinha?: boolean, pulado?: string, erro?: string }}
  */
-function compartilharComServidor(conta) {
-  conta = String(conta || '').trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(conta)) return { ok: false, erro: 'CONTA_INVALIDA' };
+function _compartilharComServidor_(opcoes) {
+  const conta = _contaServidor_();
+  if (!conta) return { ok: false, pulado: 'SEM_CONTA' };
   try {
+    const props = PropertiesService.getDocumentProperties();
+    if (opcoes && opcoes.umaVez && props.getProperty(DOC_PROP_SERVIDOR_COMPARTILHADO) === conta) {
+      return { ok: false, pulado: 'JA_COMPARTILHADO_ANTES' };
+    }
     const doc = DocumentApp.getActiveDocument();
     const ja = doc.getViewers().concat(doc.getEditors())
       .some(u => String(u.getEmail() || '').toLowerCase() === conta);
     if (!ja) doc.addViewer(conta);
-    PropertiesService.getDocumentProperties().setProperty(DOC_PROP_SERVIDOR_COMPARTILHADO, conta);
+    props.setProperty(DOC_PROP_SERVIDOR_COMPARTILHADO, conta);
     return { ok: true, jaTinha: ja };
   } catch (e) {
     // Ex.: a escola bloqueia compartilhar com contas de fora do domínio.
-    Logger.log('[Whitebox] compartilharComServidor: ' + e);
+    Logger.log('[Whitebox] compartilhar com o servidor: ' + e);
     return { ok: false, erro: String(e && e.message || e) };
   }
 }
@@ -1124,10 +1282,11 @@ function _radarDoServidor(docId) {
     // Etapa 3: o servidor ainda não lê as revisões desta cópia. O professor (editor)
     // compartilha com a conta do servidor, caso o painel do aluno não tenha conseguido.
     let compartilhou = null;
-    if ((!aluno.revisoes || aluno.revisoes.acesso !== 'ok') && res.contaServidor) {
-      compartilhou = compartilharComServidor(res.contaServidor);
+    if (res.revisoesAtivas && (!aluno.revisoes || aluno.revisoes.acesso !== 'ok')) {
+      compartilhou = _compartilharComServidor_();
     }
-    return { aluno: aluno, outros: alunos.slice(1).map(a => a.email), erro: null, compartilhou: compartilhou };
+    return { aluno: aluno, outros: alunos.slice(1).map(a => a.email), erro: null, compartilhou: compartilhou,
+             revisoesAtivas: !!res.revisoesAtivas };
   } catch (e) {
     Logger.log('[Whitebox] _radarDoServidor: ' + e);
     return { aluno: null, outros: [], erro: String(e && e.message || e) };
@@ -1160,6 +1319,13 @@ function _avisoFonteServidor(r) {
       txt += ' ' + rv.suprimidas + ' parágrafo(s) aparecem nas revisões do Drive com o painel aberto, mas ' +
              'nunca vieram nas medições (sinal de medições escondidas): estão marcados como não observados.';
     }
+  } else if (!r.revisoesAtivas) {
+    // Etapa 3 desligada no servidor: nada a dizer sobre revisões.
+  } else if (rv && rv.removidoEm) {
+    txt += ' O servidor lia as revisões desta cópia' +
+           (rv.jaTeveAcesso ? ' desde ' + data(rv.jaTeveAcesso) : '') + ', mas o acesso foi removido em ' +
+           data(rv.removidoEm) + ' (alguém tirou a conta do servidor do compartilhamento).' +
+           (r.compartilhou && r.compartilhou.ok ? ' O seu painel compartilhou de novo; a conferência volta na próxima abertura do radar.' : '');
   } else if (r.compartilhou && r.compartilhou.ok) {
     txt += ' A cópia acabou de ser compartilhada com o servidor; a conferência pelas revisões do Drive ' +
            'aparece na próxima abertura do radar (em até 10 min).';
@@ -1167,7 +1333,8 @@ function _avisoFonteServidor(r) {
     txt += ' O servidor ainda não consegue ler as revisões desta cópia no Drive' +
            (r.compartilhou && r.compartilhou.erro ? ' (o compartilhamento falhou: ' + r.compartilhou.erro + ')' : '') +
            ', então as medições não foram conferidas. Se a escola bloqueia compartilhar com contas de fora, ' +
-           'veja a etapa 3 em whitebox-server/DEPLOY.md.';
+           'peça ao administrador da escola para permitir compartilhar documentos com ' +
+           (_contaServidor_() || 'a conta do servidor do Whitebox') + '.';
   }
   if (a.origem === 'addon') {
     txt += ' As medições vieram do add-on do Whitebox, que o aluno não edita.';
